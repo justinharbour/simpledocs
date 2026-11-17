@@ -69,6 +69,22 @@ test('database failure and oversized event never return success', async () => {
   assert.equal(big.downloads(), 0);
 });
 
+test('a transient download failure can be retried before the media URL expires', async () => {
+  const s = setup(); let attempts = 0;
+  const fetcher = async (...args) => {
+    attempts++;
+    if (attempts === 1) return new Response('temporarily unavailable', { status: 503 });
+    return s.fetcher(...args);
+  };
+  assert.equal((await handleInboundFax(await signed(fixture()), s.env, { now, fetcher })).status, 503);
+  assert.equal(s.rows.size, 0);
+  assert.equal(s.objects.size, 0);
+  assert.equal((await handleInboundFax(await signed(fixture()), s.env, { now, fetcher })).status, 200);
+  assert.equal(attempts, 2);
+  assert.equal(s.rows.size, 1);
+  assert.equal(s.objects.size, 1);
+});
+
 test('concurrent duplicate deliveries with different media cannot overwrite each other', async () => {
   const s = setup();
   let fetches = 0, release;
