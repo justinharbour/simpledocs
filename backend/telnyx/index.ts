@@ -9,19 +9,22 @@ export interface TelnyxConfig {
   enabled?: Partial<Record<Feature, boolean>>;
 }
 
-export interface NormalizedEvent {
+interface CommonEvent {
   provider: "telnyx";
   eventId: string;
   eventType: string;
   channel: Channel;
-  direction: "inbound" | "outbound";
-  resourceId: string;
   occurredAt?: string;
   rawStatus?: string;
   status: NormalizedStatus;
   /** Stable deduplication key only. Persistence and atomic uniqueness are the caller's responsibility. */
   idempotencyKey: string;
 }
+
+export type NormalizedEvent = CommonEvent & (
+  | { channel: "fax"; direction: "inbound" | "outbound"; resourceId: { kind: "fax_id"; value: string } }
+  | { channel: "voice"; direction?: "inbound" | "outbound"; resourceId: { kind: "call_control_id"; value: string } }
+);
 
 export class WebhookVerificationError extends Error {
   constructor(message = "Invalid Telnyx webhook signature") {
@@ -76,16 +79,29 @@ export async function verifyWebhookSignature(input: {
     const body = typeof input.rawBody === "string" ? new TextEncoder().encode(input.rawBody) : input.rawBody;
     const message = new Uint8Array(new TextEncoder().encode(`${timestamp}|`).length + body.length);
     message.set(new TextEncoder().encode(`${timestamp}|`)); message.set(body, new TextEncoder().encode(`${timestamp}|`).length);
-    return await globalThis.crypto.subtle.verify("Ed25519", cryptoKey, sig, message);
+    return await globalThis.crypto.subtle.verify("Ed25519", cryptoKey, toArrayBuffer(sig), toArrayBuffer(message));
   } catch {
     return false;
   }
 }
 
-/** Parse and normalize only after signature verification; unknown event types are rejected. */
-export function parseWebhook(rawBody: string | Uint8Array): NormalizedEvent {
+/** Authenticate the exact received bytes, then parse those same bytes before returning trusted normalized data. */
+export async function verifyAndParseWebhook(input: {
+  rawBody: Uint8Array;
+  signature: string | null;
+  timestamp: string | null;
+  publicKey: string;
+  now?: number;
+  toleranceSeconds?: number;
+}): Promise<NormalizedEvent> {
+  const valid = await verifyWebhookSignature(input);
+  if (!valid) throw new WebhookVerificationError();
+  return parseVerifiedBytes(input.rawBody);
+}
+
+function parseVerifiedBytes(rawBody: Uint8Array): NormalizedEvent {
   let root: unknown;
-  try { root = JSON.parse(typeof rawBody === "string" ? rawBody : new TextDecoder("utf-8", { fatal: true }).decode(rawBody)); }
+  try { root = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(rawBody)); }
   catch { throw new WebhookPayloadError("Webhook body is not valid UTF-8 JSON"); }
   if (!isRecord(root) || !isRecord(root.data)) throw new WebhookPayloadError("Missing webhook data");
   const data = root.data;
@@ -98,18 +114,26 @@ export function parseWebhook(rawBody: string | Uint8Array): NormalizedEvent {
   const voiceTypes = new Set(["call.initiated", "call.ringing", "call.answered", "call.hangup", "call.machine.detection.ended", "call.recording.saved"]);
   const channel: Channel = faxTypes.has(eventType) ? "fax" : voiceTypes.has(eventType) ? "voice" : (() => { throw new WebhookPayloadError("Unsupported Telnyx event type"); })();
   const rawDirection = nonEmpty(payload.direction);
-  const direction = rawDirection === "inbound" ? "inbound" : rawDirection === "outbound" ? "outbound" : undefined;
-  if (!direction) throw new WebhookPayloadError("Missing or invalid event direction");
-  const resourceId = nonEmpty(channel === "fax" ? payload.fax_id : payload.call_control_id) ?? nonEmpty(payload.call_session_id);
-  if (!resourceId) throw new WebhookPayloadError("Missing provider resource ID");
+  const direction = channel === "fax"
+    ? rawDirection === "inbound" ? "inbound" : rawDirection === "outbound" ? "outbound" : undefined
+    : rawDirection === "incoming" ? "inbound" : rawDirection === "outgoing" ? "outbound" : undefined;
+  if (channel === "fax" && !direction) throw new WebhookPayloadError("Missing or invalid fax direction");
+  const resourceIdValue = nonEmpty(channel === "fax" ? payload.fax_id : payload.call_control_id);
+  if (!resourceIdValue) throw new WebhookPayloadError(`Missing ${channel === "fax" ? "fax_id" : "call_control_id"}`);
   const rawStatus = nonEmpty(payload.status);
   const status: NormalizedStatus = eventType.endsWith(".queued") ? "queued"
-    : eventType.endsWith(".delivered") || eventType.endsWith(".received") ? "delivered"
+    : eventType.endsWith(".delivered") ? "delivered"
     : eventType.endsWith(".failed") ? "failed"
     : eventType.endsWith(".started") || eventType.endsWith(".answered") || eventType.endsWith(".ringing") ? "in_progress"
     : "unknown";
   const occurredAt = nonEmpty(data.occurred_at);
-  return { provider: "telnyx", eventId, eventType, channel, direction, resourceId, ...(occurredAt ? { occurredAt } : {}), ...(rawStatus ? { rawStatus } : {}), status, idempotencyKey: `telnyx:${eventId}` };
+  return {
+    provider: "telnyx", eventId, eventType, channel,
+    ...(direction ? { direction } : {}),
+    resourceId: channel === "fax" ? { kind: "fax_id", value: resourceIdValue } : { kind: "call_control_id", value: resourceIdValue },
+    ...(occurredAt ? { occurredAt } : {}), ...(rawStatus ? { rawStatus } : {}), status,
+    idempotencyKey: `telnyx:${eventId}`,
+  } as NormalizedEvent;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
@@ -118,4 +142,9 @@ function decodeBase64(value: string): Uint8Array {
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) throw new Error("Malformed base64");
   const binary = atob(value);
   return Uint8Array.from(binary, (c) => c.charCodeAt(0));
+}
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
 }
