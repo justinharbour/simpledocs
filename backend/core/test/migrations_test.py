@@ -6,6 +6,7 @@ MIGRATION = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0001_core.
 MAIL_DRAFTS = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0002_mail_drafts.sql'
 FAX_INTENTS = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0003_fax_intents.sql'
 MAIL_INTENTS = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0004_mail_intents.sql'
+MAIL_UNRESOLVED = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0005_mail_unresolved_actor.sql'
 
 class MigrationTest(unittest.TestCase):
     def setUp(self):
@@ -51,6 +52,19 @@ class MigrationTest(unittest.TestCase):
             self.db.execute('INSERT INTO mail_intents VALUES (?,?,?,?,?,?,?,?,?)', values)
         with self.assertRaises(sqlite3.IntegrityError):
             self.db.execute("UPDATE mail_intents SET status='retry'")
+        self.db.executescript(MAIL_UNRESOLVED.read_text())
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute('INSERT INTO mail_intents VALUES (?,?,?,?,?,?,?,?,?)', ('d2', 'owner', 1, 'hash', '{}', 'unknown', None, 'now', 'now'))
+        self.db.execute("UPDATE mail_intents SET status='accepted' WHERE draft_id='d'")
+        self.db.execute('INSERT INTO mail_intents VALUES (?,?,?,?,?,?,?,?,?)', ('d2', 'owner', 1, 'hash', '{}', 'unknown', None, 'now', 'now'))
+
+    def test_unresolved_index_refuses_existing_conflicts_without_discarding_rows(self):
+        self.db.executescript(MAIL_INTENTS.read_text())
+        for draft in ('d1', 'd2'):
+            self.db.execute('INSERT INTO mail_intents VALUES (?,?,?,?,?,?,?,?,?)', (draft, 'owner', 1, 'hash', '{}', 'unknown', None, 'now', 'now'))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.executescript(MAIL_UNRESOLVED.read_text())
+        self.assertEqual(self.db.execute('SELECT count(*) FROM mail_intents').fetchone(), (2,))
 
 if __name__ == '__main__':
     unittest.main()

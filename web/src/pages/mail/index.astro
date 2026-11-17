@@ -7,6 +7,12 @@ import PageHeader from "@/components/PageHeader.astro";
   <p class="text-muted-foreground text-sm">Mail sending requires an enabled and configured provider. A submitted order may incur charges.</p>
   <p id="mail-message" role="status" aria-live="polite" class="mt-5 whitespace-pre-wrap text-sm"></p>
   <p id="mail-id" class="text-muted-foreground mt-2 break-all text-xs"></p>
+  <section id="mail-unresolved" hidden aria-labelledby="unresolved-heading" class="mt-6 max-w-3xl rounded-md border p-4">
+    <h2 id="unresolved-heading" class="font-semibold">Orders needing reconciliation</h2>
+    <p class="mt-2 text-sm">An order may have been created. New sends are blocked until an operator reconciles it. Do not create a replacement.</p>
+    <ul id="mail-unresolved-list" class="mt-3 space-y-2 break-all text-sm"></ul>
+    <button id="mail-refresh-unresolved" type="button" class="mt-4 rounded-md border border-input px-4 py-2">Refresh unresolved orders</button>
+  </section>
   <noscript><p>JavaScript is required to prepare and review a letter. No letter will be sent without it.</p></noscript>
   <form id="mail-form" method="post" class="mt-8 max-w-3xl space-y-8">
     <fieldset id="mail-fields" disabled class="space-y-8">
@@ -27,7 +33,7 @@ import PageHeader from "@/components/PageHeader.astro";
           <p class="text-muted-foreground text-sm">Country: United States</p>
         </fieldset>
       ))}
-      <label class="flex flex-col gap-1.5 text-sm font-medium" for="letter-text">Letter text
+      <label class="flex flex-col gap-1.5 text-sm font-medium" for="letter-text">Letter text <span class="text-muted-foreground font-normal">Braces and ampersands are not supported because they may be interpreted as provider template syntax.</span>
         <textarea id="letter-text" name="text" required maxlength="40000" rows="12" class="rounded-md border border-input bg-background px-3 py-2 font-normal"></textarea>
       </label>
       <fieldset class="space-y-3">

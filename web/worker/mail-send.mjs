@@ -13,9 +13,19 @@ function contact(value) {
 
 export function letterPayload(content, id) {
   if (!content || typeof content !== 'object' || Array.isArray(content) || Object.keys(content).some(k => !['to', 'from', 'text', 'color', 'doubleSided', 'mailingClass'].includes(k)) || !text(content.text, 40000) || typeof content.color !== 'boolean' || typeof content.doubleSided !== 'boolean' || !['first_class', 'standard_class'].includes(content.mailingClass)) throw Error('Invalid letter');
+  // Reject braces and ampersands (including encoded/nested entity forms) until
+  // provider template parsing and its decode order are verified.
+  if (/[{}&]/u.test(content.text)) throw Error('Template delimiters unsupported');
   // No arbitrary HTML, templates, external assets, or provider contact IDs.
   const html = `<!doctype html><html><body><div style="white-space: pre-wrap">${escape(content.text)}</div></body></html>`;
   return { to: contact(content.to), from: contact(content.from), html, color: content.color, doubleSided: content.doubleSided, mailingClass: content.mailingClass, size: 'us_letter', paper: 'standard', envelope: 'standard', addressPlacement: 'insert_blank_page', metadata: { simpledocsDraftId: id } };
+}
+
+export async function listUnresolvedMail(request, env, actor) {
+  if (request.method !== 'GET') return reply({ error: 'Method not allowed' }, 405);
+  if (!env.DB) return reply({ error: 'Mail storage unavailable' }, 503);
+  const result = await env.DB.prepare("SELECT draft_id, revision, status, confirmed_at, updated_at FROM mail_intents WHERE actor_id = ? AND status IN ('submitting', 'unknown') ORDER BY confirmed_at DESC LIMIT 100").bind(actor).all();
+  return reply({ orders: result.results });
 }
 
 async function digest(s) {
@@ -47,7 +57,7 @@ export async function handleMail(request, env, actor, id, action, fetcher = fetc
       const payload = letterPayload(JSON.parse(row.content_json), id);
       const reviewHash = await digest(JSON.stringify({ id, revision: row.revision, payload }));
       return reply({ revision: row.revision, reviewHash, payload, notice: 'Local content review only; final PostGrid rendering and postal delivery may differ. Sending creates a paid order.' });
-    } catch { return reply({ error: 'Draft is not a supported letter' }, 400); }
+    } catch { return reply({ error: 'Draft is not a supported letter; remove braces and ampersands from letter text and check required fields' }, 400); }
   }
   if (action !== 'send' || request.method !== 'POST') return reply({ error: 'Method not allowed' }, 405);
   if (env.MAIL_ENABLED !== 'true' || typeof env.POSTGRID_API_KEY !== 'string' || !env.POSTGRID_API_KEY.trim()) return reply({ error: 'Mail sending unavailable' }, 503);
@@ -62,8 +72,8 @@ export async function handleMail(request, env, actor, id, action, fetcher = fetc
   if (await digest(JSON.stringify({ id, revision: row.revision, payload })) !== body.reviewHash) return reply({ error: 'Review does not match' }, 409);
   const now = new Date().toISOString();
   // A single atomic insert both checks the exact draft and consumes its only claim.
-  const claim = await env.DB.prepare("INSERT INTO mail_intents (draft_id, actor_id, revision, review_hash, payload_json, status, confirmed_at, updated_at) SELECT id, actor_id, revision, ?, ?, 'submitting', ?, ? FROM mail_drafts WHERE id = ? AND actor_id = ? AND revision = ? AND content_json = ? ON CONFLICT(draft_id) DO NOTHING").bind(body.reviewHash, payloadJson, now, now, id, actor, row.revision, row.content_json).run();
-  if (claim.meta.changes !== 1) return reply({ error: 'Draft changed or already claimed; check status' }, 409);
+  const claim = await env.DB.prepare("INSERT INTO mail_intents (draft_id, actor_id, revision, review_hash, payload_json, status, confirmed_at, updated_at) SELECT id, actor_id, revision, ?, ?, 'submitting', ?, ? FROM mail_drafts WHERE id = ? AND actor_id = ? AND revision = ? AND content_json = ? ON CONFLICT DO NOTHING").bind(body.reviewHash, payloadJson, now, now, id, actor, row.revision, row.content_json).run();
+  if (claim.meta.changes !== 1) return reply({ error: 'Draft changed, already claimed, or an unresolved order exists; check unresolved orders' }, 409);
   let status = 'unknown'; let providerId = null;
   try {
     const response = await fetcher('https://api.postgrid.com/print-mail/v1/letters', { method: 'POST', headers: { 'X-API-Key': env.POSTGRID_API_KEY, 'Content-Type': 'application/json' }, body: payloadJson, redirect: 'error' });

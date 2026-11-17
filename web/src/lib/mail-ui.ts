@@ -12,6 +12,9 @@ const edit = document.querySelector<HTMLButtonElement>('#mail-edit')!;
 const check = document.querySelector<HTMLButtonElement>('#mail-check')!;
 const newLetter = document.querySelector<HTMLButtonElement>('#mail-new')!;
 const reviewButton = document.querySelector<HTMLButtonElement>('#mail-review-button')!;
+const unresolvedSection = document.querySelector<HTMLElement>('#mail-unresolved')!;
+const unresolvedList = document.querySelector<HTMLElement>('#mail-unresolved-list')!;
+const refreshUnresolved = document.querySelector<HTMLButtonElement>('#mail-refresh-unresolved')!;
 const key = 'simpledocs-mail-draft-id';
 let id = sessionStorage.getItem(key) || crypto.randomUUID();
 sessionStorage.setItem(key, id);
@@ -28,6 +31,27 @@ function statusText(status: string) {
 function lock(text: string) {
   locked = true; fields.disabled = true; send.disabled = true; edit.disabled = true;
   reviewSection.hidden = true; check.hidden = false; message.textContent = text;
+}
+async function checkUnresolved() {
+  try {
+    const response = await fetch('/api/mail-unresolved', { cache: 'no-store' });
+    if (!response.ok) throw new Error();
+    const result = await response.json();
+    if (!Array.isArray(result.orders)) throw new Error();
+    unresolvedList.replaceChildren();
+    for (const order of result.orders) {
+      const item = document.createElement('li');
+      item.textContent = `Draft ${order.draft_id} — ${order.status} — confirmed ${order.confirmed_at}`;
+      unresolvedList.append(item);
+    }
+    unresolvedSection.hidden = result.orders.length === 0;
+    if (result.orders.length) { newLetter.hidden = true; lock('An unresolved order blocks new mail. Contact the operator with the draft ID below.'); return true; }
+    return false;
+  } catch {
+    unresolvedSection.hidden = false; newLetter.hidden = true;
+    lock('Unresolved orders could not be checked. Do not send until the operator confirms the outcome.');
+    return true;
+  }
 }
 async function checkStatus() {
   try {
@@ -64,6 +88,7 @@ function restore(content: Record<string, any>) {
 }
 async function initialize() {
   fields.disabled = true;
+  if (await checkUnresolved()) return;
   if (await checkStatus()) return;
   try {
     const response = await fetch(url(), { cache: 'no-store' });
@@ -76,6 +101,7 @@ form.addEventListener('submit', async event => {
   event.preventDefault();
   if (locked) return;
   const content = contentFromForm(); reviewButton.disabled = true; message.textContent = 'Saving draft and preparing review…';
+  if (/[{}&]/u.test(content.text)) { message.textContent = 'Remove braces and ampersands from the letter text before review; they may be interpreted as template syntax.'; reviewButton.disabled = false; return; }
   try {
     const saved = await fetch(url(), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision, content }) });
     if (!saved.ok) throw new Error('Could not save the draft. Reload to check its latest revision.');
@@ -105,17 +131,23 @@ send.addEventListener('click', async () => {
   lock('Submitting the order. Do not send it again while the outcome is being checked.');
   try {
     const response = await fetch(`${url()}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(authorization) });
-    if (!response.ok) { await checkStatus(); return; }
+    if (!response.ok) { if (!await checkUnresolved() && !await checkStatus()) lock('The order was not confirmed. Check status and contact the operator before trying again.'); return; }
     const result = await response.json();
     lock(`${statusText(result.status)}${result.providerId ? ` PostGrid ID: ${result.providerId}.` : ''}`);
     newLetter.hidden = result.status !== 'accepted';
   } catch { lock('The send outcome is unknown. Do not send again. Check status and contact the operator.'); }
+  await checkUnresolved();
 });
 check.addEventListener('click', async () => {
   check.disabled = true;
-  const found = await checkStatus();
+  const found = await checkUnresolved() || await checkStatus();
   if (!found) lock('No submission record was found. Do not send again until the operator confirms the outcome.');
   check.disabled = false;
+});
+refreshUnresolved.addEventListener('click', async () => {
+  refreshUnresolved.disabled = true;
+  if (!await checkUnresolved()) location.reload();
+  refreshUnresolved.disabled = false;
 });
 newLetter.addEventListener('click', () => {
   // This never resets an existing claim. The next letter gets a new identifier.

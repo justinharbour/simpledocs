@@ -84,12 +84,17 @@ initialization script is not an upgrade tool and must not be run against it.
 Before any separate deployment, independently verify the account, database ID,
 ownership, existing migration history and schema, active writers, backup and
 recovery procedures, and a current Time Travel bookmark and retention. Review
-`0004_mail_intents.sql` and the complete pending migration list; do not assume
+`0004_mail_intents.sql`, `0005_mail_unresolved_actor.sql` and the complete pending migration list; do not assume
 earlier migrations were applied. Arrange a safe write window and apply only the
 reviewed pending migrations through the separately authorized Wrangler migration
 path, then read back history and schema without querying private content. Do not
 run migrations automatically as part of the deploy workflow. Time Travel restore
 overwrites data; it is an explicitly authorized recovery operation, not a test.
+The partial unique index in 0005 fails if any actor already has multiple
+unresolved claims; stop and reconcile through a separately reviewed process,
+never discard or reset rows to force the migration. Deploying the mail sender
+without this index would not enforce the actor-wide gate, so verify it exists
+before deploying the new Worker.
 
 Deploy the reviewed Worker only after schema verification. Keep `MAIL_ENABLED`
 unset and do not configure a PostGrid key during this upgrade. The mail routes
