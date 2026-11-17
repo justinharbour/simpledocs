@@ -31,6 +31,12 @@ delivery. Do not wire it to production until a durable alert/reminder state,
 failure monitoring, verified recipient and sending domain, and a reviewed
 binding and schedule are in place. Apple push is not implemented.
 
+An independent, unconnected `claimFaxAlertInterval` primitive and migration
+`0011` provide an atomic channel-wide interval reservation. A claim before a
+send consumes the interval even if the process crashes or the outcome is
+unknown. This only paces attempts; it does not report failures, guarantee a
+reminder, or prove delivery. It is not yet wired to the email primitive.
+
 The exact `/webhooks/telnyx/fax` path is outside interactive Access in the
 Worker and uses Telnyx Ed25519 signatures over timestamp and exact raw bytes,
 with a five-minute window. It fails closed unless the `TELNYX_INBOUND_FAX_ENABLED`
