@@ -73,6 +73,7 @@ describe.skipIf(!built)("workflow pages (run `pnpm build` first)", () => {
     expect(doc).toContain('id="draft-form"');
     expect(doc).toMatch(/id="draft-fields"[^>]*disabled/);
     expect(doc).toContain('id="draft-status"');
+    expect(doc).toContain('<noscript><p>JavaScript is required to load and save drafts.');
     expect(doc).toContain('id="send-reason"');
     expect(doc).toMatch(/id="document"[^>]*disabled/);
   });

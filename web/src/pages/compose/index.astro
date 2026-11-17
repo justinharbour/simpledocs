@@ -32,6 +32,7 @@ const channels = [
   <section class="mt-10 flex max-w-xl flex-col gap-4" aria-labelledby="draft-heading">
     <h2 id="draft-heading" class="text-lg font-semibold">Mail draft</h2>
     <p id="draft-hint" class="text-muted-foreground text-sm">Save text and an address only. Documents and sending are not available. Keep the draft link to open it again.</p>
+    <noscript><p>JavaScript is required to load and save drafts. The editor is disabled until JavaScript is available.</p></noscript>
     <form id="draft-form" class="flex flex-col gap-4">
       <fieldset id="draft-fields" disabled aria-describedby="draft-hint" class="flex flex-col gap-4 border-0 p-0">
       <legend class="sr-only">Mail draft fields</legend>
