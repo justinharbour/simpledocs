@@ -1,0 +1,5 @@
+# Hosted runner labels that actionlint 1.7.12 does not yet know about.
+# xcode-27 is the GitHub-hosted arm64 image with Xcode 27.2 (see actions/runner-images).
+self-hosted-runner:
+  labels:
+    - xcode-27
