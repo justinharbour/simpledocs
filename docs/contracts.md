@@ -21,7 +21,7 @@
 | Provider event | `provider`, `eventId`, `receivedAt`, `providerOccurredAt?`, `verification`, `processingState` | Authenticated, deduplicated inbox record; map raw status separately and apply transitions safely despite reordering |
 | Audit event | `actor`, `action`, `target`, `outcome`, `time`, `requestId` | Minimal metadata; no secret, document or unnecessary personal data |
 
-Hash algorithm, canonicalization, maximum sizes and schema migrations must be specified and tested before proofs are enabled. Mail requires a provider-rendered 1:1 proof for the exact send and a verified safe provider-supported approval and release path before any live send; an app-rendered preview is never an equivalent substitute. A proof is approval evidence, not delivery evidence. Record delivery evidence separately, with provenance. Provider artifact metadata may include tracking, carrier/IMB, receipt and provenance only when actually available. Evidence of order acceptance, processing or estimated completion is not evidence of delivery.
+The owner accepts a programmatically generated local review rather than a provider-rendered proof. Mail confirmation must bind the exact submitted recipient, sender, content, and options to an authenticated actor and current revision. The local review is not a provider rendering and must disclose that printing can differ. Record delivery evidence separately, with provenance. Provider artifact metadata may include tracking, carrier/IMB, receipt and provenance only when actually available. Evidence of order acceptance, processing or estimated completion is not evidence of delivery.
 
 ## API surface (proposed)
 

@@ -51,6 +51,8 @@ describe.skipIf(!built)("built site (run `pnpm build` first)", () => {
   it("provides a local mail review with an initially disabled confirmation", () => {
     const doc = html("/mail/");
     expect(doc).toContain('id="mail-form"');
+    expect(doc).toMatch(/id="mail-form" method="post"/);
+    expect(doc).toMatch(/id="mail-fields" disabled/);
     expect(doc).toContain('id="mail-payload"');
     expect(doc).toContain('id="mail-confirm"');
     expect(doc).toMatch(/id="mail-send"[^>]*disabled/);

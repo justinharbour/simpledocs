@@ -76,3 +76,45 @@ These owner-specific settings must not become requirements for other installs.
 
 References: [D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/)
 and [Time Travel and backups](https://developers.cloudflare.com/d1/reference/time-travel/).
+
+## Mail foundation upgrade plan (not authorized or executed)
+
+The production Worker already has a D1 binding in `web/wrangler.jsonc`; the
+initialization script is not an upgrade tool and must not be run against it.
+Before any separate deployment, independently verify the account, database ID,
+ownership, existing migration history and schema, active writers, backup and
+recovery procedures, and a current Time Travel bookmark and retention. Review
+`0004_mail_intents.sql` and the complete pending migration list; do not assume
+earlier migrations were applied. Arrange a safe write window and apply only the
+reviewed pending migrations through the separately authorized Wrangler migration
+path, then read back history and schema without querying private content. Do not
+run migrations automatically as part of the deploy workflow. Time Travel restore
+overwrites data; it is an explicitly authorized recovery operation, not a test.
+
+Deploy the reviewed Worker only after schema verification. Keep `MAIL_ENABLED`
+unset and do not configure a PostGrid key during this upgrade. The mail routes
+require the same verified Access assertion as all other routes; test denial and
+owner-only access on the actual hostname without submitting an order. Existing
+Worker deployment can happen only through the independent repository's reviewed
+main-branch GitHub Actions workflow, not this PR. Verify rollback compatibility
+and do not drop the intent table or erase claims during rollback.
+
+Enabling mail is a separate reviewed owner decision. Only then provision
+`POSTGRID_API_KEY` as an encrypted Worker secret for the intended account and
+environment through the approved Wrangler/GitHub Actions secret-handling path;
+never put its value in source, vars, build artifacts, logs, shell arguments or
+chat. Verify secret presence and correct Worker binding without printing its
+value, and set `MAIL_ENABLED=true` only in the separately reviewed activation.
+Check whether the deployment command preserves existing secrets and variables
+before executing; the current workflow explicitly sets only Access variables
+and does not provision the PostGrid secret or enable mail. Define rotation and
+revocation before activation. No production, sandbox or paid provider action is
+authorized by this plan.
+
+Mail drafts and frozen request bodies contain sensitive personal information in
+D1. Restrict database access and retention, review Cloudflare request/logging and
+exception telemetry settings, and prohibit request/response body capture and
+provider key logging before activation. The mail code contains no explicit
+content or credential logging, but that does not establish the configuration of
+platform or external logging. Review the operator reconciliation procedure in
+`web/worker/README.md` before enabling sending.

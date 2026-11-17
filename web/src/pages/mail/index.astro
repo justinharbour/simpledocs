@@ -7,8 +7,9 @@ import PageHeader from "@/components/PageHeader.astro";
   <p class="text-muted-foreground text-sm">Mail sending requires an enabled and configured provider. A submitted order may incur charges.</p>
   <p id="mail-message" role="status" aria-live="polite" class="mt-5 whitespace-pre-wrap text-sm"></p>
   <p id="mail-id" class="text-muted-foreground mt-2 break-all text-xs"></p>
-  <form id="mail-form" class="mt-8 max-w-3xl space-y-8">
-    <fieldset id="mail-fields" class="space-y-8">
+  <noscript><p>JavaScript is required to prepare and review a letter. No letter will be sent without it.</p></noscript>
+  <form id="mail-form" method="post" class="mt-8 max-w-3xl space-y-8">
+    <fieldset id="mail-fields" disabled class="space-y-8">
       {['to', 'from'].map((party) => (
         <fieldset class="space-y-4">
           <legend class="mb-3 text-lg font-semibold">{party === 'to' ? 'Recipient' : 'Return address'}</legend>
