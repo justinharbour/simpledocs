@@ -46,3 +46,7 @@ jobs:
           workingDirectory: web
           wranglerVersion: 4.163.0
           command: deploy --var ACCESS_TEAM_DOMAIN:https://justinharbour.cloudflareaccess.com --var ACCESS_AUDIENCE:${{ steps.access.outputs.audience }}
+          secrets: |
+            TELNYX_API_TOKEN
+        env:
+          TELNYX_API_TOKEN: ${{ secrets.TELNYX_API_TOKEN }}
