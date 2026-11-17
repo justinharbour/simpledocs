@@ -47,6 +47,7 @@ describe('mail review UI', () => {
     expect(posts).toHaveLength(1);
     expect(JSON.parse(posts[0].options!.body as string)).toEqual({ revision: 1, reviewHash: 'a'.repeat(64), mode: 'test', confirmed: true });
     expect(document.querySelector('#mail-message')!.textContent).toContain('Do not send again');
+    expect(document.querySelector('#mail-message')!.textContent).toContain('TEST MODE');
     send.click(); await tick(); expect(calls.filter(x => x.url.endsWith('/send'))).toHaveLength(1);
   });
   it('locks the form if a prior submission exists', async () => {
@@ -55,6 +56,16 @@ describe('mail review UI', () => {
     expect(document.querySelector<HTMLFieldSetElement>('#mail-fields')!.disabled).toBe(true);
     expect(document.querySelector('#mail-unresolved-list')!.textContent).toContain(draftId);
     expect(document.querySelector('#mail-message')!.textContent).toContain('blocks new mail');
+  });
+  it('shows the stored mode when recovering a claimed draft', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url === '/api/mail-unresolved') return Response.json({ orders: [] });
+      if (url.endsWith('/status')) return Response.json({ status: 'accepted', provider_mode: 'live', provider_id: 'letter_123', acknowledged_at: 'now' });
+      return new Response('', { status: 404 });
+    }));
+    await import('../src/lib/mail-ui'); await tick();
+    expect(document.querySelector('#mail-message')!.textContent).toContain('LIVE MODE');
+    expect(document.querySelector('#mail-message')!.textContent).toContain('letter_123');
   });
   it('fails closed when the cross-device unresolved list is unavailable', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw Error('offline'); }));

@@ -27,9 +27,10 @@ let locked = false;
 const url = () => `/api/mail-drafts/${id}`;
 idLabel.textContent = `Draft ID: ${id}. Keep this ID if you need help checking an order.`;
 
-function statusText(status: string) {
-  if (status === 'accepted') return 'Accepted by PostGrid. This is not confirmation of printing or delivery. Do not send again.';
-  return 'The order may have been created. Do not send again. Contact the operator to reconcile this draft ID with PostGrid.';
+function statusText(status: string, mode: unknown) {
+  const label = mode === 'test' ? 'TEST MODE' : mode === 'live' ? 'LIVE MODE' : 'MODE UNAVAILABLE';
+  if (status === 'accepted') return `${label}: Accepted by PostGrid. This is not confirmation of printing or delivery. Do not send again.`;
+  return `${label}: The order may have been created. Do not send again. Contact the operator to reconcile this draft ID with PostGrid.`;
 }
 function lock(text: string) {
   locked = true; fields.disabled = true; send.disabled = true; edit.disabled = true;
@@ -76,7 +77,7 @@ async function checkStatus() {
     if (response.status === 404) return false;
     if (!response.ok) throw new Error();
     const result = await response.json();
-    lock(`${statusText(result.status)}${result.provider_id ? ` PostGrid ID: ${result.provider_id}.` : ''}`);
+    lock(`${statusText(result.status, result.provider_mode)}${result.provider_id ? ` PostGrid ID: ${result.provider_id}.` : ''}`);
     newLetter.hidden = result.status !== 'accepted' || !result.acknowledged_at;
     return true;
   } catch {
@@ -154,7 +155,7 @@ send.addEventListener('click', async () => {
     const response = await fetch(`${url()}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(authorization) });
     if (!response.ok) { if (!await checkUnresolved() && !await checkStatus()) lock('The order was not confirmed. Check status and contact the operator before trying again.'); return; }
     const result = await response.json();
-    lock(`${statusText(result.status)}${result.providerId ? ` PostGrid ID: ${result.providerId}.` : ''}`);
+    lock(`${statusText(result.status, authorization.mode)}${result.providerId ? ` PostGrid ID: ${result.providerId}.` : ''}`);
     newLetter.hidden = true;
   } catch { lock('The send outcome is unknown. Do not send again. Check status and contact the operator.'); }
   await checkUnresolved();
