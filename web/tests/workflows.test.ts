@@ -128,17 +128,16 @@ describe.skipIf(!built)("workflow pages (run `pnpm build` first)", () => {
     }
   });
 
-  it("Compose says proof comes from the provider and that sending is off", () => {
+  it("Compose clearly states proof and sending are unavailable", () => {
     const text = read("/compose/").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-    expect(text).toContain("The mail provider would produce a proof");
+    expect(text).toContain("Provider proof is not available");
     expect(text).toContain("Sending is turned off");
     expect(text).toContain("synthetic example");
   });
 
-  it("Compose describes the proof flow as proposed, not as implemented", () => {
+  it("Compose does not promise proof and requires explicit confirmation for future paid sending", () => {
     const text = read("/compose/").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-    expect(text).toContain("Proposed: paper mail would never be ordered");
-    expect(text).toContain("The mail provider would produce a proof");
+    expect(text).toContain("will require your explicit confirmation");
     expect(text).not.toContain("The mail provider produces a proof");
     expect(text).not.toContain("is never sent again");
     expect(text).not.toContain("nothing is resent automatically");

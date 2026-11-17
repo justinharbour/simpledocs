@@ -93,16 +93,16 @@ const channels = [
     </section>
 
     <section aria-labelledby="proof-heading" class="flex flex-col gap-4">
-      <h2 id="proof-heading" class="text-lg font-semibold">Proof and approval</h2>
+      <h2 id="proof-heading" class="text-lg font-semibold">Review and confirmation</h2>
       <p class="text-muted-foreground max-w-prose text-sm text-pretty">
-        Proposed: paper mail would never be ordered from a preview drawn by this app. The mail provider would produce a proof of the exact letter, and you would approve that proof before anything is ordered. A proof shows what was approved, not that the letter arrived.
+        Provider proof is not available. A preview in this app would not guarantee what the provider prints or that a letter arrives. Paid sending is not implemented; when available, it will require your explicit confirmation.
       </p>
       <div class="flex flex-wrap gap-3">
         <UnavailableButton reasonId="proof-reason">Request provider proof</UnavailableButton>
         <UnavailableButton reasonId="proof-reason">Approve proof</UnavailableButton>
       </div>
       <UnavailableReason id="proof-reason">
-        No mail provider is connected, and a safe way to get a provider proof without placing an order has not been confirmed. Until it is, paper mail stays blocked.
+        Provider proof is not connected. Paper mail sending is also unavailable; no order can be placed here.
       </UnavailableReason>
     </section>
 
@@ -115,7 +115,7 @@ const channels = [
         <UnavailableButton reasonId="send-reason">Send</UnavailableButton>
       </div>
       <UnavailableReason id="send-reason">
-        Sending is turned off. There is no backend, no provider connection and no sign-in yet, and the fax and mail features are proposed to be off by default.
+        Sending is turned off. No fax or mail provider is connected.
         <a href="/settings/" class="underline underline-offset-4">See settings</a>.
       </UnavailableReason>
     </section>
