@@ -32,6 +32,7 @@ import Testing
         let challenge = Data(SHA256.hash(data: Data(exchange.verifier.utf8))).base64EncodedString()
             .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
         #expect(query.first { $0.name == "code_challenge" }?.value == challenge)
+        #expect(challenge.prefix(1).allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) })
         #expect(query.first { $0.name == "code_challenge_method" }?.value == "S256")
         #expect(query.first { $0.name == "resource" }?.value == "https://instance.example.com/")
         #expect(exchange.resource == "https://instance.example.com/")

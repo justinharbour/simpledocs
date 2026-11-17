@@ -109,6 +109,36 @@ callers must recheck the live selection after the asynchronous fetch. This packa
 is not linked to an app and does not send credentials. Browser sign-in, exchange,
 storage and authenticated transport remain unimplemented.
 
+### Cloudflare team-origin discovery finding
+
+Cloudflare's [Access OAuth walkthrough](https://developers.cloudflare.com/cloudflare-one/access-controls/authenticate-agents/)
+describes a protected-resource metadata document on the application origin that
+advertises a team authorization server. The illustrated authorization, token,
+and dynamic-registration endpoints are on the team `cloudflareaccess.com`
+origin, not the application origin. The walkthrough also documents a public
+client registration request and an S256 challenge compatibility restriction
+requiring an alphanumeric initial character. These are documentation examples,
+not confirmation of an individual instance's live behavior.
+
+On 2026-11-17 a read-only account API lookup found the `Simpledocs` self-hosted
+Access application at the documented owner hostname. The application response
+did not contain `oauth_configuration`; this does not prove its effective feature
+state. No application or policy was modified. The actual protected-resource and
+authorization-server metadata and client-registration behavior were not verified.
+
+An appropriate next trust design is to obtain the exact team issuer through an
+independent operator-controlled channel, bind it to the specific instance link,
+compare the resource metadata's resource and authorization-server values with
+that configuration, then fetch issuer metadata over TLS and require an exact
+issuer match and explicitly constrained authorization, registration and token
+endpoints. The issuer must not be accepted solely because it has a Cloudflare
+suffix. Validate actual callback registration, resource spelling, and PKCE
+behavior against a dedicated test instance before permitting a code exchange.
+The current same-origin-only validator cannot support the documented team-origin
+example. The PKCE generator enforces the documented initial-character
+compatibility restriction, but this has not been verified against a live server.
+Do not link or use it as a working Cloudflare flow.
+
 ## Address parsing
 
 The parser does not rely on `URL` or `URLComponents` leniency. It rejects:

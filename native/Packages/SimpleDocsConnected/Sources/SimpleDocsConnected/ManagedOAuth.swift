@@ -39,11 +39,15 @@ public enum OAuthFlowError: Error, Equatable {
                 .base64EncodedString().replacingOccurrences(of: "+", with: "-")
                 .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
         }
-        let verifier = randomString()
         let state = randomString()
-        let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
+        var verifier: String
+        var challenge: String
+        repeat {
+            verifier = randomString()
+            challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "")
+        } while !challenge.prefix(1).allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) })
         let resource = active.scope.origin.canonical + "/"
         var components = URLComponents(url: authorizationEndpoint, resolvingAgainstBaseURL: false)!
         components.queryItems = [
