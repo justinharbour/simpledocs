@@ -16,6 +16,64 @@ It follows the proposed architecture and integration contracts in PR #2 (`docs/a
 | `ContextBinding` | Pins a pending action to the link and epoch it started under. |
 | `CredentialPolicy`, `NativeAuthStatus` | Gate for attaching a credential to a request. Fails closed. |
 | `APIVersion` | Picks a supported major version or refuses. |
+| `WorkerPlanner` | Inert plans for the current owner Worker's mail draft read/write and fax status read routes, bound to a selected link and epoch. No transport, credential, or authorization is provided. |
+
+## Owner Worker contract foundation
+
+`WorkerPlanner` models `/api/mail-drafts/{id}` GET/PUT and `/api/faxes/{id}` GET,
+not the proposed `/api/v1` interface. Plans validate the Worker's UUID-v4,
+draft revision, object JSON and 64 KiB request limit, and retain an instance
+binding that becomes stale on switching or unlinking. Unknown fax statuses stay
+unknown; acceptance is not delivery. Plans must not be logged: draft bodies may
+contain private data. This does not establish that any instance supports the
+owner Worker contract. There is deliberately no send or voice operation here.
+
+Before a transport executes a plan it must revalidate the binding and the
+credential policy, use verified instance-specific authentication, prevent
+cross-origin redirects and shared cookie/cache leakage, and discard responses
+whose binding became stale. These requirements are not implemented by an inert
+plan. The Worker's mutation routes require an exact same-origin `Origin` header;
+native compatibility must be verified rather than weakening the server check.
+The actual server authenticates through Access today; supporting other instance
+identity systems requires a separately reviewed server and native contract,
+not an Entra requirement or automatic fallback.
+
+## Cloudflare Access native authentication research (2026-11-17)
+
+Cloudflare's [Managed OAuth documentation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/)
+describes a user-based browser authorization-code flow for non-browser clients of
+self-hosted Access applications. It requires Managed OAuth enabled on that
+specific application and an RFC 8707-capable client. The documented discovery
+endpoint is `https://<app-domain>/.well-known/oauth-authorization-server`.
+Native custom-scheme callback URIs must be explicitly registered and match
+exactly; localhost and loopback clients have separate settings. Access tokens are
+opaque, and Access resolves them and forwards a signed assertion to the origin;
+they are not JWTs for the client to decode or forward as origin assertions.
+Cloudflare also documents access-token expiry and refresh-token grant duration.
+This flow uses whichever identity provider the instance administrator configures;
+it does not require Entra.
+
+This is documentation evidence, not a verified Simpledocs integration. Managed
+OAuth is not known to be enabled on any selected instance, and enabling it is an
+operator-controlled infrastructure change outside this work. A secure client
+still needs an instance-bound issuer/discovery trust design, registration and
+callback ownership, authorization-code PKCE and state validation, resource
+binding, token exchange, refresh/revocation semantics, Keychain isolation and
+redirect restrictions, all tested end to end. Confirm the exact metadata,
+registration, supported PKCE and resource behavior against the selected Access
+application rather than inferring them from this overview. Review the worker's
+same-origin mutation requirement for native clients without weakening it.
+
+Cloudflare's [Access JWT validation documentation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)
+describes the `Cf-Access-Jwt-Assertion` header as an assertion forwarded to the
+origin, verified against that instance's configured issuer and application
+audience. That is distinct from the OAuth client's opaque token. Neither is a
+reason to accept an arbitrary identity issuer or embed an Access service token.
+
+No credential-bearing transport or authentication implementation was enabled
+on this evidence. The guard remains in force; `CredentialPolicy` denies every
+request, and the app cannot connect. An operator-selected non-Cloudflare identity
+mode would need its own reviewed contract, not a silent fallback.
 
 ## Address parsing
 
