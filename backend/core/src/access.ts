@@ -9,7 +9,7 @@ export async function requireAccess(request: Request, operation: string, resourc
   if (!assertion || assertion.length > 16384 || !verifier || !authorizer) throw new AccessDenied();
   try {
     const actor = await verifier.verify(assertion);
-    if (!actor || typeof actor.id !== 'string' || !actor.id.trim() || !(await authorizer.allow(actor, operation, resource))) throw new AccessDenied();
+    if (!actor || typeof actor.id !== 'string' || !actor.id.trim() || (await authorizer.allow(actor, operation, resource)) !== true) throw new AccessDenied();
     return actor;
   } catch { throw new AccessDenied(); }
 }

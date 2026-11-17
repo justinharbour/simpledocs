@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { channel, delivery, job } from '../src/validation.ts';
 import { featureAvailable, features } from '../src/flags.ts';
-import { requireAccess, requireMutationProtection } from '../src/access.ts';
+import { AccessDenied, requireAccess, requireMutationProtection, type Authorizer } from '../src/access.ts';
 import { readArtifact } from '../src/objects.ts';
 import { reserveIntent } from '../src/idempotency.ts';
 const time = '2026-11-16T00:00:00.000Z';
@@ -32,6 +32,17 @@ test('access and mutations fail closed', async () => {
   const withOrigin = new Request('https://example.test', { headers: { Origin:'https://example.test' } });
   assert.throws(() => requireMutationProtection(withOrigin, ['https://example.test'], false));
   requireMutationProtection(withOrigin, ['https://example.test'], true);
+});
+test('authorization accepts only literal true and normalizes adapter failures', async () => {
+  const request = new Request('https://example.test', { headers: { 'Cf-Access-Jwt-Assertion':'x' } });
+  const verifier = { verify: async () => ({ id:'a' }) };
+  for (const value of [false, 'false', 'true', { allowed:false }, 1, null, undefined]) {
+    // Exercise malformed JavaScript adapters despite the TypeScript interface.
+    const authorizer = { allow: async () => value } as unknown as Authorizer;
+    await assert.rejects(requireAccess(request, 'read', 'x', verifier, authorizer), AccessDenied);
+  }
+  await assert.rejects(requireAccess(request, 'read', 'x', verifier, { allow: async () => { throw new Error('private adapter error'); } }), AccessDenied);
+  assert.equal((await requireAccess(request, 'read', 'x', verifier, { allow: async () => true })).id, 'a');
 });
 test('private reads authorize before lookup and force download', async () => {
   let lookups = 0;
