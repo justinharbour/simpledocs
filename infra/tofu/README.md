@@ -1,6 +1,8 @@
 # Simpledocs OpenTofu state foundation
 
-This root contains no resources and is not yet approved for production use.
+This root includes an opt-in Telnyx fax outbound profile, disabled by default;
+see [TELNYX.md](TELNYX.md) for provider risks and the missing fax resources.
+It is not yet approved for production use.
 It reserves `simpledocs/prod/terraform.tfstate` and its `.tflock` companion in
 `tfstate-r2-shared`; this is a proposed namespace, not proof of ownership.
 Do not run remote `init`, plan, or apply until collisions, credential scope,
