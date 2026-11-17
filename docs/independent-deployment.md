@@ -1,8 +1,8 @@
 # Independent Cloudflare deployment
 
 Simpledocs is independent of Lake Ave. The manual GitHub Actions workflow deploys
-only the reviewed `main` branch, using repository secrets `CLOUDFLARE_ACCOUNT_ID`
-and `CLOUDFLARE_API_TOKEN`. Scope the token to the intended account and required
+only the reviewed `main` branch, using repository variable `CLOUDFLARE_ACCOUNT_ID`
+and repository secret `CLOUDFLARE_API_TOKEN`. Scope the token to the intended account and required
 Worker permissions. Never put token values in the repository or in chat.
 
 This initial workflow deploys **no public route**. `workers_dev` and preview
