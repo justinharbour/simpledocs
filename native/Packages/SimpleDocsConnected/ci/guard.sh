@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Structural guard for the security-sensitive, intentionally unlinked SimpleDocsConnected package.
+# Structural guard for the security-sensitive SimpleDocsConnected package.
 # Run from anywhere inside the repository. Any violation fails the build. To change a rule, edit this
 # file in a reviewed PR: that is the point of the gate.
 set -euo pipefail
@@ -19,13 +19,23 @@ for required in "$pkg/Package.swift" "$pkg/Sources/SimpleDocsConnected" "$pkg/Te
 done
 [ "$failed" = 0 ] || exit 1
 
-# 1. Unlinked: nothing outside the package and its docs may reference it by name.
+# 1. Only the connected app's shared experimental UI may invoke these packages.
 #    The word boundary keeps the unrelated SimpleDocsConnectedApp type from matching.
 referrers="$(grep -rIlE '\bSimpleDocsConnected\b' native \
   --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData \
-  --exclude-dir=SimpleDocsConnected --exclude-dir=docs --exclude='*.xcodeproj' || true)"
+  --exclude-dir=SimpleDocsConnected --exclude-dir=SimpleDocsOAuth --exclude-dir=ConnectedShared --exclude-dir=ConnectedApp --exclude-dir=docs --exclude-dir='*.xcodeproj' --exclude='project.yml' || true)"
 if [ -n "$referrers" ]; then
   fail "SimpleDocsConnected is referenced outside its package (linking needs a reviewed change to this guard): $(echo "$referrers" | tr '\n' ' ')"
+fi
+oauth_referrers="$(grep -rIlE '\bSimpleDocsOAuth\b' native \
+  --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData \
+  --exclude-dir=SimpleDocsOAuth --exclude-dir=SimpleDocsConnected --exclude-dir=ConnectedShared --exclude-dir=ConnectedApp --exclude-dir=docs --exclude-dir='*.xcodeproj' --exclude='project.yml' || true)"
+if [ -n "$oauth_referrers" ]; then
+  fail "SimpleDocsOAuth is referenced outside its package: $(echo "$oauth_referrers" | tr '\n' ' ')"
+fi
+# The direct-provider edition must not gain a dependency on the connected client.
+if sed -n '/^  SimpleDocsMacDirect:/,/^  SimpleDocsiOS:/p' native/project.yml | grep -qE 'SimpleDocsConnected|SimpleDocsOAuth|ConnectedShared'; then
+  fail 'Direct edition references connected-client packages.'
 fi
 
 # 2. No dependencies of any kind.
@@ -45,6 +55,6 @@ if grep -rnE 'case +(verified|trusted|authenticated|signedIn)\b' "$pkg/Sources";
 fi
 
 if [ "$failed" = 0 ]; then
-  echo "SimpleDocsConnected guard passed: present, unlinked, dependency-free, no networking or auth APIs."
+  echo "SimpleDocsConnected guard passed: experimental app use is limited to ConnectedShared; core remains dependency-free with no networking or auth APIs."
 fi
 exit "$failed"

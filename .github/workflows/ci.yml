@@ -240,6 +240,14 @@ jobs:
             exit 1
           fi
           echo "SimpleDocsConnected: $count tests passed."
+      - name: Test OAuth discovery
+        working-directory: native/Packages/SimpleDocsOAuth
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee "$RUNNER_TEMP/oauth-test.log"
+          line="$(grep -E 'Test run with [0-9]+ tests? .* passed' "$RUNNER_TEMP/oauth-test.log" | tail -n 1 || true)"
+          count="$(printf '%s' "$line" | sed -E 's/.*Test run with ([0-9]+) tests?.*/\1/')"
+          [[ "$count" =~ ^[0-9]+$ ]] && [ "$count" -ge 4 ]
 
   pr-gate:
     name: pr-gate
