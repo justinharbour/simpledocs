@@ -28,6 +28,8 @@ Research snapshot: 2026-11-16. This is a capability review, not a production int
 
 ## PostGrid
 
+**Owner clarification:** a programmatically generated local review is acceptable; a provider-generated pre-send proof is not required. The local review is not a provider proof and may differ from the final printed rendering. The provider-proof language below records the earlier feasibility analysis, not an active live-send requirement.
+
 ### Verified in official public sources
 
 1. The [Print & Mail API reference](https://docs.postgrid.com/) exposes letter and postcard creation, plus cheques; it documents `first_class` and `standard_class` and other destination-specific mailing class values. Availability depends on destination/carrier; do not assume every class is valid for every destination.
