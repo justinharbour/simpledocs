@@ -20,7 +20,9 @@ export async function handleInboundFaxRead(request, env, actor, eventId) {
     if (!eventId) {
       const result = await env.DB.prepare("SELECT event_id, fax_id, occurred_at, received_at FROM inbound_fax_events WHERE event_type = 'fax.received' AND object_key IS NOT NULL ORDER BY received_at DESC, event_id DESC LIMIT 100").all();
       if (!result.success || !Array.isArray(result.results)) throw new Error();
-      return json({ records: result.results.map(row => ({ id: row.event_id, faxId: row.fax_id, occurredAt: row.occurred_at, receivedAt: row.received_at })) });
+      const pending = await env.DB.prepare('SELECT COUNT(*) AS count FROM inbound_fax_unarchived').first();
+      if (!Number.isSafeInteger(pending?.count) || pending.count < 0) throw new Error();
+      return json({ records: result.results.map(row => ({ id: row.event_id, faxId: row.fax_id, occurredAt: row.occurred_at, receivedAt: row.received_at })), pendingCount: pending.count });
     }
     const row = await env.DB.prepare("SELECT object_key FROM inbound_fax_events WHERE event_id = ? AND event_type = 'fax.received'").bind(eventId).first();
     if (!row?.object_key) return json({ error: 'Not found' }, 404);

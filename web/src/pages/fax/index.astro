@@ -37,7 +37,7 @@ import PageHeader from "@/components/PageHeader.astro";
       message.textContent = 'Loading received faxes…';
       list.replaceChildren();
       try {
-        const records = await loadInbox(fetch);
+        const { records, pendingCount } = await loadInbox(fetch);
         if (!records.length) message.textContent = 'No received faxes yet.';
         else {
           message.textContent = `${records.length} received ${records.length === 1 ? 'fax' : 'faxes'} shown.`;
@@ -54,6 +54,7 @@ import PageHeader from "@/components/PageHeader.astro";
             item.append(date, link); list.append(item);
           }
         }
+        if (pendingCount) message.textContent += ` Attention: ${pendingCount} received ${pendingCount === 1 ? 'fax has' : 'faxes have'} not been archived. Contact the operator to investigate; the PDF may be unavailable.`;
       } catch { message.textContent = 'The inbox could not be loaded. Check your access and try Refresh inbox.'; }
       finally { refresh.disabled = false; }
     }
