@@ -4,7 +4,7 @@ Mode: Operate. A quiet working shell where state is always stated honestly. Prod
 
 ## Principles
 
-- **Say what is true.** Unconnected channels show a "Not connected" mark. Never show placeholder metrics, fake rows or inert buttons.
+- **Say what is true.** Unconnected channels show a "Not connected" mark. Never show placeholder metrics or fake rows. Example rows are allowed only when labelled as examples; an unavailable control is disabled and explained, never silently inert.
 - **State is shape plus text,** never colour alone. The state mark is an icon and a label.
 - **Standard Starwind components,** restyled through tokens in `src/styles/starwind.css` only.
 
@@ -40,3 +40,15 @@ Title and one-sentence summary, a status notice, then one section with either a 
 ## Accessibility
 
 Skip link to `#main`, `aria-current="page"` on the current link, labelled primary and secondary navigation, visible focus, reduced-motion support, `noindex` while the build is a skeleton.
+
+## Pattern: unavailable control
+
+Compose, Records and Settings preview flows that have no backend. Each control is disabled and its reason sits next to it.
+
+- Buttons use `UnavailableButton`: outline variant, `disabled` with `focusableWhenDisabled`, and `aria-describedby` pointing at an `UnavailableReason` paragraph that starts with "Not available." and a lock icon.
+- Inputs, checkboxes and switches are disabled and labelled; groups sit in a `fieldset disabled` with a screen-reader legend. Disabled checkboxes and switches also carry `aria-disabled="true"`.
+- Values shown in fields are synthetic and carry a `SyntheticLabel` ("Synthetic example" badge) beside the label. Copy about behavior that is only specified in the contracts is worded "Proposed" or "would", never as fact.
+- Hidden table columns must not hide content: the detail also appears inline in the first cell below `md`.
+- Starwind's checkbox points its `<label for>` at `data-id`, which is not an element id. Name checkboxes with `aria-labelledby` pointing at a real element instead.
+- Delivery status uses `DeliveryStateMark`: an icon plus a text label for each proposed state. Only "Delivered" claims delivery; "Outcome unknown" is neither success nor failure.
+- Disabled controls fall below the 44px target size and have reduced opacity by design. They are not operable, and their meaning is carried by text, not by the control.

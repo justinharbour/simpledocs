@@ -2,7 +2,9 @@
 
 The static front end for simpledocs, built with [Astro](https://astro.build) 7 and [Starwind UI](https://starwind.dev) 3.
 
-> **Status: skeleton.** Every page is an empty state. No provider, API, authentication or storage is connected, nothing can be sent or saved, and there are no forms. Do not enter real phone numbers, addresses or documents.
+> **Status: workflow previews.** Compose, Records and Settings show how the flows are proposed to look. Every control on them is disabled and says why. No provider, API, authentication or storage is connected, nothing can be sent, saved or changed, and no page submits anything. All names, numbers and addresses are synthetic examples. Do not enter real phone numbers, addresses or documents.
+
+The proposed API, states and flags are in [`../docs/contracts.md`](../docs/contracts.md) and [`../docs/architecture.md`](../docs/architecture.md) (pull request #2, still a proposal). This UI follows them but does not implement them.
 
 ## Requirements
 
@@ -31,7 +33,7 @@ The tests against `dist/` are skipped when `dist/` does not exist, so run `pnpm 
 src/
   components/        App components; starwind/ holds Starwind source added by its CLI
   layouts/           AppLayout.astro: sidebar shell, skip link, mobile drawer
-  lib/               navigation.ts and channels.ts, synthetic data only
+  lib/               navigation, channels, delivery states, flags and synthetic examples
   pages/             One static route per destination, plus 404
   styles/starwind.css  Theme tokens (Starwind variables, tuned for simpledocs)
 tests/               Vitest unit tests and built-HTML checks
@@ -52,5 +54,5 @@ Update can overwrite local edits, so review the diff first. Theme changes belong
 
 - Pages are static; do not add an adapter or server code here. Hosting and the Worker API are separate work.
 - Use synthetic content only. Anything that looks like real data must be labelled as an example.
-- Do not add a control that appears to work but does not. An unavailable feature is described in text.
+- Do not add a control that appears to work but does not. A control for a feature that does not exist must be disabled, stay focusable where it is a button, point at a visible "Not available" reason with `aria-describedby`, and carry no `<form>`, `action` or submit type. Tests enforce this.
 - Keep pages accessible: one `h1`, landmarks, visible focus, no information carried by colour alone. Check the layout at 390 px and 1440 px wide.
