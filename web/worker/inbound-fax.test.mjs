@@ -68,3 +68,22 @@ test('database failure and oversized event never return success', async () => {
   assert.equal((await handleInboundFax(await signed(body), big.env, { now, fetcher: big.fetcher })).status, 413);
   assert.equal(big.downloads(), 0);
 });
+
+test('concurrent duplicate deliveries with different media cannot overwrite each other', async () => {
+  const s = setup();
+  let fetches = 0, release;
+  const barrier = new Promise(resolve => { release = resolve; });
+  const fetcher = async () => {
+    const n = ++fetches;
+    if (n === 2) release();
+    await barrier;
+    return new Response(`%PDF-content-${n}`, { headers: { 'content-type': 'application/pdf' } });
+  };
+  const [a, b] = await Promise.all([signed(fixture()), signed(fixture())]);
+  const results = await Promise.all([handleInboundFax(a, s.env, { now, fetcher }), handleInboundFax(b, s.env, { now, fetcher })]);
+  assert.deepEqual(results.map(r => r.status), [200, 200]);
+  assert.equal(s.objects.size, 2);
+  assert.equal(s.rows.size, 1);
+  const selected = [...s.rows.values()][0][5];
+  assert.ok(s.objects.has(selected));
+});

@@ -46,7 +46,8 @@ Inbound fax remains disabled pending the deployment checks in
 `web/worker/INBOUND-FAX.md`. The dedicated webhook path verifies signatures,
 persists an inbox row and stores received PDF media privately before returning
 success. It is deliberately not bound or enabled in production configuration;
-authenticated media access, alerting and refresh/recovery remain unimplemented.
+alerting and refresh/recovery remain unimplemented. Authenticated media access
+requires an explicit shared-inbox subject allowlist.
 
 Before any later plan/apply: confirm independent Simpledocs state ownership,
 encrypted state and backups, provider checksums, scoped permissions, spending

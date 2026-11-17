@@ -74,7 +74,10 @@ export async function handleInboundFax(request, env, { fetcher = fetch, now = Da
       if (!media.ok || !/^application\/pdf(?:\s*;|\s*$)/i.test(media.headers.get('content-type') ?? '')) throw new Error();
       const pdf = await bounded(media.body, MAX_PDF);
       if (pdf.length < 5 || new TextDecoder().decode(pdf.subarray(0, 5)) !== '%PDF-') throw new Error();
-      objectKey = `inbound-fax/${payload.fax_id.toLowerCase()}/${data.id.toLowerCase()}.pdf`;
+      // Content addressing prevents simultaneous deliveries with different bytes
+      // from overwriting the object selected by the unique D1 event row.
+      const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', pdf)), byte => byte.toString(16).padStart(2, '0')).join('');
+      objectKey = `inbound-fax/${payload.fax_id.toLowerCase()}/${data.id.toLowerCase()}/${hash}.pdf`;
       await env.FAX_MEDIA.put(objectKey, pdf, { httpMetadata: { contentType: 'application/pdf' } });
     }
     const result = await env.DB.prepare('INSERT INTO inbound_fax_events (event_id, fax_id, event_type, occurred_at, received_at, object_key) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(event_id) DO NOTHING')
