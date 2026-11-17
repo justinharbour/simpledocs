@@ -86,53 +86,45 @@ export function normalizeMailStatus(rawStatus: string, details: {
   };
 }
 
-export interface ImmutableProofApproval {
-  readonly deliveryId: string;
-  readonly revision: number;
-  readonly inputHash: string;
-  readonly proofId: string;
-  readonly proofHash: string;
-  readonly actorId: string;
-  readonly approvedAt: string;
+/**
+ * Shape validation only. This is deliberately not an authorization decision:
+ * caller-provided values are fabricable and readonly is compile-time only.
+ * Live dispatch must remain unavailable until a trusted durable approval store,
+ * authenticated actor, and atomic current-revision check are implemented.
+ */
+export interface ProofApprovalShape {
+  deliveryId: string;
+  revision: number;
+  inputHash: string;
+  proofId: string;
+  proofHash: string;
+  actorId: string;
+  approvedAt: string;
 }
 
-export interface ProofReleaseContext {
-  readonly liveEnabled: boolean;
-  readonly proofReleaseVerified: boolean;
-  readonly providerProofId: string;
-  readonly currentDeliveryId: string;
-  readonly currentRevision: number;
-  readonly currentInputHash: string;
-  readonly currentProofHash: string;
-  readonly approval: ImmutableProofApproval | null;
+const NONEMPTY = /^[^\s]+$/;
+const SHA256_HEX = /^[a-f0-9]{64}$/i;
+const RFC3339_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
+
+export function validateProofApprovalShape(value: unknown): value is ProofApprovalShape {
+  if (!value || typeof value !== "object") return false;
+  const approval = value as Record<string, unknown>;
+  return typeof approval.deliveryId === "string" && NONEMPTY.test(approval.deliveryId) &&
+    Number.isSafeInteger(approval.revision) && (approval.revision as number) >= 1 &&
+    typeof approval.inputHash === "string" && SHA256_HEX.test(approval.inputHash) &&
+    typeof approval.proofId === "string" && NONEMPTY.test(approval.proofId) &&
+    typeof approval.proofHash === "string" && SHA256_HEX.test(approval.proofHash) &&
+    typeof approval.actorId === "string" && NONEMPTY.test(approval.actorId) &&
+    typeof approval.approvedAt === "string" && RFC3339_UTC.test(approval.approvedAt) &&
+    Number.isFinite(Date.parse(approval.approvedAt));
 }
 
-/** Call immediately at dispatch after atomic revision/approval validation. */
-export function assertLiveReleaseAllowed(context: ProofReleaseContext): void {
-  if (!context.liveEnabled) throw new Error("Live mail is disabled");
-  if (!context.proofReleaseVerified) throw new Error("Provider proof release is unverified; live mail is blocked");
-  const approval = context.approval;
-  if (!approval || !context.providerProofId) throw new Error("A provider-generated proof and explicit approval are required");
-  if (
-    approval.deliveryId !== context.currentDeliveryId ||
-    approval.revision !== context.currentRevision ||
-    approval.inputHash !== context.currentInputHash ||
-    approval.proofId !== context.providerProofId ||
-    approval.proofHash !== context.currentProofHash
-  ) throw new Error("Approval does not match the immutable current delivery and proof");
-}
-
-/** A true implementation must be supplied from verified provider documentation. */
-export interface WebhookVerifier {
-  verify(rawBody: Uint8Array, headers: Readonly<Record<string, string>>): Promise<boolean>;
-}
-
-/** No verifier means no acceptance. Invoke only before durable inbox persistence. */
-export async function authenticateWebhook(
-  verifier: WebhookVerifier | null,
-  rawBody: Uint8Array,
-  headers: Readonly<Record<string, string>>,
-): Promise<void> {
-  if (!verifier) throw new Error("PostGrid webhook authentication is unverified; event rejected");
-  if (!(await verifier.verify(rawBody, headers))) throw new Error("Invalid PostGrid webhook authentication");
+/**
+ * PostGrid webhook authentication is not implemented or verified. There is no
+ * injectable callback: such a callback would only attest what its caller says.
+ * Do not create/enable a production webhook endpoint until a provider-specific
+ * verifier based on verified PostGrid documentation is implemented and tested.
+ */
+export function rejectUnauthenticatedWebhook(): never {
+  throw new Error("PostGrid webhook authentication is not implemented; event rejected");
 }

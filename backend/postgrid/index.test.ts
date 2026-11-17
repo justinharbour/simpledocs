@@ -1,10 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-  assertLiveReleaseAllowed,
-  authenticateWebhook,
+  rejectUnauthenticatedWebhook,
   normalizeMailStatus,
   validateMailingClass,
+  validateProofApprovalShape,
 } from "./index.ts";
 
 describe("PostGrid foundation", () => {
@@ -22,28 +22,30 @@ describe("PostGrid foundation", () => {
     assert.equal(normalizeMailStatus("delivered").tracking.deliveryEvidence, "provider_status");
   });
 
-  it("blocks release unless the verified gate and exact immutable approval match", () => {
-    const base = {
-      liveEnabled: true,
-      proofReleaseVerified: false,
-      providerProofId: "proof-1",
-      currentDeliveryId: "delivery-1",
-      currentRevision: 2,
-      currentInputHash: "inputs-hash",
-      currentProofHash: "proof-hash",
-      approval: {
-        deliveryId: "delivery-1", revision: 2, inputHash: "inputs-hash",
-        proofId: "proof-1", proofHash: "proof-hash", actorId: "actor-1", approvedAt: "2026-01-01T00:00:00Z",
-      },
-    } as const;
-    assert.throws(() => assertLiveReleaseAllowed(base), /unverified/);
-    assert.throws(() => assertLiveReleaseAllowed({ ...base, proofReleaseVerified: true, currentRevision: 3 }), /does not match/);
-    assert.doesNotThrow(() => assertLiveReleaseAllowed({ ...base, proofReleaseVerified: true }));
+  it("validates only approval shape and rejects empty or malformed/fabricated fields", () => {
+    const valid = {
+      deliveryId: "delivery-1", revision: 2, inputHash: "a".repeat(64),
+      proofId: "proof-1", proofHash: "b".repeat(64), actorId: "actor-1",
+      approvedAt: "2026-01-01T00:00:00Z",
+    };
+    assert.equal(validateProofApprovalShape(valid), true);
+    for (const invalid of [
+      null,
+      {},
+      { ...valid, deliveryId: "" },
+      { ...valid, proofId: " " },
+      { ...valid, actorId: "" },
+      { ...valid, revision: 0 },
+      { ...valid, revision: 1.5 },
+      { ...valid, inputHash: "inputs-hash" },
+      { ...valid, proofHash: "proof-hash" },
+      { ...valid, approvedAt: "not-a-date" },
+    ]) assert.equal(validateProofApprovalShape(invalid), false);
+    // Even a valid shape is attacker-fabricable and conveys no authorization.
+    assert.equal(validateProofApprovalShape({ ...valid, actorId: "attacker-claimed-actor" }), true);
   });
 
-  it("rejects webhook events without verified authentication", async () => {
-    await assert.rejects(authenticateWebhook(null, new Uint8Array([1]), {}), /unverified/);
-    await assert.rejects(authenticateWebhook({ verify: async () => false }, new Uint8Array([1]), {}), /Invalid/);
-    await assert.doesNotReject(authenticateWebhook({ verify: async () => true }, new Uint8Array([1]), {}));
+  it("always rejects webhook events until provider-specific authentication is implemented", () => {
+    assert.throws(() => rejectUnauthenticatedWebhook(), /not implemented/);
   });
 });
