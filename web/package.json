@@ -38,7 +38,8 @@
   "private": true,
   "pnpm": {
     "overrides": {
-      "sharp": "0.35.5"
+      "sharp": "0.35.5",
+      "miniflare>undici": "7.30.2"
     }
   },
   "description": "Static Astro and Starwind UI front end for simpledocs. No backend is connected."
