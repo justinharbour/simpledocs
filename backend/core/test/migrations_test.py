@@ -7,7 +7,7 @@ MAIL_DRAFTS = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0002_mai
 FAX_INTENTS = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0003_fax_intents.sql'
 MAIL_INTENTS = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0004_mail_intents.sql'
 MAIL_UNRESOLVED = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0005_mail_unresolved_actor.sql'
-MAIL_ACK = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0008_mail_acknowledgement.sql'
+MAIL_ACK = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0006_mail_acknowledgement.sql'
 
 class MigrationTest(unittest.TestCase):
     def setUp(self):
@@ -58,6 +58,12 @@ class MigrationTest(unittest.TestCase):
             self.db.execute('INSERT INTO mail_intents VALUES (?,?,?,?,?,?,?,?,?)', ('d2', 'owner', 1, 'hash', '{}', 'unknown', None, 'now', 'now'))
         self.db.execute("UPDATE mail_intents SET status='accepted' WHERE draft_id='d'")
         self.db.execute('INSERT INTO mail_intents VALUES (?,?,?,?,?,?,?,?,?)', ('d2', 'owner', 1, 'hash', '{}', 'unknown', None, 'now', 'now'))
+
+    def test_mail_migration_names_are_contiguous_and_unambiguous(self):
+        names = sorted(p.name for p in MAIL_INTENTS.parent.glob('*.sql'))
+        self.assertEqual([n for n in names if n.startswith(('0004_', '0005_', '0006_'))],
+                         ['0004_mail_intents.sql', '0005_mail_unresolved_actor.sql', '0006_mail_acknowledgement.sql'])
+        self.assertNotIn('0008_mail_acknowledgement.sql', names)
 
     def test_unresolved_index_refuses_existing_conflicts_without_discarding_rows(self):
         self.db.executescript(MAIL_INTENTS.read_text())

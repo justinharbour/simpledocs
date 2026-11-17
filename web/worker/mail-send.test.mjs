@@ -13,7 +13,7 @@ const address = { firstName: 'A', addressLine1: '1 Main', city: 'Boston', provin
 const content = { to: address, from: address, text: 'Hello <world>', color: false, doubleSided: false, mailingClass: 'first_class' };
 function db() {
   const sqlite = new DatabaseSync(':memory:');
-  for (const file of ['0002_mail_drafts.sql', '0004_mail_intents.sql', '0005_mail_unresolved_actor.sql', '0008_mail_acknowledgement.sql']) sqlite.exec(readFileSync(new URL(`../../backend/core/migrations/${file}`, import.meta.url), 'utf8'));
+  for (const file of ['0002_mail_drafts.sql', '0004_mail_intents.sql', '0005_mail_unresolved_actor.sql', '0006_mail_acknowledgement.sql']) sqlite.exec(readFileSync(new URL(`../../backend/core/migrations/${file}`, import.meta.url), 'utf8'));
   return { prepare(sql) { return { bind(...args) { return { async first() { return sqlite.prepare(sql).get(...args); }, async all() { return { results: sqlite.prepare(sql).all(...args) }; }, async run() { return { meta: { changes: Number(sqlite.prepare(sql).run(...args).changes) } }; } }; } }; } };
 }
 const request = (path, body, origin = 'https://example.test') => new Request(base + path, body === undefined ? {} : { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify(body) });

@@ -35,7 +35,7 @@ unique index blocks that actor from claiming any other order while one is
 authenticated actor can acknowledge their accepted order after seeing its
 provider ID; this is not evidence of delivery. Braces and
 ampersands are rejected in letter text until provider template parsing and entity
-decoding behavior is verified. Do not deploy this sender without migrations 0005 and 0008.
+decoding behavior is verified. Do not deploy this sender without migrations 0005 and 0006.
 The mail UI saves and reviews a draft and displays the exact request before
 confirmation; no live deployment or provider test is authorized by this
 code. Before production validate account capabilities, migration, Access, UI

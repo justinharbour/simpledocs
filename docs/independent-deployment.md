@@ -84,7 +84,7 @@ initialization script is not an upgrade tool and must not be run against it.
 Before any separate deployment, independently verify the account, database ID,
 ownership, existing migration history and schema, active writers, backup and
 recovery procedures, and a current Time Travel bookmark and retention. Review
-`0004_mail_intents.sql`, `0005_mail_unresolved_actor.sql`, `0008_mail_acknowledgement.sql` and the complete pending migration list; do not assume
+`0004_mail_intents.sql`, `0005_mail_unresolved_actor.sql`, `0006_mail_acknowledgement.sql` and the complete pending migration list; do not assume
 earlier migrations were applied. Arrange a safe write window and apply only the
 reviewed pending migrations through the separately authorized Wrangler migration
 path, then read back history and schema without querying private content. Do not
@@ -94,12 +94,26 @@ The partial unique index in 0005 fails if any actor already has multiple
 unresolved claims; stop and reconcile through a separately reviewed process,
 never discard or reset rows to force the migration. Deploying the mail sender
 without this index would not enforce the actor-wide gate, so verify it exists
-before deploying the new Worker. Migration 0008 also intentionally fails if
+before deploying the new Worker. Migration 0006 also intentionally fails if
 existing unacknowledged accepted and unresolved rows conflict for an actor;
 do not discard rows. Verify the expanded unique index and acknowledgement
-column before enabling the new code. Numbers 0006 and 0007 are used on other
-active feature branches; recheck the actual pending migration list and merge
-coordination before release rather than assuming those branches have landed.
+column before enabling the new code.
+
+Mail is planned to land first with 0004–0006, followed by inbound fax as 0007
+and voice as 0008. These are coordination requests, not proof that the other
+branches have been renumbered or merged. Recheck all branches and pending files.
+Wrangler tracks applied migration names in the configured migrations table
+(normally `d1_migrations`), and lists unapplied files; filename order is not
+proof of historical execution order. Before any rollout, inspect the actual
+ledger in application order and schema for every target database, and compare
+them with the exact migration names and the reviewed pending list. **Stop** if
+the old `0008_mail_acknowledgement.sql`, either old fax/voice filename, any
+later migration, an unexpected ledger entry, or a partially applied schema is
+present. Do not rename recorded entries, edit the ledger, replay renamed SQL,
+or insert an earlier migration and assume the history is safe. Obtain a
+separately reviewed, database-specific forward migration and recovery plan.
+Confirm backups and active-writer compatibility before any authorized changes.
+See [Cloudflare D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/).
 
 Deploy the reviewed Worker only after schema verification. Keep `MAIL_ENABLED`
 unset and do not configure a PostGrid key during this upgrade. The mail routes
