@@ -25,9 +25,24 @@ const channels = [
     summary="Prepare one document for fax, paper mail or both. Proposed: each would be delivered, approved and tracked on its own."
   />
 
-  <NotConnectedNotice title="Compose is a preview, not a working form">
-    Nothing you see here can be typed into, saved or sent. The values shown are synthetic examples. Do not use real phone numbers, addresses or documents.
+  <NotConnectedNotice title="Sending is unavailable">
+    The mail draft editor below requires connected storage. The remaining controls are synthetic previews; nothing can be sent or uploaded.
   </NotConnectedNotice>
+
+  <section class="mt-10 flex max-w-xl flex-col gap-4" aria-labelledby="draft-heading">
+    <h2 id="draft-heading" class="text-lg font-semibold">Mail draft</h2>
+    <p id="draft-hint" class="text-muted-foreground text-sm">Save text and an address only. Documents and sending are not available. Keep the draft link to open it again.</p>
+    <form id="draft-form" class="flex flex-col gap-4">
+      <fieldset id="draft-fields" disabled aria-describedby="draft-hint" class="flex flex-col gap-4 border-0 p-0">
+      <legend class="sr-only">Mail draft fields</legend>
+      <Field id="draft-recipient" label="Recipient"><Input id="draft-recipient" name="recipient" maxlength="500" /></Field>
+      <Field id="draft-address" label="Mailing address"><Textarea id="draft-address" name="address" rows={3} maxlength="2000" /></Field>
+      <Field id="draft-body" label="Letter text"><Textarea id="draft-body" name="body" rows={8} maxlength="20000" /></Field>
+      <button type="submit" class="self-start rounded-md bg-primary px-4 py-2 text-primary-foreground">Save draft</button>
+      </fieldset>
+    </form>
+    <p id="draft-status" role="status" aria-live="polite">Draft not saved.</p>
+  </section>
 
   <div class="mt-10 flex max-w-xl flex-col gap-10">
     <section aria-labelledby="document-heading" class="flex flex-col gap-4">
@@ -106,3 +121,56 @@ const channels = [
     </section>
   </div>
 </AppLayout>
+
+<script>
+  const form = document.querySelector<HTMLFormElement>('#draft-form');
+  const status = document.querySelector<HTMLElement>('#draft-status');
+  const fieldset = document.querySelector<HTMLFieldSetElement>('#draft-fields');
+  if (form && status && fieldset) {
+    const fields = ['recipient', 'address', 'body'] as const;
+    const url = new URL(location.href);
+    let id = url.searchParams.get('draft');
+    let revision = 0;
+    let ready = !id;
+    fieldset.disabled = !ready;
+    const message = (text: string) => { status.textContent = text; };
+    const control = (field: string) => form.elements.namedItem(field) as HTMLInputElement | HTMLTextAreaElement;
+    if (id) {
+      message('Loading draft…');
+      fetch(`/api/mail-drafts/${encodeURIComponent(id)}`, { cache: 'no-store' })
+        .then(async response => {
+          if (!response.ok) throw new Error('load');
+          const draft = await response.json();
+          for (const field of fields) control(field).value = typeof draft.content[field] === 'string' ? draft.content[field] : '';
+          revision = draft.revision;
+          ready = true;
+          fieldset.disabled = false;
+          message('Draft loaded.');
+        }).catch(() => message('Draft could not be loaded. Storage may be unavailable, or this draft may not exist. Your changes cannot be saved until it loads.'));
+    }
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!ready) return;
+      ready = false;
+      id ??= crypto.randomUUID();
+      const content = Object.fromEntries(fields.map(field => [field, control(field).value]));
+      message('Saving…');
+      try {
+        const response = await fetch(`/api/mail-drafts/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision, content }) });
+        if (response.status === 409) { url.searchParams.set('draft', id); history.replaceState(null, '', url); message('This draft changed elsewhere or the previous save may have succeeded. Copy your edits, then reload to review the saved version.'); return; }
+        if (response.status >= 500) throw new Error('unknown outcome');
+        if (!response.ok) { message('Draft was not saved. Check your session and try again; your text remains here.'); ready = true; return; }
+        const saved = await response.json();
+        revision = saved.revision;
+        url.searchParams.set('draft', id);
+        history.replaceState(null, '', url);
+        message('Draft saved. Bookmark or copy this page URL to return to it.');
+        ready = true;
+      } catch {
+        url.searchParams.set('draft', id);
+        history.replaceState(null, '', url);
+        message('Save outcome is unknown. Copy your edits, then reload this link to check the saved version before retrying.');
+      }
+    });
+  }
+</script>

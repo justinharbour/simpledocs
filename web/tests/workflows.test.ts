@@ -68,7 +68,16 @@ describe.skipIf(!built)("workflow pages (run `pnpm build` first)", () => {
     expect(primaryNav.map((i) => i.label)).toEqual(["Overview", "Compose", "Fax", "Calls", "Mail", "Records"]);
   });
 
-  it.each(pages)("%s ships no form, submit control or network action", (href) => {
+  it("exposes only the draft editor while sending and uploads remain unavailable", () => {
+    const doc = read("/compose/");
+    expect(doc).toContain('id="draft-form"');
+    expect(doc).toMatch(/id="draft-fields"[^>]*disabled/);
+    expect(doc).toContain('id="draft-status"');
+    expect(doc).toContain('id="send-reason"');
+    expect(doc).toMatch(/id="document"[^>]*disabled/);
+  });
+
+  it.each(["/records/", "/settings/"])("%s ships no form, submit control or network action", (href) => {
     const doc = read(href);
     expect(doc).not.toMatch(/<form[\s>]/);
     expect(doc).not.toMatch(/type="submit"/);
@@ -78,7 +87,7 @@ describe.skipIf(!built)("workflow pages (run `pnpm build` first)", () => {
   });
 
   // The shell's own controls (sidebar trigger, drawer close) are enabled; page controls are everything inside <main>.
-  it.each(pages)("%s has only disabled page controls", (href) => {
+  it.each(["/records/", "/settings/"])("%s has only disabled page controls", (href) => {
     const doc = read(href);
     const main = doc.slice(doc.indexOf('id="main"'));
     const page = controls(main).filter((tag) => !/data-sidebar=|data-slot="sidebar|data-slot="sheet/.test(tag));
@@ -123,7 +132,7 @@ describe.skipIf(!built)("workflow pages (run `pnpm build` first)", () => {
     const text = read("/compose/").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
     expect(text).toContain("The mail provider would produce a proof");
     expect(text).toContain("Sending is turned off");
-    expect(text).toContain("synthetic examples");
+    expect(text).toContain("synthetic example");
   });
 
   it("Compose describes the proof flow as proposed, not as implemented", () => {
