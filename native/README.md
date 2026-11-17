@@ -33,6 +33,10 @@ xcodebuild -project SimpleDocs.xcodeproj -scheme SimpleDocsMacDirect -destinatio
 xcodebuild -project SimpleDocs.xcodeproj -scheme SimpleDocsiOS       -destination 'generic/platform=iOS' build CODE_SIGNING_ALLOWED=NO
 ```
 
+## For CI
+
+Schemes and targets are `SimpleDocsMacConnected`, `SimpleDocsMacDirect` and `SimpleDocsiOS`. `SimpleDocsMacConnected` was renamed from `SimpleDocsMacOwner`, so any job or script that still names the old scheme will fail. The project is generated, so run `xcodegen generate` in `native/` before `xcodebuild`. No workflow for `native/` exists yet. A check needs a macOS runner with full Xcode and no secrets, and must build with `CODE_SIGNING_ALLOWED=NO`. The package tests (`swift test` in `Packages/SimpleDocsKit`) need no Xcode project.
+
 ## What is in this foundation
 
 - A sidebar and detail workspace using `NavigationSplitView`, `List`, `ContentUnavailableView` and system controls, so macOS and iOS get native navigation, keyboard support and Dynamic Type. Starwind UI is web-only and is not used here.

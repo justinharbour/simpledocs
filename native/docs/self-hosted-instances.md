@@ -22,13 +22,7 @@ Other people deploy their own simpledocs instance to their own Cloudflare accoun
 - Monorepo subdirectories must be fully self-contained, or the build fails. If the Worker lives in a repository with other packages, it needs an isolated subdirectory or its own repository.
 - Secrets are declared in `.dev.vars.example` or `.env.example`; binding descriptions go in `package.json`.
 
-**Appflare** (https://github.com/appflare/appflare, Apache-2.0, checked 2026-11-16):
-
-- An independent, third-party "app store for your Cloudflare account" that installs catalog apps and manages updates, custom domains and Cloudflare Access. It states it is not affiliated with Cloudflare.
-- Listing requires a catalog entry (`apps/<slug>/appflare.jsonc`) and the upstream repository currently needs at least 50 GitHub stars. That bar may rise.
-- Whether a simpledocs listing is wanted, accepted or maintainable is undecided. Depending on a third-party installer is a project decision, not something this change makes.
-
-A deployable Worker does not exist in this repository yet, so neither route is usable. The package named `appflare` on npm is a different project (a Workers backend framework); do not confuse it with the Appflare installer above.
+A deployable Worker does not exist in this repository yet, so the button is not usable. Deploy to Cloudflare is the only deployment route considered here.
 
 ## Open decisions for self-hosted instances
 

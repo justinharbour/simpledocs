@@ -93,7 +93,7 @@ public enum InstanceOnboarding {
         OnboardingStep(
             id: "deploy",
             title: "Deploy your own instance",
-            detail: "Run simpledocs in your own Cloudflare account. Deployment instructions, a Deploy to Cloudflare button or an Appflare listing have not been published.",
+            detail: "Run simpledocs in your own Cloudflare account. Deployment instructions and a Deploy to Cloudflare button have not been published.",
             status: .notPublished
         ),
         OnboardingStep(
