@@ -47,4 +47,13 @@ public enum TokenStore {
         let status = SecItemDelete(try key(registry: registry, binding: binding) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw TokenStoreError.keychain(status) }
     }
+
+    /// The caller must obtain this scope from the still-linked registry, and serialize unlinking.
+    public static func delete(scope: SessionScope) throws {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service, kSecAttrAccount as String: scope.keychainAccount,
+            kSecAttrSynchronizable as String: false]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw TokenStoreError.keychain(status) }
+    }
 }

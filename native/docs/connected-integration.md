@@ -164,6 +164,20 @@ behavior under signed sandboxed app targets and browser callbacks need device
 tests. Request and response bytes and Keychain contents are sensitive; do not log
 them. No end-to-end or live provider verification has been performed.
 
+The unlinked package also has an experimental `SessionCoordinator` that owns a
+registry snapshot, cancels a pending injected stage on selection change, rejects
+late results, and requires successful local purge before unlink. These guarantees
+apply only when all registry and credential access goes through the same owner;
+the existing transport and store do not enforce that ownership themselves.
+`IssuerConfirmation` checks explicit exact confirmation of resource and issuer,
+but is not a UI or evidence of independent issuer provenance. Public client
+registration metadata and an absolute expiry model are provided, but neither is
+integrated with network registration or Keychain persistence. No refresh or
+authenticated Worker transport exists. The mock tests exercise the coordinator
+boundary, not HTTP, real browser callbacks, or signed Keychain behavior. Do not
+link this package to an app until these remaining pieces and their security
+boundaries are completed and tested.
+
 ## Address parsing
 
 The parser does not rely on `URL` or `URLComponents` leniency. It rejects:
