@@ -85,4 +85,34 @@ import SimpleDocsConnected
         await #expect(throws: ConnectedFlowError.self) { try await flow.perform(.readFax(UUID())) }
         #expect(mock.sentURL == nil)
     }
+    @Test func appSessionTracksSignOutAndDoesNotRestoreLateSignIn() async throws {
+        let (_, flow, mock, confirmation, binding, _) = try setup()
+        let session = AppSession(flow: flow)
+        mock.suspendDiscovery = true
+        let task = Task { @MainActor in
+            try await session.signIn(confirmation: confirmation, binding: binding, callback: URL(string: "dev.example.app:/oauth/callback")!)
+        }
+        while mock.discoveryContinuation == nil { await Task.yield() }
+        #expect(session.state == .signingIn)
+        session.signOut()
+        mock.discoveryContinuation?.resume()
+        mock.discoveryContinuation = nil
+        await #expect(throws: (any Error).self) { try await task.value }
+        #expect(session.state == .signedOut)
+        #expect(mock.registrationResource.isEmpty)
+        mock.suspendDiscovery = false
+        try await session.signIn(confirmation: confirmation, binding: binding, callback: URL(string: "dev.example.app:/oauth/callback")!)
+        #expect(session.state == .tokenAcquired)
+        session.signOut()
+        #expect(session.state == .signedOut)
+        await #expect(throws: ConnectedFlowError.self) { try await flow.perform(.readFax(UUID())) }
+    }
+    @Test func failedDiscoveryDoesNotClaimAuthentication() async throws {
+        let (_, flow, mock, confirmation, binding, _) = try setup()
+        let session = AppSession(flow: flow)
+        mock.substituteTeam = true
+        await #expect(throws: (any Error).self) { try await session.signIn(confirmation: confirmation, binding: binding, callback: URL(string: "dev.example.app:/oauth/callback")!) }
+        #expect(session.state == .failed)
+        await #expect(throws: ConnectedFlowError.self) { try await flow.perform(.readFax(UUID())) }
+    }
 }
