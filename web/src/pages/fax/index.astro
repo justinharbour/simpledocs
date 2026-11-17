@@ -15,6 +15,51 @@ import PageHeader from "@/components/PageHeader.astro";
   </form>
   <p id="fax-status" class="mt-5" role="status" aria-live="polite"></p>
   <button id="fax-check" type="button" hidden class="mt-3 rounded-md border border-input px-4 py-2">Check delivery status</button>
+  <section class="mt-16 max-w-3xl border-t border-border pt-8" aria-labelledby="inbox-heading">
+    <div class="flex flex-wrap items-baseline justify-between gap-4">
+      <div>
+        <h2 id="inbox-heading" class="text-lg font-semibold">Received faxes</h2>
+        <p class="mt-1 text-sm text-muted-foreground">The most recent 100 received faxes, available to authorized inbox users.</p>
+      </div>
+      <button id="inbox-refresh" type="button" class="rounded-md border border-input px-4 py-2">Refresh inbox</button>
+    </div>
+    <p id="inbox-status" class="mt-5 text-sm" role="status" aria-live="polite">Loading received faxes…</p>
+    <ul id="inbox-list" class="mt-4 divide-y divide-border" aria-label="Received faxes"></ul>
+    <noscript><p class="mt-4">JavaScript is required to load received faxes.</p></noscript>
+  </section>
+  <script>
+    import { loadInbox } from '@/lib/fax-inbox';
+    const list = document.querySelector<HTMLUListElement>('#inbox-list')!;
+    const message = document.querySelector<HTMLElement>('#inbox-status')!;
+    const refresh = document.querySelector<HTMLButtonElement>('#inbox-refresh')!;
+    async function updateInbox() {
+      refresh.disabled = true;
+      message.textContent = 'Loading received faxes…';
+      list.replaceChildren();
+      try {
+        const records = await loadInbox(fetch);
+        if (!records.length) message.textContent = 'No received faxes yet.';
+        else {
+          message.textContent = `${records.length} received ${records.length === 1 ? 'fax' : 'faxes'} shown.`;
+          for (const record of records) {
+            const item = document.createElement('li');
+            item.className = 'flex flex-wrap items-center justify-between gap-3 py-4';
+            const date = document.createElement('span');
+            date.textContent = `Received ${record.receivedLabel}`;
+            const link = document.createElement('a');
+            link.className = 'rounded-md border border-input px-4 py-2 text-sm underline underline-offset-4';
+            link.href = record.downloadPath;
+            link.textContent = 'Download PDF';
+            link.setAttribute('aria-label', `Download fax received ${record.receivedLabel} as PDF`);
+            item.append(date, link); list.append(item);
+          }
+        }
+      } catch { message.textContent = 'The inbox could not be loaded. Check your access and try Refresh inbox.'; }
+      finally { refresh.disabled = false; }
+    }
+    refresh.addEventListener('click', updateInbox);
+    void updateInbox();
+  </script>
   <script>
     const form = document.querySelector<HTMLFormElement>('#fax-form')!;
     const status = document.querySelector<HTMLElement>('#fax-status')!;
