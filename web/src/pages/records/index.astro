@@ -3,6 +3,21 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import PageHeader from "@/components/PageHeader.astro";
 import NotConnectedNotice from "@/components/NotConnectedNotice.astro";
 import EmptyState from "@/components/EmptyState.astro";
+import DeliveryStateMark from "@/components/DeliveryStateMark.astro";
+import Field from "@/components/Field.astro";
+import UnavailableReason from "@/components/UnavailableReason.astro";
+import { Input } from "@/components/starwind/input";
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/starwind/table";
+import { deliveryStates, deliveryStateLabels, deliveryStateMeanings } from "@/lib/delivery";
+import { exampleDeliveries } from "@/lib/examples";
 ---
 
 <AppLayout title="Records" description="Documents, proofs and delivery records, searchable in one place.">
@@ -10,10 +25,67 @@ import EmptyState from "@/components/EmptyState.astro";
   <NotConnectedNotice title="Storage is not connected">
     Documents and proofs are not stored yet. Do not upload real documents to this build.
   </NotConnectedNotice>
+
   <section aria-labelledby="list-heading" class="mt-10">
     <h2 id="list-heading" class="mb-3 text-lg font-semibold">All records</h2>
+    <div class="mb-4 flex max-w-sm flex-col gap-2">
+      <Field id="records-search" label="Search records">
+        <Input id="records-search" type="search" disabled aria-describedby="search-reason" />
+      </Field>
+      <UnavailableReason id="search-reason">There are no records to search.</UnavailableReason>
+    </div>
     <EmptyState title="No records yet">
       Documents, proofs and delivery records will appear here once something has been sent or received.
     </EmptyState>
+  </section>
+
+  <section aria-labelledby="examples-heading" class="mt-10">
+    <h2 id="examples-heading" class="mb-1 text-lg font-semibold">How a delivery will read (examples)</h2>
+    <p class="text-muted-foreground mb-3 max-w-prose text-sm text-pretty">
+      These four rows are made-up examples of how status will be shown. They are not records, and nothing was sent. A job with two channels has two deliveries, so one can succeed while the other fails.
+    </p>
+    <Table>
+      <TableCaption class="sr-only">Example deliveries, not real records</TableCaption>
+      <TableHeader>
+        <TableRow>
+          <TableHead scope="col">Job</TableHead>
+          <TableHead scope="col">Channel</TableHead>
+          <TableHead scope="col">Status</TableHead>
+          <TableHead scope="col" class="hidden md:table-cell">What it means</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {
+          exampleDeliveries.map((row) => (
+            <TableRow>
+              <TableCell class="font-medium">{row.job}</TableCell>
+              <TableCell>{row.channel}</TableCell>
+              <TableCell><DeliveryStateMark state={row.state} /></TableCell>
+              <TableCell class="text-muted-foreground hidden whitespace-normal md:table-cell">{row.note}</TableCell>
+            </TableRow>
+          ))
+        }
+      </TableBody>
+    </Table>
+    <p class="text-muted-foreground mt-3 max-w-prose text-sm text-pretty md:hidden">
+      On a narrow screen the "What it means" column is hidden. The glossary below explains every status.
+    </p>
+  </section>
+
+  <section aria-labelledby="glossary-heading" class="mt-10">
+    <h2 id="glossary-heading" class="mb-1 text-lg font-semibold">Status glossary</h2>
+    <p class="text-muted-foreground mb-3 max-w-prose text-sm text-pretty">
+      Proposed delivery statuses. Not every channel uses every one. The status the provider reported is kept separately from these.
+    </p>
+    <dl class="grid max-w-3xl gap-x-6 gap-y-3 text-sm sm:grid-cols-[12rem_1fr]">
+      {
+        deliveryStates.map((state) => (
+          <>
+            <dt class="font-medium">{deliveryStateLabels[state]}</dt>
+            <dd class="text-muted-foreground text-pretty">{deliveryStateMeanings[state]}</dd>
+          </>
+        ))
+      }
+    </dl>
   </section>
 </AppLayout>

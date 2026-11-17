@@ -2,18 +2,111 @@
 import AppLayout from "@/layouts/AppLayout.astro";
 import PageHeader from "@/components/PageHeader.astro";
 import NotConnectedNotice from "@/components/NotConnectedNotice.astro";
-import EmptyState from "@/components/EmptyState.astro";
+import StateMark from "@/components/StateMark.astro";
+import Field from "@/components/Field.astro";
+import UnavailableButton from "@/components/UnavailableButton.astro";
+import UnavailableReason from "@/components/UnavailableReason.astro";
+import { Input } from "@/components/starwind/input";
+import { Switch } from "@/components/starwind/switch";
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/starwind/table";
+import { flags, instanceChecks } from "@/lib/flags";
 ---
 
-<AppLayout title="Settings" description="Choose which channels are turned on.">
-  <PageHeader title="Settings" summary="Choose which channels are turned on." />
+<AppLayout title="Settings" description="Your instance and which channels are turned on. Nothing can be changed yet.">
+  <PageHeader
+    title="Settings"
+    summary="Your own instance, and which channels are turned on. Every channel starts off."
+  />
   <NotConnectedNotice title="Settings are not available">
-    Channels cannot be turned on or off until the backend exists. Nothing on this page can be changed.
+    Channels cannot be turned on or off until the backend exists. Nothing on this page can be changed or saved.
   </NotConnectedNotice>
-  <section aria-labelledby="list-heading" class="mt-10">
-    <h2 id="list-heading" class="mb-3 text-lg font-semibold">Channels</h2>
-    <EmptyState title="No channel settings yet">
-      Each channel will have its own switch, including inbound fax and inbound voice.
-    </EmptyState>
+
+  <section aria-labelledby="instance-heading" class="mt-10 flex max-w-xl flex-col gap-4">
+    <h2 id="instance-heading" class="text-lg font-semibold">Instance</h2>
+    <p class="text-muted-foreground max-w-prose text-sm text-pretty">
+      simpledocs is meant to be run by whoever uses it, on their own Cloudflare account, with their own sign-in, storage and provider accounts. An instance belongs to its operator and is not shared with anyone else's. No instance is set up or linked in this build, and there is no one-click install yet.
+    </p>
+    <Field id="instance-origin" label="Instance address" hint="The HTTPS address of your instance. You will be asked to confirm it before signing in.">
+      <Input id="instance-origin" type="url" disabled aria-describedby="instance-origin-hint instance-reason" />
+    </Field>
+    <div class="flex flex-wrap gap-3">
+      <UnavailableButton reasonId="instance-reason">Connect to instance</UnavailableButton>
+    </div>
+    <UnavailableReason id="instance-reason">
+      Linking an instance needs a sign-in flow that has not been built or security-reviewed. This page makes no connection and sends nothing.
+    </UnavailableReason>
+  </section>
+
+  <section aria-labelledby="checks-heading" class="mt-10">
+    <h2 id="checks-heading" class="mb-1 text-lg font-semibold">What an instance needs</h2>
+    <p class="text-muted-foreground mb-3 max-w-prose text-sm text-pretty">
+      Each item must be set up and checked before any channel can be turned on. An instance that is only partly set up keeps everything off.
+    </p>
+    <Table>
+      <TableCaption class="sr-only">Requirements for an instance and their status</TableCaption>
+      <TableHeader>
+        <TableRow>
+          <TableHead scope="col">Requirement</TableHead>
+          <TableHead scope="col">State</TableHead>
+          <TableHead scope="col" class="hidden md:table-cell">Detail</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {
+          instanceChecks.map((check) => (
+            <TableRow>
+              <TableCell class="font-medium">{check.name}</TableCell>
+              <TableCell><StateMark state="not-connected" /></TableCell>
+              <TableCell class="text-muted-foreground hidden whitespace-normal md:table-cell">{check.detail}</TableCell>
+            </TableRow>
+          ))
+        }
+      </TableBody>
+    </Table>
+  </section>
+
+  <section aria-labelledby="flags-heading" class="mt-10 max-w-xl">
+    <h2 id="flags-heading" class="mb-1 text-lg font-semibold">Channels</h2>
+    <p class="text-muted-foreground mb-4 max-w-prose text-sm text-pretty">
+      Each channel has its own switch, so inbound and outbound can be controlled separately. All are off and locked. Turning one off later will not cancel work a provider already accepted, and it will not change how a phone number is routed.
+    </p>
+    <fieldset disabled class="m-0 border-0 p-0" aria-describedby="flags-reason">
+      <legend class="sr-only">Channel switches (unavailable, all off)</legend>
+      <ul class="divide-border divide-y border-y">
+        {
+          flags.map((flag) => (
+            <li class="flex items-start justify-between gap-4 py-4">
+              <div class="flex flex-col gap-1">
+                <span id={`${flag.id}-label`} class="font-medium">{flag.label}</span>
+                <span id={`${flag.id}-detail`} class="text-muted-foreground text-sm text-pretty">{flag.detail}</span>
+              </div>
+              <div class="flex shrink-0 items-center gap-3">
+                <span class="text-muted-foreground text-sm">Off</span>
+                <Switch
+                  id={`flag-${flag.id}`}
+                  disabled
+                  checked={false}
+                  aria-labelledby={`${flag.id}-label`}
+                  aria-describedby={`${flag.id}-detail`}
+                />
+              </div>
+            </li>
+          ))
+        }
+      </ul>
+    </fieldset>
+    <div class="mt-4">
+      <UnavailableReason id="flags-reason">
+        Switches cannot be changed. They need a backend that checks sign-in and permission, and turning a channel on needs an administrator and is recorded. A switch on this page would never be what enforces it.
+      </UnavailableReason>
+    </div>
   </section>
 </AppLayout>
