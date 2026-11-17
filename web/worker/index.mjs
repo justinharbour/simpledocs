@@ -65,7 +65,7 @@ export function createWorker(resolveKeys = issuer => {
     if (mail) return handleMail(request, env, actor, mail[1], mail[2]);
     if (url.pathname === '/api/voice/session') return handleVoiceSession(request, env, actor);
     if (url.pathname === '/api/voice/recordings' || url.pathname.startsWith('/api/voice/recordings/')) {
-      if (!env.VOICE_OWNER_SUBJECT || actor !== env.VOICE_OWNER_SUBJECT) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+      if (env.VOICE_OWNER_SUBJECT && actor !== env.VOICE_OWNER_SUBJECT) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
     }
     if (url.pathname === '/api/voice/recordings') return listVoiceRecordings(request, env);
     const recording = /^\/api\/voice\/recordings\/([^/]+)$/.exec(url.pathname);
