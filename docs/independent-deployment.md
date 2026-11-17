@@ -26,8 +26,8 @@ backup procedures. No provider sending is enabled.
    validates Access assertions against that issuer and audience. Set both as
    Worker variables in reviewed Wrangler configuration before enabling a route.
 3. Create `simpledocs-d1-prod` with Wrangler only if the inventory confirms it
-   is absent. Record its database ID. Use a **separate migration-only Wrangler
-   config** pointing `migrations_dir` to `../backend/core/migrations` and the
+   is absent. Record its database ID. Copy `web/wrangler.migrations.example.jsonc`
+   to an untracked migration-only config, replacing the placeholder ID with the
    newly verified ID. Do not add a DB binding to the deployment config yet.
 4. Review and apply the numbered migrations in order using `wrangler d1
    migrations list DB --remote` and `wrangler d1 migrations apply DB --remote`
