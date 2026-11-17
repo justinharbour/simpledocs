@@ -1,5 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { handleDraft } from './drafts.mjs';
+import { handleFaxStatus } from './fax-status.mjs';
+import { handleFaxSend } from './fax-send.mjs';
 
 // Static Assets do not propagate ctx.access. Verify the Access assertion against
 // the configured team's keys instead; never trust an unverified identity header.
@@ -28,6 +30,8 @@ export function createWorker(resolveKeys = issuer => {
       return new Response('Unauthorized', { status: 401, headers: { 'Cache-Control': 'no-store' } });
     }
     const url = new URL(request.url);
+    const fax = /^\/api\/faxes\/([^/]+)$/.exec(url.pathname);
+    if (fax) return request.method === 'POST' ? handleFaxSend(request, env, actor, fax[1]) : handleFaxStatus(request, env, actor, fax[1]);
     const draft = /^\/api\/mail-drafts\/([^/]+)$/.exec(url.pathname);
     if (draft) return handleDraft(request, env.DB, actor, draft[1]);
     if (!['GET', 'HEAD'].includes(request.method)) {
