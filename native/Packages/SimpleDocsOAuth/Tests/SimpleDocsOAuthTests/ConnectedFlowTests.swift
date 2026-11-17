@@ -8,8 +8,11 @@ import SimpleDocsConnected
     var sentURL: URL?
     var sentBearer: String?
     var substituteTeam = false
+    var suspendDiscovery = false
+    var discoveryContinuation: CheckedContinuation<Void, Never>?
     func resourceMetadata(url: URL) async throws -> Data {
-        Data("{\"resource\":\"https://one.example.com\",\"authorization_servers\":[\"https://\(substituteTeam ? "evil" : "team").cloudflareaccess.com\"]}".utf8)
+        if suspendDiscovery { await withCheckedContinuation { discoveryContinuation = $0 } }
+        return Data("{\"resource\":\"https://one.example.com\",\"authorization_servers\":[\"https://\(substituteTeam ? "evil" : "team").cloudflareaccess.com\"]}".utf8)
     }
     func issuerMetadata(url: URL) async throws -> Data {
         try JSONSerialization.data(withJSONObject: ["issuer": "https://team.cloudflareaccess.com", "authorization_endpoint": "https://team.cloudflareaccess.com/cdn-cgi/access/oauth/authorization", "token_endpoint": "https://team.cloudflareaccess.com/cdn-cgi/access/oauth/token", "registration_endpoint": "https://team.cloudflareaccess.com/cdn-cgi/access/oauth/registration", "response_types_supported": ["code"], "grant_types_supported": ["authorization_code"], "code_challenge_methods_supported": ["S256"], "token_endpoint_auth_methods_supported": ["none"]])
@@ -64,6 +67,21 @@ import SimpleDocsConnected
         mock.substituteTeam = false
         try await flow.signIn(confirmation: confirmation, binding: binding, callback: URL(string: "dev.example.app:/oauth/callback")!)
         try owner.activate(other.linkID)
+        await #expect(throws: ConnectedFlowError.self) { try await flow.perform(.readFax(UUID())) }
+        #expect(mock.sentURL == nil)
+    }
+    @Test func signOutDuringDiscoveryDiscardsLateResult() async throws {
+        let (_, flow, mock, confirmation, binding, _) = try setup()
+        mock.suspendDiscovery = true
+        let task = Task { @MainActor in
+            try await flow.signIn(confirmation: confirmation, binding: binding, callback: URL(string: "dev.example.app:/oauth/callback")!)
+        }
+        while mock.discoveryContinuation == nil { await Task.yield() }
+        flow.clear()
+        mock.discoveryContinuation?.resume()
+        mock.discoveryContinuation = nil
+        await #expect(throws: (any Error).self) { try await task.value }
+        #expect(mock.registrationResource.isEmpty)
         await #expect(throws: ConnectedFlowError.self) { try await flow.perform(.readFax(UUID())) }
         #expect(mock.sentURL == nil)
     }
