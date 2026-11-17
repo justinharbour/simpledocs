@@ -16,7 +16,7 @@ async function signed(body, ts = timestamp) {
 }
 function setup() {
   const db = new DatabaseSync(':memory:');
-  db.exec(readFileSync(new URL('../../backend/core/migrations/0007_voice_webhooks.sql', import.meta.url), 'utf8'));
+  db.exec(readFileSync(new URL('../../backend/core/migrations/0008_voice_webhooks.sql', import.meta.url), 'utf8'));
   const DB = { prepare(sql) { return { async all() { return { results: db.prepare(sql).all() }; }, bind(...args) { return { async first() { return db.prepare(sql).get(...args); }, async run() { return db.prepare(sql).run(...args); } }; } }; } };
   const objects = new Map();
   const VOICE_RECORDINGS = { async put(key, value) { objects.set(key, value); }, async get(key) { const value = objects.get(key); return value ? { body: value } : null; } };
