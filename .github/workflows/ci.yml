@@ -142,38 +142,6 @@ jobs:
         working-directory: native/Packages/SimpleDocsKit
         run: swift test
 
-  # Security-sensitive package that is intentionally not linked into any app yet. It does not use
-  # `detect`: it always runs, and a missing package fails the guard instead of skipping the job.
-  native-connected:
-    name: Native (SimpleDocsConnected guard and swift test)
-    runs-on: xcode-27
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Guard (present, unlinked, no networking or auth)
-        run: native/Packages/SimpleDocsConnected/ci/guard.sh
-      - name: Select Xcode 27.2
-        run: sudo xcode-select -s /Applications/Xcode_27.2.app/Contents/Developer
-      - name: Swift test
-        working-directory: native/Packages/SimpleDocsConnected
-        env:
-          MIN_TESTS: "30"
-        run: |
-          set -o pipefail
-          swift test 2>&1 | tee "$RUNNER_TEMP/connected-test.log"
-          # A run that discovers no tests also exits 0, so require evidence that tests ran and passed.
-          line="$(grep -E 'Test run with [0-9]+ tests? .* passed' "$RUNNER_TEMP/connected-test.log" | tail -n 1 || true)"
-          count="$(printf '%s' "$line" | sed -E 's/.*Test run with ([0-9]+) tests?.*/\1/')"
-          if ! [[ "$count" =~ ^[0-9]+$ ]] || [ "$count" -lt "$MIN_TESTS" ]; then
-            echo "::error title=SimpleDocsConnected tests::Expected a passing Swift Testing run of at least $MIN_TESTS tests, found: '${line:-none}'."
-            exit 1
-          fi
-          echo "SimpleDocsConnected: $count tests passed."
-
   native-apps:
     name: Native (${{ matrix.scheme }} build)
     needs: detect
@@ -215,6 +183,38 @@ jobs:
         run: |
           xcodebuild -project SimpleDocs.xcodeproj -scheme "${{ matrix.scheme }}" \
             -destination "${{ matrix.destination }}" build CODE_SIGNING_ALLOWED=NO
+
+  # Security-sensitive package that is intentionally not linked into any app yet. It does not use
+  # `detect`: it always runs, and a missing package fails the guard instead of skipping the job.
+  native-connected:
+    name: Native (SimpleDocsConnected guard and swift test)
+    runs-on: xcode-27
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Guard (present, unlinked, no networking or auth)
+        run: native/Packages/SimpleDocsConnected/ci/guard.sh
+      - name: Select Xcode 27.2
+        run: sudo xcode-select -s /Applications/Xcode_27.2.app/Contents/Developer
+      - name: Swift test
+        working-directory: native/Packages/SimpleDocsConnected
+        env:
+          MIN_TESTS: "30"
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee "$RUNNER_TEMP/connected-test.log"
+          # A run that discovers no tests also exits 0, so require evidence that tests ran and passed.
+          line="$(grep -E 'Test run with [0-9]+ tests? .* passed' "$RUNNER_TEMP/connected-test.log" | tail -n 1 || true)"
+          count="$(printf '%s' "$line" | sed -E 's/.*Test run with ([0-9]+) tests?.*/\1/')"
+          if ! [[ "$count" =~ ^[0-9]+$ ]] || [ "$count" -lt "$MIN_TESTS" ]; then
+            echo "::error title=SimpleDocsConnected tests::Expected a passing Swift Testing run of at least $MIN_TESTS tests, found: '${line:-none}'."
+            exit 1
+          fi
+          echo "SimpleDocsConnected: $count tests passed."
 
   pr-gate:
     name: pr-gate
