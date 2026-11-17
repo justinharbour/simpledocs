@@ -1,0 +1,9 @@
+---
+type Props = { title: string; headingLevel?: "h2" | "h3" };
+const { title, headingLevel: Heading = "h3" } = Astro.props;
+---
+
+<div class="border-border flex flex-col gap-1 rounded-lg border border-dashed px-6 py-10 text-center">
+  <Heading class="text-base font-semibold">{title}</Heading>
+  <p class="text-muted-foreground mx-auto max-w-prose text-sm text-pretty"><slot /></p>
+</div>

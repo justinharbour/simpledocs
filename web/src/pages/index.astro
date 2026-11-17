@@ -1,0 +1,68 @@
+---
+import AppLayout from "@/layouts/AppLayout.astro";
+import PageHeader from "@/components/PageHeader.astro";
+import NotConnectedNotice from "@/components/NotConnectedNotice.astro";
+import StateMark from "@/components/StateMark.astro";
+import EmptyState from "@/components/EmptyState.astro";
+import { channels } from "@/lib/channels";
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/starwind/table";
+---
+
+<AppLayout title="Overview" description="Channel status and recent activity for simpledocs.">
+  <PageHeader
+    title="Overview"
+    summary="Fax, calls, voicemail and paper mail in one place, with a record of every delivery."
+  />
+
+  <NotConnectedNotice>
+    This is an early build. No provider is connected, and nothing can be sent, received or stored yet.
+  </NotConnectedNotice>
+
+  <section aria-labelledby="channels-heading" class="mt-10">
+    <h2 id="channels-heading" class="mb-3 text-lg font-semibold">Channels</h2>
+    <Table>
+      <TableCaption class="sr-only">Channels and what each needs before it can be turned on</TableCaption>
+      <TableHeader>
+        <TableRow>
+          <TableHead scope="col">Channel</TableHead>
+          <TableHead scope="col">Direction</TableHead>
+          <TableHead scope="col">State</TableHead>
+          <TableHead scope="col" class="hidden md:table-cell">Needs</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {
+          channels.map((channel) => (
+            <TableRow>
+              <TableCell class="font-medium">
+                <a href={channel.href} class="underline-offset-4 hover:underline">
+                  {channel.name}
+                </a>
+              </TableCell>
+              <TableCell>{channel.direction}</TableCell>
+              <TableCell><StateMark state={channel.state} /></TableCell>
+              <TableCell class="text-muted-foreground hidden whitespace-normal md:table-cell">
+                {channel.needs}
+              </TableCell>
+            </TableRow>
+          ))
+        }
+      </TableBody>
+    </Table>
+  </section>
+
+  <section aria-labelledby="activity-heading" class="mt-10">
+    <h2 id="activity-heading" class="mb-3 text-lg font-semibold">Recent activity</h2>
+    <EmptyState title="No activity yet">
+      Sent and received faxes, calls, voicemail and mail will appear here once a channel is connected.
+    </EmptyState>
+  </section>
+</AppLayout>

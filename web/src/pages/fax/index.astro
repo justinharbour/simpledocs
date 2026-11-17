@@ -1,0 +1,19 @@
+---
+import AppLayout from "@/layouts/AppLayout.astro";
+import PageHeader from "@/components/PageHeader.astro";
+import NotConnectedNotice from "@/components/NotConnectedNotice.astro";
+import EmptyState from "@/components/EmptyState.astro";
+---
+
+<AppLayout title="Fax" description="Faxes sent and received, each with its delivery record.">
+  <PageHeader title="Fax" summary="Faxes sent and received, each with its delivery record." />
+  <NotConnectedNotice title="Fax is not connected">
+    Connect a fax provider and number before sending or receiving. A completed status is not proof the other side received every page.
+  </NotConnectedNotice>
+  <section aria-labelledby="list-heading" class="mt-10">
+    <h2 id="list-heading" class="mb-3 text-lg font-semibold">Fax history</h2>
+    <EmptyState title="No faxes yet">
+      Sent and received faxes will be listed here with their status and attached document.
+    </EmptyState>
+  </section>
+</AppLayout>

@@ -1,0 +1,95 @@
+---
+import HomeIcon from "@tabler/icons/outline/layout-dashboard.svg";
+import PrinterIcon from "@tabler/icons/outline/printer.svg";
+import PhoneIcon from "@tabler/icons/outline/phone.svg";
+import MailIcon from "@tabler/icons/outline/mail.svg";
+import FilesIcon from "@tabler/icons/outline/files.svg";
+import SettingsIcon from "@tabler/icons/outline/settings.svg";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarRail,
+} from "@/components/starwind/sidebar";
+import { isCurrent, primaryNav, secondaryNav } from "@/lib/navigation";
+
+const icons: Record<string, typeof HomeIcon> = {
+  Overview: HomeIcon,
+  Fax: PrinterIcon,
+  Calls: PhoneIcon,
+  Mail: MailIcon,
+  Records: FilesIcon,
+  Settings: SettingsIcon,
+};
+const pathname = Astro.url.pathname;
+---
+
+<Sidebar collapsible="offcanvas">
+  <SidebarHeader>
+    <a
+      href="/"
+      class="text-sidebar-foreground focus-visible:ring-sidebar-outline flex h-12 items-center rounded-md px-2 text-lg font-semibold tracking-tight outline-none focus-visible:ring-2"
+    >
+      simpledocs
+    </a>
+  </SidebarHeader>
+  <SidebarContent>
+    <SidebarGroup>
+      <SidebarGroupContent>
+        <nav aria-label="Primary">
+          <SidebarMenu>
+            {
+              primaryNav.map((item) => {
+                const Icon = icons[item.label];
+                const current = isCurrent(item.href, pathname);
+                return (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      href={item.href}
+                      isActive={current}
+                      aria-current={current ? "page" : undefined}
+                    >
+                      <Icon aria-hidden="true" />
+                      <span>{item.label}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })
+            }
+          </SidebarMenu>
+        </nav>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  </SidebarContent>
+  <SidebarFooter>
+    <nav aria-label="Secondary">
+      <SidebarMenu>
+        {
+          secondaryNav.map((item) => {
+            const Icon = icons[item.label];
+            const current = isCurrent(item.href, pathname);
+            return (
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  href={item.href}
+                  isActive={current}
+                  aria-current={current ? "page" : undefined}
+                >
+                  <Icon aria-hidden="true" />
+                  <span>{item.label}</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            );
+          })
+        }
+      </SidebarMenu>
+    </nav>
+  </SidebarFooter>
+  <SidebarRail />
+</Sidebar>

@@ -1,0 +1,12 @@
+---
+import CircleDashed from "@tabler/icons/outline/circle-dashed.svg";
+import { stateLabels, type ChannelState } from "@/lib/channels";
+
+type Props = { state: ChannelState };
+const { state } = Astro.props;
+---
+
+<span class="text-muted-foreground inline-flex items-center gap-2 whitespace-nowrap">
+  <CircleDashed class="size-4 shrink-0" aria-hidden="true" />
+  <span>{stateLabels[state]}</span>
+</span>
