@@ -8,7 +8,10 @@ struct SimpleDocsApp: App {
 
     var body: some Scene {
         WindowGroup {
-            WorkspaceView(model: model)
+            TabView {
+                WorkspaceView(model: model).tabItem { Label("Sample workspace", systemImage: "doc.text") }
+                ConnectedSignInView().tabItem { Label("Sign in", systemImage: "person.crop.circle") }
+            }
         }
     }
 }
