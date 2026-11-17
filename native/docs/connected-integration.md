@@ -139,6 +139,16 @@ example. The PKCE generator enforces the documented initial-character
 compatibility restriction, but this has not been verified against a live server.
 Do not link or use it as a working Cloudflare flow.
 
+`CloudflareTrust` implements the validation portion of that design: the caller
+must independently supply the exact team origin, tied to the current link;
+resource metadata must advertise that origin, and issuer metadata must match it
+and the documented endpoint paths and public-client/PKCE capabilities. Merely
+constructing this value does not prove where the configuration came from. These
+validators currently accept supplied bytes only: there is no orchestrated fetch,
+client registration, browser session, code exchange, storage or app integration.
+They do not constitute a working sign-in. The exact metadata shape and resource
+conventions remain unverified against the selected Access application.
+
 ## Address parsing
 
 The parser does not rely on `URL` or `URLComponents` leniency. It rejects:
