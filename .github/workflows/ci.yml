@@ -5,6 +5,7 @@ name: CI
 on:
   pull_request:
     branches: [develop, main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
 
 permissions: {}
 
@@ -64,10 +65,129 @@ jobs:
         with:
           fail-on-severity: high
 
+  detect:
+    name: Detect projects
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      web: ${{ steps.tracked.outputs.web }}
+      native_package: ${{ steps.tracked.outputs.native_package }}
+      native_apps: ${{ steps.tracked.outputs.native_apps }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: tracked
+        name: Record tracked projects
+        run: |
+          has() { if git ls-files --error-unmatch "$1" >/dev/null 2>&1; then echo true; else echo false; fi; }
+          {
+            echo "web=$(has web/package.json)"
+            echo "native_package=$(has native/Packages/SimpleDocsKit/Package.swift)"
+            echo "native_apps=$(has native/project.yml)"
+          } >> "$GITHUB_OUTPUT"
+
+  web:
+    name: Web (pnpm verify)
+    needs: detect
+    if: ${{ needs.detect.outputs.web == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 10.34.9
+          run_install: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.23.4
+      - name: Install from lockfile
+        run: pnpm install --frozen-lockfile
+      - name: Verify (check, build, test)
+        run: pnpm verify
+      - name: Upload web build output
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-dist
+          path: web/dist
+          if-no-files-found: warn
+          retention-days: 7
+
+  native-package:
+    name: Native (SimpleDocsKit swift test)
+    needs: detect
+    if: ${{ needs.detect.outputs.native_package == 'true' }}
+    runs-on: xcode-27
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Select Xcode 27.2
+        run: sudo xcode-select -s /Applications/Xcode_27.2.app/Contents/Developer
+      - name: Swift test
+        working-directory: native/Packages/SimpleDocsKit
+        run: swift test
+
+  native-apps:
+    name: Native (${{ matrix.scheme }} build)
+    needs: detect
+    if: ${{ needs.detect.outputs.native_apps == 'true' }}
+    runs-on: xcode-27
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scheme: SimpleDocsMacConnected
+            destination: platform=macOS
+          - scheme: SimpleDocsMacDirect
+            destination: platform=macOS
+          - scheme: SimpleDocsiOS
+            destination: generic/platform=iOS
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Select Xcode 27.2
+        run: sudo xcode-select -s /Applications/Xcode_27.2.app/Contents/Developer
+      - name: Install XcodeGen 2.46.0
+        env:
+          XCODEGEN_SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" \
+            https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip
+          echo "${XCODEGEN_SHA256}  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 --check --strict
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
+      - name: Generate project
+        working-directory: native
+        run: xcodegen generate
+      - name: Build ${{ matrix.scheme }} unsigned
+        working-directory: native
+        run: |
+          xcodebuild -project SimpleDocs.xcodeproj -scheme "${{ matrix.scheme }}" \
+            -destination "${{ matrix.destination }}" build CODE_SIGNING_ALLOWED=NO
+
   pr-gate:
     name: pr-gate
     if: ${{ always() }}
-    needs: [workflow-lint, pr-title, dependency-review]
+    needs: [detect, workflow-lint, pr-title, dependency-review, web, native-package, native-apps]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -76,54 +196,69 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Evaluate checks and report projects
+      - name: Evaluate checks and project presence
         env:
           LINT_RESULT: ${{ needs.workflow-lint.result }}
           TITLE_RESULT: ${{ needs.pr-title.result }}
           DEPS_RESULT: ${{ needs.dependency-review.result }}
+          DETECT_RESULT: ${{ needs.detect.result }}
+          WEB_TRACKED: ${{ needs.detect.outputs.web }}
+          PKG_TRACKED: ${{ needs.detect.outputs.native_package }}
+          APPS_TRACKED: ${{ needs.detect.outputs.native_apps }}
+          WEB_RESULT: ${{ needs.web.result }}
+          PKG_RESULT: ${{ needs.native-package.result }}
+          APPS_RESULT: ${{ needs.native-apps.result }}
         run: |
           failed=0
-          for pair in "Workflow lint:$LINT_RESULT" "Conventional PR title:$TITLE_RESULT" "Dependency review:$DEPS_RESULT"; do
-            name=${pair%%:*}
-            result=${pair#*:}
+          check() {
+            local name=$1 result=$2
             if [ "$result" != "success" ]; then
               echo "::error title=$name::$name finished with result: $result"
               failed=1
             fi
-          done
+          }
+          check "Detect projects" "$DETECT_RESULT"
+          check "Workflow lint" "$LINT_RESULT"
+          check "Conventional PR title" "$TITLE_RESULT"
+          check "Dependency review" "$DEPS_RESULT"
 
-          web=$(git ls-files '*package.json' | head -n 1)
-          native=$(git ls-files 'Package.swift' '*.xcodeproj/project.pbxproj' | head -n 1)
+          # Fail closed: when detection did not succeed, project state is unknown, not absent.
+          if [ "$DETECT_RESULT" != "success" ]; then
+            echo "::error title=Project state unknown::Project detection did not succeed, so project checks cannot be attributed."
+            failed=1
+          fi
+
+          # A tracked project must have a job that ran and passed. An absent project is
+          # reported as NOT RUN, which is shown in the summary and is not a pass.
+          project_row() {
+            local name=$1 tracked=$2 result=$3
+            if [ "$tracked" = "true" ]; then
+              check "$name" "$result"
+              echo "| $name | tracked | $result |"
+            else
+              echo "| $name | not present | NOT RUN |"
+            fi
+          }
 
           {
             echo "## simpledocs CI"
             echo
             echo "| Check | Result |"
             echo "| --- | --- |"
+            echo "| Detect projects | $DETECT_RESULT |"
             echo "| Workflow lint | $LINT_RESULT |"
             echo "| Conventional PR title | $TITLE_RESULT |"
             echo "| Dependency review | $DEPS_RESULT |"
             echo
-            echo "### Application projects"
-            echo
-            if [ -n "$web" ]; then
-              echo "- **Web app (\`$web\`): present but no CI job is configured. Not verified.**"
-              echo "::error title=Web app not wired::$web is tracked but no CI job verifies it."
-              failed=1
-            else
-              echo "- **Web app: NOT RUN.** No package.json is tracked yet."
-            fi
-            if [ -n "$native" ]; then
-              echo "- **Native app (\`$native\`): present but no CI job is configured. Not verified.**"
-              echo "::error title=Native app not wired::$native is tracked but no CI job verifies it."
-              failed=1
-            else
-              echo "- **Native app: NOT RUN.** No Package.swift or Xcode project is tracked yet."
-            fi
+            echo "| Project | State | Result |"
+            echo "| --- | --- | --- |"
+            project_row "Web (pnpm verify)" "$WEB_TRACKED" "$WEB_RESULT"
+            project_row "Native SimpleDocsKit (swift test)" "$PKG_TRACKED" "$PKG_RESULT"
+            project_row "Native apps (3 unsigned builds)" "$APPS_TRACKED" "$APPS_RESULT"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          if [ -z "$web" ] && [ -z "$native" ]; then
-            echo "::notice title=Application projects not run::Web and native app projects are not scaffolded yet, so their checks are not run."
+          if [ "$WEB_TRACKED$PKG_TRACKED$APPS_TRACKED" = "falsefalsefalse" ]; then
+            echo "::notice title=Application projects not run::No web or native project is tracked yet."
           fi
 
           exit "$failed"
