@@ -8,11 +8,12 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
+    "build:worker": "esbuild worker/index.mjs --bundle --format=esm --platform=browser --target=es2022 --outfile=build/worker/index.js",
     "preview": "astro preview",
     "astro": "astro",
     "check": "astro check",
     "test": "vitest run",
-    "verify": "pnpm check && pnpm build && pnpm test && node --test worker/*.test.mjs"
+    "verify": "pnpm check && pnpm build && pnpm build:worker && pnpm test && node --test worker/*.test.mjs"
   },
   "dependencies": {
     "@starwind-ui/astro": "1.5.0",
@@ -29,6 +30,7 @@
   "devDependencies": {
     "@astrojs/check": "^0.9.12",
     "@types/node": "^22",
+    "esbuild": "^0.28.2",
     "typescript": "^5.9.3",
     "vitest": "^5.1.0"
   },
