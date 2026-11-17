@@ -178,6 +178,28 @@ boundary, not HTTP, real browser callbacks, or signed Keychain behavior. Do not
 link this package to an app until these remaining pieces and their security
 boundaries are completed and tested.
 
+### Experimental flow update
+
+The preceding component descriptions predate `ConnectedFlow` and `ConnectedHTTP`.
+The unlinked package now orchestrates resource and issuer discovery, public
+client registration, browser authorization, code exchange and instance-scoped
+Worker requests, with in-memory expiry and cancellation through one coordinator.
+The HTTP adapter disables shared credentials, cookies and caches, denies redirects,
+and bounds responses. Synthetic adapter tests cover a successful flow, issuer
+substitution, expiration and selection changes. They do not test the actual HTTP
+adapter, signed browser/Keychain behavior, or a Cloudflare test deployment.
+
+This is not yet an app feature. There is no issuer confirmation UI, persistent
+credential integration, refresh, or verified callback registration. Cloudflare's
+walkthrough illustrates a loopback redirect, not the custom scheme used here;
+its example issuer metadata also differs from the exact issuer value required by
+our current validator. These compatibility assumptions must be checked against a
+dedicated configured test instance before enabling the flow. The existing app
+credential policy remains fail-closed. Dynamic client registration is a server
+mutation when the experimental flow is actually run; no such request was made
+in these tests. In-flight requests canceled on an instance switch may already
+have reached the original instance; cancellation cannot undo server effects.
+
 ## Address parsing
 
 The parser does not rely on `URL` or `URLComponents` leniency. It rejects:

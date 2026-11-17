@@ -9,6 +9,7 @@ public enum CoordinatorError: Error, Equatable {
 public struct IssuerConfirmation: Sendable {
     public let resource: String
     public let issuer: String
+    public let binding: ContextBinding
 
     public init(registry: InstanceRegistry, binding: ContextBinding, configuredIssuer: String,
                 confirmedResource: String, confirmedIssuer: String) throws {
@@ -18,6 +19,7 @@ public struct IssuerConfirmation: Sendable {
         }
         resource = confirmedResource
         issuer = confirmedIssuer
+        self.binding = binding
     }
 }
 
@@ -25,11 +27,12 @@ public struct IssuerConfirmation: Sendable {
 public struct PublicClientRegistration: Encodable, Sendable {
     public let client_name: String
     public let redirect_uris: [String]
+    public let resource: String
     public let grant_types = ["authorization_code"]
     public let response_types = ["code"]
     public let token_endpoint_auth_method = "none"
 
-    public init(name: String, callback: URL) throws {
+    public init(name: String, callback: URL, resource: InstanceOrigin) throws {
         guard !name.isEmpty, name.utf8.count <= 128,
               let parts = URLComponents(url: callback, resolvingAgainstBaseURL: false),
               let scheme = parts.scheme, scheme.contains("."), scheme != "http", scheme != "https",
@@ -37,6 +40,7 @@ public struct PublicClientRegistration: Encodable, Sendable {
               !parts.path.isEmpty else { throw OAuthFlowError.invalidConfiguration }
         client_name = name
         redirect_uris = [callback.absoluteString]
+        self.resource = resource.canonical
     }
 }
 

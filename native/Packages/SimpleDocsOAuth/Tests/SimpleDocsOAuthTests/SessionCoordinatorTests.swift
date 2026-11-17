@@ -57,10 +57,11 @@ import SimpleDocsConnected
     }
 
     @Test func registrationMetadataAndExpiration() throws {
-        let registration = try PublicClientRegistration(name: "Simpledocs", callback: URL(string: "dev.example.app:/oauth/callback")!)
+        let registration = try PublicClientRegistration(name: "Simpledocs", callback: URL(string: "dev.example.app:/oauth/callback")!, resource: InstanceOrigin.parse("https://one.example.com").get())
         let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(registration)) as? [String: Any])
         #expect(object["token_endpoint_auth_method"] as? String == "none")
         #expect(object["client_secret"] == nil)
+        #expect(object["resource"] as? String == "https://one.example.com")
         let tokens = OAuthTokens(accessToken: "synthetic", refreshToken: nil, expiresIn: 60, resource: "https://one.example.com/")
         let issued = Date(timeIntervalSince1970: 1000)
         let session = try ExpiringTokens(tokens: tokens, receivedAt: issued)
