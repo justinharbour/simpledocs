@@ -1,0 +1,10 @@
+---
+import { Button } from "@/components/starwind/button";
+
+type Props = { reasonId: string };
+const { reasonId } = Astro.props;
+---
+
+<Button variant="outline" disabled focusableWhenDisabled aria-describedby={reasonId}>
+  <slot />
+</Button>
