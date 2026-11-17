@@ -36,3 +36,25 @@ it('uploads a PDF, sends once with confirmation, and checks actual delivery', as
   assert.equal(uploads, 1); assert.equal(sends, 1);
   assert.equal((await (await handleFaxStatus(new Request(`https://example.test/api/faxes/${id}`), env, 'owner', id, fetcher)).json()).status, 'delivered');
 });
+
+it('never submits a fax when media upload fails', async () => {
+  const env = environment(); let calls = 0;
+  const response = await handleFaxSend(request(), env, 'owner', id, async () => {
+    calls++;
+    return new Response('unavailable', { status: 503 });
+  });
+  assert.equal(response.status, 502);
+  assert.equal(calls, 1);
+  assert.equal(await env.DB.prepare('SELECT status FROM fax_intents WHERE id = ?').bind(id).first(), undefined);
+});
+
+it('does not repeat a fax when the provider response is lost', async () => {
+  const env = environment(); let sends = 0;
+  const fetcher = async (url, options) => {
+    if (url.endsWith('/media')) return Response.json({ data: { media_name: options.body.get('media_name') } });
+    sends++; throw new Error('response lost');
+  };
+  assert.equal((await (await handleFaxSend(request(), env, 'owner', id, fetcher)).json()).status, 'unknown');
+  assert.equal((await handleFaxSend(request(), env, 'owner', id, fetcher)).status, 409);
+  assert.equal(sends, 1);
+});
