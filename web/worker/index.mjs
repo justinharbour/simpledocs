@@ -32,7 +32,7 @@ export function createWorker(resolveKeys = issuer => {
     }
     const url = new URL(request.url);
     if (url.pathname === '/api/mail-unresolved') return listUnresolvedMail(request, env, actor);
-    const mail = /^\/api\/mail-drafts\/([^/]+)\/(review|send|status)$/.exec(url.pathname);
+    const mail = /^\/api\/mail-drafts\/([^/]+)\/(review|send|status|acknowledge)$/.exec(url.pathname);
     if (mail) return handleMail(request, env, actor, mail[1], mail[2]);
     const fax = /^\/api\/faxes\/([^/]+)$/.exec(url.pathname);
     if (fax) return request.method === 'POST' ? handleFaxSend(request, env, actor, fax[1]) : handleFaxStatus(request, env, actor, fax[1]);

@@ -60,6 +60,22 @@ describe('mail review UI', () => {
     expect(document.querySelector<HTMLFieldSetElement>('#mail-fields')!.disabled).toBe(true);
     expect(document.querySelector('#mail-message')!.textContent).toContain('could not be checked');
   });
+  it('recovers an accepted order in a fresh session and requires acknowledgement', async () => {
+    sessionStorage.clear();
+    const mock = vi.fn(async (_url: string, options?: RequestInit) => {
+      if (options?.method === 'POST') return Response.json({ acknowledged: true });
+      return Response.json({ orders: [{ draft_id: draftId, status: 'accepted', provider_id: 'letter_123', confirmed_at: '2026-01-01' }] });
+    });
+    vi.stubGlobal('fetch', mock);
+    await import('../src/lib/mail-ui'); await tick();
+    expect(document.querySelector<HTMLFieldSetElement>('#mail-fields')!.disabled).toBe(true);
+    expect(document.querySelector('#mail-unresolved-list')!.textContent).toContain('letter_123');
+    const button = document.querySelector<HTMLButtonElement>('#mail-unresolved-list button')!;
+    expect(button.textContent).toContain('Acknowledge'); button.click(); await tick();
+    const post = mock.mock.calls.find(([, options]) => options?.method === 'POST');
+    expect(post?.[0]).toContain(`${draftId}/acknowledge`);
+    expect(JSON.parse(post![1]!.body as string)).toEqual({ acknowledged: true, providerId: 'letter_123' });
+  });
   it('rejects template characters before saving a draft', async () => {
     await import('../src/lib/mail-ui'); await tick();
     const form = document.querySelector<HTMLFormElement>('#mail-form')!;

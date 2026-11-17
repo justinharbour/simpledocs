@@ -24,7 +24,7 @@ export function letterPayload(content, id) {
 export async function listUnresolvedMail(request, env, actor) {
   if (request.method !== 'GET') return reply({ error: 'Method not allowed' }, 405);
   if (!env.DB) return reply({ error: 'Mail storage unavailable' }, 503);
-  const result = await env.DB.prepare("SELECT draft_id, revision, status, confirmed_at, updated_at FROM mail_intents WHERE actor_id = ? AND status IN ('submitting', 'unknown') ORDER BY confirmed_at DESC LIMIT 100").bind(actor).all();
+  const result = await env.DB.prepare("SELECT draft_id, revision, status, provider_id, confirmed_at, updated_at FROM mail_intents WHERE actor_id = ? AND (status IN ('submitting', 'unknown') OR (status = 'accepted' AND acknowledged_at IS NULL)) ORDER BY confirmed_at DESC LIMIT 100").bind(actor).all();
   return reply({ orders: result.results });
 }
 
@@ -47,8 +47,19 @@ export async function handleMail(request, env, actor, id, action, fetcher = fetc
   if (!UUID.test(id)) return reply({ error: 'Invalid draft ID' }, 400);
   if (!env.DB) return reply({ error: 'Mail storage unavailable' }, 503);
   if (action === 'status' && request.method === 'GET') {
-    const row = await env.DB.prepare('SELECT revision, status, provider_id, confirmed_at, updated_at FROM mail_intents WHERE draft_id = ? AND actor_id = ?').bind(id, actor).first();
+    const row = await env.DB.prepare('SELECT revision, status, provider_id, confirmed_at, updated_at, acknowledged_at FROM mail_intents WHERE draft_id = ? AND actor_id = ?').bind(id, actor).first();
     return row ? reply(row) : reply({ error: 'Not found' }, 404);
+  }
+  if (action === 'acknowledge') {
+    if (request.method !== 'POST') return reply({ error: 'Method not allowed' }, 405);
+    let body;
+    try { body = await readJson(request); } catch { return reply({ error: 'Invalid request' }, 400); }
+    if (!body || Object.keys(body).sort().join(',') !== 'acknowledged,providerId' || body.acknowledged !== true || typeof body.providerId !== 'string' || !/^letter_[a-zA-Z0-9]+$/.test(body.providerId)) return reply({ error: 'Explicit acknowledgement of the accepted order is required' }, 400);
+    const now = new Date().toISOString();
+    const changed = await env.DB.prepare("UPDATE mail_intents SET acknowledged_at = ?, updated_at = ? WHERE draft_id = ? AND actor_id = ? AND status = 'accepted' AND provider_id = ? AND acknowledged_at IS NULL").bind(now, now, id, actor, body.providerId).run();
+    if (changed.meta.changes === 1) return reply({ id, status: 'accepted', acknowledged: true });
+    const existing = await env.DB.prepare("SELECT acknowledged_at FROM mail_intents WHERE draft_id = ? AND actor_id = ? AND status = 'accepted' AND provider_id = ?").bind(id, actor, body.providerId).first();
+    return existing?.acknowledged_at ? reply({ id, status: 'accepted', acknowledged: true }) : reply({ error: 'Accepted order not found or not eligible for acknowledgement' }, 409);
   }
   if (action === 'review' && request.method === 'GET') {
     const row = await env.DB.prepare('SELECT revision, content_json FROM mail_drafts WHERE id = ? AND actor_id = ?').bind(id, actor).first();

@@ -84,7 +84,7 @@ initialization script is not an upgrade tool and must not be run against it.
 Before any separate deployment, independently verify the account, database ID,
 ownership, existing migration history and schema, active writers, backup and
 recovery procedures, and a current Time Travel bookmark and retention. Review
-`0004_mail_intents.sql`, `0005_mail_unresolved_actor.sql` and the complete pending migration list; do not assume
+`0004_mail_intents.sql`, `0005_mail_unresolved_actor.sql`, `0008_mail_acknowledgement.sql` and the complete pending migration list; do not assume
 earlier migrations were applied. Arrange a safe write window and apply only the
 reviewed pending migrations through the separately authorized Wrangler migration
 path, then read back history and schema without querying private content. Do not
@@ -94,7 +94,12 @@ The partial unique index in 0005 fails if any actor already has multiple
 unresolved claims; stop and reconcile through a separately reviewed process,
 never discard or reset rows to force the migration. Deploying the mail sender
 without this index would not enforce the actor-wide gate, so verify it exists
-before deploying the new Worker.
+before deploying the new Worker. Migration 0008 also intentionally fails if
+existing unacknowledged accepted and unresolved rows conflict for an actor;
+do not discard rows. Verify the expanded unique index and acknowledgement
+column before enabling the new code. Numbers 0006 and 0007 are used on other
+active feature branches; recheck the actual pending migration list and merge
+coordination before release rather than assuming those branches have landed.
 
 Deploy the reviewed Worker only after schema verification. Keep `MAIL_ENABLED`
 unset and do not configure a PostGrid key during this upgrade. The mail routes

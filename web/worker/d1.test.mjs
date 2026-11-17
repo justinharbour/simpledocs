@@ -29,7 +29,7 @@ it('serializes separate mail draft claims using a local D1 binding', async () =>
   const mf = new Miniflare({ modules: true, script: 'export default { fetch() { return new Response("ok") } }', compatibilityDate: '2026-07-01', d1Databases: ['DB'] });
   try {
     const db = await mf.getD1Database('DB');
-    for (const name of ['0002_mail_drafts.sql', '0004_mail_intents.sql', '0005_mail_unresolved_actor.sql']) {
+    for (const name of ['0002_mail_drafts.sql', '0004_mail_intents.sql', '0005_mail_unresolved_actor.sql', '0008_mail_acknowledgement.sql']) {
       const sql = await readFile(new URL(`../../backend/core/migrations/${name}`, import.meta.url), 'utf8');
       for (const statement of sql.split(';').map(s => s.trim()).filter(Boolean)) await db.prepare(statement).run();
     }

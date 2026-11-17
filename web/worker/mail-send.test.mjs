@@ -13,7 +13,7 @@ const address = { firstName: 'A', addressLine1: '1 Main', city: 'Boston', provin
 const content = { to: address, from: address, text: 'Hello <world>', color: false, doubleSided: false, mailingClass: 'first_class' };
 function db() {
   const sqlite = new DatabaseSync(':memory:');
-  for (const file of ['0002_mail_drafts.sql', '0004_mail_intents.sql', '0005_mail_unresolved_actor.sql']) sqlite.exec(readFileSync(new URL(`../../backend/core/migrations/${file}`, import.meta.url), 'utf8'));
+  for (const file of ['0002_mail_drafts.sql', '0004_mail_intents.sql', '0005_mail_unresolved_actor.sql', '0008_mail_acknowledgement.sql']) sqlite.exec(readFileSync(new URL(`../../backend/core/migrations/${file}`, import.meta.url), 'utf8'));
   return { prepare(sql) { return { bind(...args) { return { async first() { return sqlite.prepare(sql).get(...args); }, async all() { return { results: sqlite.prepare(sql).all(...args) }; }, async run() { return { meta: { changes: Number(sqlite.prepare(sql).run(...args).changes) } }; } }; } }; } };
 }
 const request = (path, body, origin = 'https://example.test') => new Request(base + path, body === undefined ? {} : { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -123,5 +123,30 @@ it('atomically blocks different drafts for an actor while unresolved, isolates a
     const r = await (await handleMail(new Request(u + '/review'), acceptedEnv, 'owner', draft, 'review')).json();
     const res = await handleMail(new Request(u + '/send', { method: 'POST', headers: { origin: 'https://example.test', 'content-type': 'application/json' }, body: JSON.stringify({ revision: r.revision, reviewHash: r.reviewHash, confirmed: true }) }), acceptedEnv, 'owner', draft, 'send', async () => Response.json({ object: 'letter', id: 'letter_123' }, { status: 201 }));
     assert.equal(res.status, 202);
+    const ack = await handleMail(new Request(u + '/acknowledge', { method: 'POST', headers: { origin: 'https://example.test', 'content-type': 'application/json' }, body: JSON.stringify({ acknowledged: true, providerId: 'letter_123' }) }), acceptedEnv, 'owner', draft, 'acknowledge');
+    assert.equal(ack.status, 200);
   }
+});
+
+it('recovers a lost accepted response and gates another draft until actor acknowledgement', async () => {
+  const database = db(); const env = { DB: database, MAIL_ENABLED: 'true', POSTGRID_API_KEY: 'fake' };
+  await save(database, 0); const r = await (await review(env)).json();
+  const response = await send(env, { revision: r.revision, reviewHash: r.reviewHash, confirmed: true }, async () => Response.json({ object: 'letter', id: 'letter_123' }, { status: 201 }));
+  assert.equal(response.status, 202); // Simulate the browser never receiving this response.
+  const list = actor => listUnresolvedMail(new Request('https://example.test/api/mail-unresolved'), env, actor);
+  assert.equal((await (await list('owner')).json()).orders[0].provider_id, 'letter_123');
+  assert.deepEqual((await (await list('other')).json()).orders, []);
+  const id2 = 'ad600156-741d-4fcb-a7b2-388d87883151'; const u = `https://example.test/api/mail-drafts/${id2}`;
+  await handleDraft(new Request(u, { method: 'PUT', headers: { origin: 'https://example.test', 'content-type': 'application/json' }, body: JSON.stringify({ revision: 0, content }) }), database, 'owner', id2);
+  const r2 = await (await handleMail(new Request(u + '/review'), env, 'owner', id2, 'review')).json();
+  const submit = () => handleMail(new Request(u + '/send', { method: 'POST', headers: { origin: 'https://example.test', 'content-type': 'application/json' }, body: JSON.stringify({ revision: r2.revision, reviewHash: r2.reviewHash, confirmed: true }) }), env, 'owner', id2, 'send', async () => Response.json({ object: 'letter', id: 'letter_456' }, { status: 201 }));
+  assert.equal((await submit()).status, 409);
+  const ack = (actor, providerId = 'letter_123', origin = 'https://example.test') => handleMail(request('/acknowledge', { acknowledged: true, providerId }, origin), env, actor, id, 'acknowledge');
+  assert.equal((await ack('other')).status, 409);
+  assert.equal((await ack('owner', 'letter_wrong')).status, 409);
+  assert.equal((await ack('owner', 'letter_123', 'https://evil.test')).status, 400);
+  assert.equal((await ack('owner')).status, 200);
+  assert.equal((await ack('owner')).status, 200);
+  assert.deepEqual((await (await list('owner')).json()).orders, []);
+  assert.equal((await submit()).status, 202);
 });

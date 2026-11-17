@@ -41,11 +41,25 @@ async function checkUnresolved() {
     unresolvedList.replaceChildren();
     for (const order of result.orders) {
       const item = document.createElement('li');
-      item.textContent = `Draft ${order.draft_id} — ${order.status} — confirmed ${order.confirmed_at}`;
+      item.textContent = `Draft ${order.draft_id} — ${order.status} — confirmed ${order.confirmed_at}${order.provider_id ? ` — PostGrid ID: ${order.provider_id}` : ''}`;
+      if (order.status === 'accepted' && typeof order.provider_id === 'string') {
+        const button = document.createElement('button');
+        button.type = 'button'; button.className = 'mt-2 block rounded-md border border-input px-4 py-2';
+        button.textContent = 'Acknowledge accepted order';
+        button.addEventListener('click', async () => {
+          button.disabled = true;
+          try {
+            const response = await fetch(`/api/mail-drafts/${encodeURIComponent(order.draft_id)}/acknowledge`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acknowledged: true, providerId: order.provider_id }) });
+            if (!response.ok) throw new Error();
+            if (!await checkUnresolved()) location.reload();
+          } catch { message.textContent = 'Acknowledgement could not be confirmed. Refresh the list before taking further action.'; button.disabled = false; }
+        });
+        item.append(button);
+      }
       unresolvedList.append(item);
     }
     unresolvedSection.hidden = result.orders.length === 0;
-    if (result.orders.length) { newLetter.hidden = true; lock('An unresolved order blocks new mail. Contact the operator with the draft ID below.'); return true; }
+    if (result.orders.length) { newLetter.hidden = true; lock('An order requiring attention blocks new mail. Acknowledge an accepted order or contact the operator about an uncertain order.'); return true; }
     return false;
   } catch {
     unresolvedSection.hidden = false; newLetter.hidden = true;
@@ -60,7 +74,7 @@ async function checkStatus() {
     if (!response.ok) throw new Error();
     const result = await response.json();
     lock(`${statusText(result.status)}${result.provider_id ? ` PostGrid ID: ${result.provider_id}.` : ''}`);
-    newLetter.hidden = result.status !== 'accepted';
+    newLetter.hidden = result.status !== 'accepted' || !result.acknowledged_at;
     return true;
   } catch {
     lock('Status is unavailable. Do not send again until the operator confirms the outcome.');
@@ -134,7 +148,7 @@ send.addEventListener('click', async () => {
     if (!response.ok) { if (!await checkUnresolved() && !await checkStatus()) lock('The order was not confirmed. Check status and contact the operator before trying again.'); return; }
     const result = await response.json();
     lock(`${statusText(result.status)}${result.providerId ? ` PostGrid ID: ${result.providerId}.` : ''}`);
-    newLetter.hidden = result.status !== 'accepted';
+    newLetter.hidden = true;
   } catch { lock('The send outcome is unknown. Do not send again. Check status and contact the operator.'); }
   await checkUnresolved();
 });

@@ -31,9 +31,11 @@ once before the paid call. `MAIL_ENABLED=true` and the server-only
 crash and `unknown` require manual provider reconciliation, never automatic retry.
 Unresolved orders are listed by authenticated actor across devices. A partial
 unique index blocks that actor from claiming any other order while one is
-`submitting` or `unknown`; accepted orders do not block new letters. Braces and
+`submitting`, `unknown`, or accepted but not explicitly acknowledged. An
+authenticated actor can acknowledge their accepted order after seeing its
+provider ID; this is not evidence of delivery. Braces and
 ampersands are rejected in letter text until provider template parsing and entity
-decoding behavior is verified. Do not deploy this sender without migration 0005.
+decoding behavior is verified. Do not deploy this sender without migrations 0005 and 0008.
 The mail UI saves and reviews a draft and displays the exact request before
 confirmation; no live deployment or provider test is authorized by this
 code. Before production validate account capabilities, migration, Access, UI
