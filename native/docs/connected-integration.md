@@ -89,8 +89,8 @@ origin, verified against that instance's configured issuer and application
 audience. That is distinct from the OAuth client's opaque token. Neither is a
 reason to accept an arbitrary identity issuer or embed an Access service token.
 
-No credential-bearing transport or authentication implementation was enabled
-on this evidence. The guard remains in force; `CredentialPolicy` denies every
+No credential-bearing transport or authentication implementation is enabled in
+the app on this evidence. The guard remains in force; `CredentialPolicy` denies every
 request, and the app cannot connect. An operator-selected non-Cloudflare identity
 mode would need its own reviewed contract, not a silent fallback.
 
@@ -106,8 +106,8 @@ S256 and public-client support. This is more restrictive than OAuth generally an
 may reject a valid Cloudflare configuration; cross-origin trust cannot be inferred
 from an unverified metadata response. Metadata is bound to the registry snapshot;
 callers must recheck the live selection after the asynchronous fetch. This package
-is not linked to an app and does not send credentials. Browser sign-in, exchange,
-storage and authenticated transport remain unimplemented.
+is not linked to an app. Browser sign-in, exchange and storage components are
+separate and not integrated; authenticated API transport remains unimplemented.
 
 ### Cloudflare team-origin discovery finding
 
@@ -145,9 +145,24 @@ resource metadata must advertise that origin, and issuer metadata must match it
 and the documented endpoint paths and public-client/PKCE capabilities. Merely
 constructing this value does not prove where the configuration came from. These
 validators currently accept supplied bytes only: there is no orchestrated fetch,
-client registration, browser session, code exchange, storage or app integration.
+client registration, integrated browser flow or app integration.
 They do not constitute a working sign-in. The exact metadata shape and resource
 conventions remain unverified against the selected Access application.
+
+The unlinked `SimpleDocsOAuth` package now also contains an
+`ASWebAuthenticationSession` wrapper, an authorization-code exchange transport
+that refuses redirects and bounds responses, and per-link device-only Keychain
+storage. These are separate components, not an integrated authentication flow:
+the UI does not obtain or confirm issuer configuration; no client registration,
+orchestration, token refresh, expiration handling, unlink purge or authenticated
+API transport is implemented. The registry parameters are snapshots, so callers
+must coordinate selection changes and reject stale results after every await;
+the components do not cancel in-flight work on switching instances. TokenStore
+deletion requires an active link and therefore must occur before unlinking. Never
+use the stored expiry interval as proof that a token is currently valid. Keychain
+behavior under signed sandboxed app targets and browser callbacks need device
+tests. Request and response bytes and Keychain contents are sensitive; do not log
+them. No end-to-end or live provider verification has been performed.
 
 ## Address parsing
 
