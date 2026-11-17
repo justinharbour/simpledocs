@@ -36,5 +36,10 @@
     "vitest": "^5.1.0"
   },
   "private": true,
+  "pnpm": {
+    "overrides": {
+      "sharp": "0.35.5"
+    }
+  },
   "description": "Static Astro and Starwind UI front end for simpledocs. No backend is connected."
 }
