@@ -4,6 +4,7 @@ import { handleFaxStatus } from './fax-status.mjs';
 import { handleFaxSend } from './fax-send.mjs';
 import { handleInboundFax } from './inbound-fax.mjs';
 import { handleInboundFaxRead } from './inbound-fax-read.mjs';
+import { handleFaxOperator } from './inbound-fax-operator.mjs';
 import { handleMail, listUnresolvedMail } from './mail-send.mjs';
 import { handleVoiceWebhook, handleVoiceRecording, listVoiceRecordings } from './voice-webhook.mjs';
 import { handleVoiceSession } from './voice-session.mjs';
@@ -48,6 +49,9 @@ export function createWorker(resolveKeys = issuer => {
       } catch { return Response.json({ error: 'Fax status unavailable' }, { status: 503, headers: { 'Cache-Control': 'no-store' } }); }
     }
     if (url.pathname === '/api/inbound-faxes') return handleInboundFaxRead(request, env, actor);
+    if (url.pathname === '/api/inbound-fax-recovery') return handleFaxOperator(request, env, actor);
+    const faxRecovery = /^\/api\/inbound-fax-recovery\/([^/]+)$/.exec(url.pathname);
+    if (faxRecovery) return handleFaxOperator(request, env, actor, faxRecovery[1]);
     const inboundPdf = /^\/api\/inbound-faxes\/([^/]+)\/pdf$/.exec(url.pathname);
     if (inboundPdf) return handleInboundFaxRead(request, env, actor, inboundPdf[1]);
     if (url.pathname === '/api/mail-unresolved') return listUnresolvedMail(request, env, actor);
