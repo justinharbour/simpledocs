@@ -17,6 +17,7 @@ It follows the proposed architecture and integration contracts in PR #2 (`docs/a
 | `CredentialPolicy`, `NativeAuthStatus` | Gate for attaching a credential to a request. Fails closed. |
 | `APIVersion` | Picks a supported major version or refuses. |
 | `WorkerPlanner` | Inert plans for the current owner Worker's mail draft read/write and fax status read routes, bound to a selected link and epoch. No transport, credential, or authorization is provided. |
+| `ManagedOAuthTransaction` | Offline authorization-code transaction with random state, PKCE S256, instance resource and strict, single-use callback validation. It does not establish endpoint trust, open a browser or exchange a code. |
 
 ## Owner Worker contract foundation
 
@@ -63,6 +64,24 @@ redirect restrictions, all tested end to end. Confirm the exact metadata,
 registration, supported PKCE and resource behavior against the selected Access
 application rather than inferring them from this overview. Review the worker's
 same-origin mutation requirement for native clients without weakening it.
+
+The owner selected Managed OAuth for their instance; this is not a mandate for
+other operators. `ManagedOAuthTransaction` implements only an offline protocol
+component. It uses separately generated 256-bit random state and verifier,
+S256, a resource derived from the active origin, strict callback matching and
+single-use state, and refuses callbacks after an instance switch. Its endpoint
+arguments are **not** verified by the type: callers must independently establish
+trust before showing a browser or exchanging a code. The custom URI scheme must
+be reserved and registered for the actual signed app; PKCE mitigates, but does
+not eliminate, custom-scheme interception risks. Exchange material must never be
+logged. The resource spelling and provider support require real integration tests.
+
+Deployment remains a separate reviewed change: inventory and verify the exact
+Access application and its existing policy and identity-provider associations;
+review an exact callback URI and minimal Managed OAuth configuration; preserve
+all other settings; and read back the application and policy after any future
+authorized change. Cloudflare documents that Managed OAuth changes 401 behavior,
+so test existing web and API clients as well. No configuration is changed here.
 
 Cloudflare's [Access JWT validation documentation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)
 describes the `Cf-Access-Jwt-Assertion` header as an assertion forwarded to the
