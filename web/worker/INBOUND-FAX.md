@@ -1,14 +1,11 @@
 # Inbound fax intake (not enabled or deployed)
 
-Migration sequencing: PR #36 owns `0004_mail_intents.sql`,
-`0005_mail_unresolved_actor.sql`, and the acknowledgement migration planned for
-`0006_mail_acknowledgement.sql`; this feature uses `0007_inbound_fax_events.sql`.
-At mail head `84a368c`, acknowledgement is still named `0008`, so its shift to
-`0006` must be confirmed before integration. Voice's shift to `0008` is pending.
-Merge mail into `develop` first, integrate it into this branch, then validate
-migrations 0001–0007 in order before considering
-this PR for merge or any separately authorized database upgrade. Renumbering
-does not apply a migration or change an existing database.
+Migration `0007_inbound_fax_events.sql` records archived events; migration
+`0010_inbound_fax_pending.sql` records pending receipts and creates the
+unarchived view. The combined integration includes voice `0008` and mail mode
+`0009`. Verify the actual production ledger, schema, backup and the reviewed
+deployment sequence before applying any migrations; local tests do not prove
+production state.
 
 ### Expired-media recovery design gap
 
@@ -21,8 +18,11 @@ to record the verified event ID, fax ID and timestamps before attempting media
 retrieval, preserve pending state across crashes, and independently retry or
 alert until the PDF is stored and linked. It must never persist signed URLs or
 acknowledge a received event as complete solely because refresh succeeded.
-The current handler does not persist failed download attempts; webhook retries
-alone are not a durable recovery mechanism.
+The handler now records a verified pending receipt before attempting the PDF
+download. A guarded operator recovery API calls refresh, retrieves the fax and
+validates its identity and media before archiving. This path is tested with
+synthetic responses only; account-specific refresh timing and media hosts remain
+unverified. The inbox warning is not proactive alerting.
 
 The exact `/webhooks/telnyx/fax` path is outside interactive Access in the
 Worker and uses Telnyx Ed25519 signatures over timestamp and exact raw bytes,
@@ -42,8 +42,8 @@ orphan objects. PDF keys include the content hash, so competing deliveries
 cannot replace the object referenced by the winning event row. A missing or expired URL, storage failure, or unsupported
 host returns 503 so Telnyx can retry. Telnyx documents ten-minute URL expiry and
 [a refresh action](https://developers.telnyx.com/api-reference/programmable-fax-commands/refresh-a-fax),
-but refresh/reconciliation is not implemented; alert and provide an operator
-recovery procedure before routing traffic. Telnyx may send duplicate and
+but real refresh/reconciliation and proactive alerting must be verified before
+routing traffic. Telnyx may send duplicate and
 out-of-order events; event IDs deduplicate without modifying delivery state.
 
 Telnyx's [fax reception guide](https://developers.telnyx.com/docs/programmable-fax/receive-a-fax-api)
@@ -53,8 +53,8 @@ The handler accepts only inbound fax lifecycle events from the configured fax
 connection and number. The same fax application may send outbound events to
 the same webhook: these are currently rejected and outbound event reconciliation
 must be added before using this endpoint for outbound fax. No retention policy,
-orphan cleanup, alerts, key rotation, queue, or fax
-refresh flow is provided. Private R2 policy and encryption, access, backup and
+orphan cleanup, proactive alerts, key rotation, or automatic recovery queue is
+provided. Private R2 policy and encryption, access, backup and
 restore require independent verification. Protect D1 and R2 as sensitive data.
 
 Authenticated retrieval is available at `GET /api/inbound-faxes` (most recent
@@ -65,6 +65,15 @@ for users authorized to read every fax in the instance; it is not per-user
 fax ownership. Missing or malformed configuration denies access. PDFs are
 served as no-store attachments, never via public R2 URLs. List pagination,
 per-user access control, caller metadata and fax management UI are not provided.
+
+For controlled testing, `GET /api/inbound-fax-recovery` lists up to 100 pending
+receipts; `POST /api/inbound-fax-recovery/{event-id}` attempts one recovery.
+Both require verified Access and membership in the separate JSON array
+`INBOUND_FAX_OPERATOR_SUBJECTS`; POST also requires a matching Origin. Both
+`TELNYX_INBOUND_FAX_ENABLED` and `TELNYX_FAX_RECOVERY_ENABLED` must be `true`.
+Keep recovery disabled until the account-specific media host and refresh flow
+have been verified. A 503 does not prove the fax is lost or recovered; inspect
+the pending list and reconcile. Do not expose credentials or signed URLs.
 
 The [common webhook documentation](https://developers.telnyx.com/docs/development/api-fundamentals/webhooks/receiving-webhooks)
 requires raw-body signature verification and describes duplicate and out-of-order
