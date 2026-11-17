@@ -8,6 +8,11 @@ const issuer = 'https://example.cloudflareaccess.com';
 const env = { ACCESS_AUDIENCE: 'expected', ACCESS_TEAM_DOMAIN: issuer, ASSETS: { fetch: async () => new Response('asset') } };
 
 describe('owner Worker Access boundary', () => {
+  it('exempts only the dedicated fax webhook and fails closed without configuration', async () => {
+    const path = '/webhooks/telnyx/fax';
+    assert.equal((await worker.fetch(request(undefined, path, { method: 'POST' }), env)).status, 503);
+    assert.equal((await worker.fetch(request(undefined, `${path}/other`, { method: 'POST' }), env)).status, 401);
+  });
   it('denies missing configuration, identity and forged tokens', async () => {
     assert.equal((await worker.fetch(request(), env)).status, 401);
     assert.equal((await worker.fetch(request('fake'), { ...env, ACCESS_TEAM_DOMAIN: 'https://evil.test' })).status, 401);

@@ -4,6 +4,7 @@ import unittest
 
 MIGRATION = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0001_core.sql'
 MAIL_DRAFTS = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0002_mail_drafts.sql'
+INBOUND_FAX = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0007_inbound_fax_events.sql'
 FAX_INTENTS = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0003_fax_intents.sql'
 MAIL_INTENTS = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0004_mail_intents.sql'
 MAIL_UNRESOLVED = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0005_mail_unresolved_actor.sql'
@@ -41,6 +42,24 @@ class MigrationTest(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):
             self.db.execute("INSERT INTO mail_drafts VALUES ('invalid','owner',1,'not json','now','now')")
 
+    def test_inbound_events_deduplicate(self):
+        self.db.executescript(INBOUND_FAX.read_text())
+        sql = 'INSERT INTO inbound_fax_events VALUES (?,?,?,?,?,?) ON CONFLICT(event_id) DO NOTHING'
+        self.db.execute(sql, ('event', 'fax', 'fax.received', 'then', 'now', 'private/key'))
+        self.db.execute(sql, ('event', 'fax', 'fax.received', 'then', 'later', 'private/key'))
+        self.assertEqual(self.db.execute('SELECT count(*) FROM inbound_fax_events').fetchone()[0], 1)
+
+    def test_migration_sequence_has_unique_prefixes(self):
+        migrations = sorted(INBOUND_FAX.parent.glob('*.sql'))
+        prefixes = [p.name.split('_', 1)[0] for p in migrations]
+        self.assertEqual(len(prefixes), len(set(prefixes)))
+        self.assertEqual(INBOUND_FAX.name, '0007_inbound_fax_events.sql')
+        if '0004' in prefixes:
+            self.assertIn('0004_mail_intents.sql', [p.name for p in migrations])
+        if '0005' in prefixes:
+            self.assertIn('0005_mail_unresolved_actor.sql', [p.name for p in migrations])
+        if '0006' in prefixes:
+            self.assertIn('0006_mail_acknowledgement.sql', [p.name for p in migrations])
     def test_mail_intent_upgrade_preserves_drafts_and_single_claim(self):
         self.db.executescript(MAIL_DRAFTS.read_text())
         self.db.executescript(FAX_INTENTS.read_text())

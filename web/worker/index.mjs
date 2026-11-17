@@ -2,6 +2,8 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { handleDraft } from './drafts.mjs';
 import { handleFaxStatus } from './fax-status.mjs';
 import { handleFaxSend } from './fax-send.mjs';
+import { handleInboundFax } from './inbound-fax.mjs';
+import { handleInboundFaxRead } from './inbound-fax-read.mjs';
 import { handleMail, listUnresolvedMail } from './mail-send.mjs';
 
 // Static Assets do not propagate ctx.access. Verify the Access assertion against
@@ -18,6 +20,7 @@ export function createWorker(resolveKeys = issuer => {
 }) {
   return {
   async fetch(request, env) {
+    if (new URL(request.url).pathname === '/webhooks/telnyx/fax') return handleInboundFax(request, env);
     const expected = env.ACCESS_AUDIENCE;
     const issuer = env.ACCESS_TEAM_DOMAIN;
     const token = request.headers.get('cf-access-jwt-assertion');
@@ -31,6 +34,18 @@ export function createWorker(resolveKeys = issuer => {
       return new Response('Unauthorized', { status: 401, headers: { 'Cache-Control': 'no-store' } });
     }
     const url = new URL(request.url);
+    if (url.pathname === '/api/faxes/unresolved') {
+      if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
+      try {
+        if (!env.DB) throw new Error();
+        const rows = await env.DB.prepare("SELECT id, status, created_at FROM fax_intents WHERE actor_id = ? AND status IN ('submitting', 'unknown', 'accepted') ORDER BY created_at, id").bind(actor).all();
+        if (!rows.success || !Array.isArray(rows.results)) throw new Error();
+        return Response.json({ intents: rows.results }, { headers: { 'Cache-Control': 'no-store' } });
+      } catch { return Response.json({ error: 'Fax status unavailable' }, { status: 503, headers: { 'Cache-Control': 'no-store' } }); }
+    }
+    if (url.pathname === '/api/inbound-faxes') return handleInboundFaxRead(request, env, actor);
+    const inboundPdf = /^\/api\/inbound-faxes\/([^/]+)\/pdf$/.exec(url.pathname);
+    if (inboundPdf) return handleInboundFaxRead(request, env, actor, inboundPdf[1]);
     if (url.pathname === '/api/mail-unresolved') return listUnresolvedMail(request, env, actor);
     const mail = /^\/api\/mail-drafts\/([^/]+)\/(review|send|status|acknowledge)$/.exec(url.pathname);
     if (mail) return handleMail(request, env, actor, mail[1], mail[2]);
