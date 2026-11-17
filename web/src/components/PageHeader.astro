@@ -1,0 +1,9 @@
+---
+type Props = { title: string; summary: string };
+const { title, summary } = Astro.props;
+---
+
+<header class="mb-8 flex flex-col gap-2">
+  <h1 class="text-2xl font-semibold tracking-tight text-balance sm:text-3xl">{title}</h1>
+  <p class="text-muted-foreground max-w-prose text-pretty">{summary}</p>
+</header>

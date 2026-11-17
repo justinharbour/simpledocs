@@ -1,0 +1,42 @@
+---
+import "@/styles/starwind.css";
+import AppSidebar from "@/components/AppSidebar.astro";
+import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/starwind/sidebar";
+
+type Props = { title: string; description: string };
+const { title, description } = Astro.props;
+const pageTitle = title === "Overview" ? "simpledocs" : `${title} · simpledocs`;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="generator" content={Astro.generator} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{pageTitle}</title>
+  </head>
+  <body>
+    <a
+      href="#main"
+      class="bg-background text-foreground sr-only z-50 rounded-md border px-3 py-2 focus:not-sr-only focus:fixed focus:top-2 focus:left-2"
+    >
+      Skip to content
+    </a>
+    <SidebarProvider style={{ "--sidebar-width": "15rem" }}>
+      <AppSidebar />
+      <SidebarInset id="main" tabindex="-1" class="outline-none">
+        <header class="flex h-12 shrink-0 items-center gap-2 border-b px-4 md:hidden">
+          <SidebarTrigger />
+          <span class="text-sm font-semibold">simpledocs</span>
+        </header>
+        <div class="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-8 sm:py-10">
+          <slot />
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
+  </body>
+</html>
