@@ -2,7 +2,7 @@ import Foundation
 import SimpleDocsConnected
 
 public enum DiscoveryError: Error, Equatable {
-    case staleContext, invalidResponse, responseTooLarge, invalidMetadata
+    case staleContext, invalidResponse, responseTooLarge, invalidMetadata, oauthNotAdvertised
 }
 
 /// Discovery is restricted to the chosen instance and does not send credentials. This conservative

@@ -21,10 +21,24 @@ public struct CloudflareTrust: Sendable {
     public func validateResourceMetadata(_ data: Data, registry: InstanceRegistry) throws {
         guard registry.isCurrent(binding) else { throw DiscoveryError.staleContext }
         guard data.count <= 65_536 else { throw DiscoveryError.responseTooLarge }
-        struct Resource: Decodable { let resource: String; let authorization_servers: [String] }
+        struct Resource: Decodable {
+            let resource: String
+            let authorization_servers: [String]
+            let protected: Bool?
+            let authentication_method: String?
+            let authentication_methods: [String]?
+        }
         guard let doc = try? JSONDecoder().decode(Resource.self, from: data),
               doc.resource == resource.canonical || doc.resource == resource.canonical + "/",
-              doc.authorization_servers == [team.canonical] else { throw DiscoveryError.invalidMetadata }
+              doc.authorization_servers == [team.canonical], doc.protected != false else { throw DiscoveryError.invalidMetadata }
+        // This is a negative signal only. Unknown or absent method fields do not prove OAuth is enabled.
+        if let methods = doc.authentication_methods,
+           (methods.isEmpty || methods.allSatisfy({ $0.lowercased() == "cloudflared" })) {
+            throw DiscoveryError.oauthNotAdvertised
+        }
+        if doc.authentication_methods == nil, doc.authentication_method?.lowercased() == "cloudflared" {
+            throw DiscoveryError.oauthNotAdvertised
+        }
     }
 
     public func validateIssuerMetadata(_ data: Data, registry: InstanceRegistry) throws -> CloudflareEndpoints {

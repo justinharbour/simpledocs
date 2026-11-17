@@ -214,6 +214,26 @@ requests has not been verified. Do not remove or bypass the Worker check to make
 the client connect. A dedicated configured test deployment is needed to verify
 the complete Access-to-Worker identity and authorization boundary.
 
+### Readiness evidence update
+
+The owner reports a read-only protected-resource metadata response for the
+Simpledocs hostname: `protected: true`, team `justinharbour.cloudflareaccess.com`,
+the matching team authorization server, and only `cloudflared` in authentication
+methods. This report is not an independently verified issuer binding and does
+not establish that Managed OAuth is enabled or disabled. An authorization-server
+URL by itself is not evidence of a usable Managed OAuth configuration. The
+validator now refuses an explicit cloudflared-only advertisement before client
+registration; absent method fields do not establish readiness either. No live
+client registration or policy change was made.
+
+Cloudflare's [Managed OAuth documentation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/)
+now explicitly says opaque OAuth tokens are resolved by Access into a signed
+assertion forwarded to the origin, and that private-use native redirect URIs are
+supported when explicitly allowlisted. This answers the general product-contract
+questions above, but does not verify this deployment's configuration, exact
+metadata, callback allowlist, or actual end-to-end Worker validation. The app
+remains disconnected until those are tested safely on a configured instance.
+
 ## Address parsing
 
 The parser does not rely on `URL` or `URLComponents` leniency. It rejects:

@@ -35,4 +35,13 @@ import SimpleDocsConnected
         try registry.activate(link.linkID)
         #expect(throws: DiscoveryError.staleContext) { try trust.validateResourceMetadata(resource(), registry: registry) }
     }
+    @Test func cloudflaredOnlyIsNotOAuthReadiness() throws {
+        let (registry, _, trust) = try setup()
+        for field in ["authentication_method", "authentication_methods"] {
+            let method: Any = field == "authentication_method" ? "cloudflared" : ["cloudflared"]
+            let data = try JSONSerialization.data(withJSONObject: ["resource": "https://instance.example.com", "protected": true,
+                "authorization_servers": ["https://team.cloudflareaccess.com"], field: method])
+            #expect(throws: DiscoveryError.oauthNotAdvertised) { try trust.validateResourceMetadata(data, registry: registry) }
+        }
+    }
 }
