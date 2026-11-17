@@ -39,6 +39,7 @@ describe.skipIf(!built)("built site (run `pnpm build` first)", () => {
     expect(doc).not.toMatch(/<form[\s>]/);
     expect(doc).not.toMatch(/type="submit"/);
     expect(doc.toLowerCase()).toMatch(/not connected|not available|not stored|nothing is connected|early build|cannot currently be changed/);
+<<<<<<< HEAD
   });
 
   it("provides a disconnected softphone with explicit call confirmation", () => {
@@ -47,6 +48,8 @@ describe.skipIf(!built)("built site (run `pnpm build` first)", () => {
     expect(doc).toContain('id="call-confirm"');
     expect(doc).toContain('id="call" disabled');
     expect(doc).toContain('Do not use this phone for emergency calls');
+=======
+>>>>>>> origin/main
   });
 
   it("provides a fax form with explicit confirmation", () => {
