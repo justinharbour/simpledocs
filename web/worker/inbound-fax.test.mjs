@@ -17,14 +17,14 @@ async function signed(body, timestamp = String(now / 1000)) {
   return new Request('https://example.test/webhooks/telnyx/fax', { method: 'POST', body: text, headers: { 'telnyx-timestamp': timestamp, 'telnyx-signature-ed25519': signature } });
 }
 function setup() {
-  const rows = new Map(), objects = new Map(); let downloads = 0;
+  const rows = new Map(), pending = new Map(), objects = new Map(); let downloads = 0;
   const env = {
     TELNYX_INBOUND_FAX_ENABLED: 'true', TELNYX_PUBLIC_KEY: publicKey, TELNYX_FAX_CONNECTION_ID: 'test-connection', TELNYX_FAX_NUMBER: '+12025550101',
-    DB: { prepare(sql) { return { bind(...args) { return { async first() { return rows.get(args[0]) ?? null; }, async run() { if (!sql.startsWith('INSERT')) throw Error(); rows.set(args[0], args); return { success: true }; } }; } }; } },
+    DB: { prepare(sql) { return { bind(...args) { return { async first() { return sql.includes('inbound_fax_pending') ? pending.get(args[0]) ?? null : rows.get(args[0]) ?? null; }, async run() { if (!sql.startsWith('INSERT')) throw Error(); if (sql.includes('inbound_fax_pending')) { if (!pending.has(args[0])) pending.set(args[0], { fax_id: args[1], occurred_at: args[2], received_at: args[3] }); } else if (!rows.has(args[0])) rows.set(args[0], args); return { success: true }; } }; } }; } },
     FAX_MEDIA: { async put(key, bytes) { objects.set(key, bytes); } },
   };
   const fetcher = async () => { downloads++; return new Response('%PDF-test', { headers: { 'Content-Type': 'application/pdf' } }); };
-  return { env, rows, objects, fetcher, downloads: () => downloads };
+  return { env, rows, pending, objects, fetcher, downloads: () => downloads };
 }
 
 test('verified received fax is stored privately before acknowledgement, duplicates do not fetch', async () => {
@@ -78,11 +78,21 @@ test('a transient download failure can be retried before the media URL expires',
   };
   assert.equal((await handleInboundFax(await signed(fixture()), s.env, { now, fetcher })).status, 503);
   assert.equal(s.rows.size, 0);
+  assert.equal(s.pending.size, 1);
+  assert.ok(!JSON.stringify([...s.pending.values()]).includes('signature=synthetic'));
   assert.equal(s.objects.size, 0);
   assert.equal((await handleInboundFax(await signed(fixture()), s.env, { now, fetcher })).status, 200);
   assert.equal(attempts, 2);
   assert.equal(s.rows.size, 1);
   assert.equal(s.objects.size, 1);
+});
+
+test('a conflicting pending receipt cannot fetch or archive another fax', async () => {
+  const s = setup();
+  s.pending.set(id, { fax_id: '33333333-3333-4333-8333-333333333333', occurred_at: fixture().data.occurred_at });
+  assert.equal((await handleInboundFax(await signed(fixture()), s.env, { now, fetcher: s.fetcher })).status, 503);
+  assert.equal(s.downloads(), 0);
+  assert.equal(s.rows.size, 0);
 });
 
 test('concurrent duplicate deliveries with different media cannot overwrite each other', async () => {

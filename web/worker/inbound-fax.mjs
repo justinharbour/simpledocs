@@ -69,6 +69,13 @@ export async function handleInboundFax(request, env, { fetcher = fetch, now = Da
     if (existing) return response(200);
     let objectKey = null;
     if (data.event_type === 'fax.received') {
+      // Persist only verified identifiers before attempting the expiring URL.
+      // An archived event resolves this receipt; it must never itself suppress a retry.
+      const pending = await env.DB.prepare('INSERT INTO inbound_fax_pending (event_id, fax_id, occurred_at, received_at) VALUES (?, ?, ?, ?) ON CONFLICT(event_id) DO NOTHING')
+        .bind(data.id, payload.fax_id, data.occurred_at, new Date(now).toISOString()).run();
+      if (!pending.success) throw new Error();
+      const receipt = await env.DB.prepare('SELECT fax_id, occurred_at FROM inbound_fax_pending WHERE event_id = ?').bind(data.id).first();
+      if (!receipt || receipt.fax_id !== payload.fax_id || receipt.occurred_at !== data.occurred_at) throw new Error();
       const url = mediaURL(payload.media_url);
       const media = await fetcher(url, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(15000) });
       if (!media.ok || !/^application\/pdf(?:\s*;|\s*$)/i.test(media.headers.get('content-type') ?? '')) throw new Error();

@@ -5,6 +5,7 @@ import unittest
 MIGRATION = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0001_core.sql'
 MAIL_DRAFTS = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0002_mail_drafts.sql'
 INBOUND_FAX = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0007_inbound_fax_events.sql'
+FAX_PENDING = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0010_inbound_fax_pending.sql'
 FAX_INTENTS = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0003_fax_intents.sql'
 MAIL_INTENTS = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0004_mail_intents.sql'
 MAIL_UNRESOLVED = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0005_mail_unresolved_actor.sql'
@@ -17,6 +18,14 @@ class MigrationTest(unittest.TestCase):
         self.db.executescript(MIGRATION.read_text())
         self.db.execute("INSERT INTO jobs VALUES ('j','a','now')")
         self.db.execute("INSERT INTO deliveries VALUES ('d','j','fax',1,'draft',NULL,NULL,'now')")
+
+    def test_pending_fax_is_visible_until_archived(self):
+        self.db.executescript(INBOUND_FAX.read_text())
+        self.db.executescript(FAX_PENDING.read_text())
+        self.db.execute("INSERT INTO inbound_fax_pending VALUES ('event', 'fax', 'then', 'now')")
+        self.assertEqual(self.db.execute('SELECT event_id FROM inbound_fax_unarchived').fetchall(), [('event',)])
+        self.db.execute("INSERT INTO inbound_fax_events VALUES ('event', 'fax', 'fax.received', 'then', 'now', 'private/object')")
+        self.assertEqual(self.db.execute('SELECT event_id FROM inbound_fax_unarchived').fetchall(), [])
 
     def test_constraints_and_immutability(self):
         with self.assertRaises(sqlite3.IntegrityError):
