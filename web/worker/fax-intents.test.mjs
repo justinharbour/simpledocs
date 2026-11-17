@@ -16,6 +16,21 @@ const id = '11111111-1111-4111-8111-111111111111';
 const intent = { id, actor: 'owner', destination: '+12025550102', mediaName: 'document.pdf' };
 const config = { enabled: true, token: 'test', connectionId: 'test', from: '+12025550101' };
 
+it('blocks distinct IDs for an actor with an unresolved send, but isolates other actors', async () => {
+  const db = database();
+  const second = '22222222-2222-4222-8222-222222222222';
+  const third = '33333333-3333-4333-8333-333333333333';
+  await prepareFax(db, intent);
+  await prepareFax(db, { ...intent, id: second });
+  await prepareFax(db, { ...intent, id: third, actor: 'other' });
+  let calls = 0;
+  const submit = async () => { calls++; return { outcome: 'unknown' }; };
+  const results = await Promise.all([id, second].map(candidate => sendPreparedFax(db, { id: candidate, actor: 'owner', config, confirmed: true }, submit)));
+  assert.equal(calls, 1);
+  assert.deepEqual(results.map(r => r.outcome).sort(), ['not_claimed', 'unknown']);
+  assert.equal((await sendPreparedFax(db, { id: third, actor: 'other', config, confirmed: true }, submit)).outcome, 'unknown');
+});
+
 it('claims once under concurrent confirmation and preserves actor isolation', async () => {
   const db = database();
   assert.equal(await prepareFax(db, intent), true);

@@ -1,33 +1,22 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import PageHeader from "@/components/PageHeader.astro";
-import NotConnectedNotice from "@/components/NotConnectedNotice.astro";
 import Field from "@/components/Field.astro";
-import UnavailableButton from "@/components/UnavailableButton.astro";
-import UnavailableReason from "@/components/UnavailableReason.astro";
-import { Checkbox } from "@/components/starwind/checkbox";
 import { Input } from "@/components/starwind/input";
 import { Textarea } from "@/components/starwind/textarea";
-import { exampleJob } from "@/lib/examples";
 
-const channels = [
-  { id: "channel-fax", label: "Fax" },
-  { id: "channel-mail", label: "Paper mail" },
-];
 ---
 
 <AppLayout
   title="Compose"
-  description="Preview of how a fax and a paper letter are proposed to be prepared, approved and sent. Nothing can be sent yet."
+  description="Prepare a paper mail draft."
 >
   <PageHeader
     title="Compose"
-    summary="Prepare one document for fax, paper mail or both. Proposed: each would be delivered, approved and tracked on its own."
+    summary="Prepare a paper mail draft or send a fax."
   />
 
-  <NotConnectedNotice title="Sending is unavailable">
-    The mail draft editor below requires connected storage. The remaining controls are synthetic previews; nothing can be sent or uploaded.
-  </NotConnectedNotice>
+  <p class="mt-6 text-sm"><a href="/fax/" class="underline underline-offset-4">Send a fax</a></p>
 
   <section class="mt-10 flex max-w-xl flex-col gap-4" aria-labelledby="draft-heading">
     <h2 id="draft-heading" class="text-lg font-semibold">Mail draft</h2>
@@ -45,82 +34,6 @@ const channels = [
     <p id="draft-status" role="status" aria-live="polite">Draft not saved.</p>
   </section>
 
-  <div class="mt-10 flex max-w-xl flex-col gap-10">
-    <section aria-labelledby="document-heading" class="flex flex-col gap-4">
-      <h2 id="document-heading" class="text-lg font-semibold">Document</h2>
-      <fieldset disabled class="flex flex-col gap-4 border-0 p-0" aria-describedby="document-hint">
-        <legend class="sr-only">Document (unavailable)</legend>
-        <Field id="document" label="File to send" hint="PDF. Proposed: once storage is connected, the file would be kept privately, with no public link.">
-          <Input id="document" type="file" disabled aria-describedby="document-hint" />
-        </Field>
-      </fieldset>
-    </section>
-
-    <section aria-labelledby="channels-heading" class="flex flex-col gap-4">
-      <h2 id="channels-heading" class="text-lg font-semibold">Channels</h2>
-      <p id="channels-desc" class="text-muted-foreground max-w-prose text-sm text-pretty">
-        Pick one or both. Proposed: each would create its own delivery with its own status, and a failure in one would not cause the other to be sent again.
-      </p>
-      <fieldset disabled class="flex flex-col gap-4 border-0 p-0" aria-describedby="channels-desc">
-        <legend class="sr-only">Channels (unavailable)</legend>
-        {
-          channels.map((channel) => (
-            <div class="flex items-center gap-2">
-              <Checkbox id={channel.id} disabled aria-disabled="true" aria-labelledby={`${channel.id}-label`} />
-              <span id={`${channel.id}-label`} class="font-medium">{channel.label}</span>
-            </div>
-          ))
-        }
-      </fieldset>
-    </section>
-
-    <section aria-labelledby="recipient-heading" class="flex flex-col gap-4">
-      <h2 id="recipient-heading" class="text-lg font-semibold">Recipient</h2>
-      <p id="recipient-desc" class="text-muted-foreground max-w-prose text-sm text-pretty">
-        Every value here is a synthetic example. Proposed: changing the recipient or the document later would create a new revision and cancel any approval.
-      </p>
-      <fieldset disabled class="flex flex-col gap-4 border-0 p-0" aria-describedby="recipient-desc">
-        <legend class="sr-only">Recipient (unavailable)</legend>
-        <Field id="fax-number" label="Fax number" synthetic>
-          <Input id="fax-number" type="tel" disabled value={exampleJob.fax.number} />
-        </Field>
-        <Field id="mail-name" label="Name for paper mail" synthetic>
-          <Input id="mail-name" type="text" disabled value={exampleJob.mail.recipient} />
-        </Field>
-        <Field id="mail-address" label="Mailing address" synthetic>
-          <Textarea id="mail-address" rows={3} disabled value={exampleJob.mail.address.join("\n")} />
-        </Field>
-      </fieldset>
-    </section>
-
-    <section aria-labelledby="proof-heading" class="flex flex-col gap-4">
-      <h2 id="proof-heading" class="text-lg font-semibold">Review and confirmation</h2>
-      <p class="text-muted-foreground max-w-prose text-sm text-pretty">
-        Provider proof is not available. A preview in this app would not guarantee what the provider prints or that a letter arrives. Paid sending is not implemented; when available, it will require your explicit confirmation.
-      </p>
-      <div class="flex flex-wrap gap-3">
-        <UnavailableButton reasonId="proof-reason">Request provider proof</UnavailableButton>
-        <UnavailableButton reasonId="proof-reason">Approve proof</UnavailableButton>
-      </div>
-      <UnavailableReason id="proof-reason">
-        Provider proof is not connected. Paper mail sending is also unavailable; no order can be placed here.
-      </UnavailableReason>
-    </section>
-
-    <section aria-labelledby="send-heading" class="flex flex-col gap-4">
-      <h2 id="send-heading" class="text-lg font-semibold">Send</h2>
-      <p class="text-muted-foreground max-w-prose text-sm text-pretty">
-        Proposed: once sending exists, "accepted" would mean the request was recorded and passed on, not that it was delivered. A request that times out would show as an unknown outcome, and nothing would be resent automatically.
-      </p>
-      <div class="flex flex-wrap gap-3">
-        <UnavailableButton reasonId="send-reason">Send</UnavailableButton>
-      </div>
-      <UnavailableReason id="send-reason">
-        Sending is turned off. No fax or mail provider is connected.
-        <a href="/settings/" class="underline underline-offset-4">See settings</a>.
-      </UnavailableReason>
-    </section>
-  </div>
 </AppLayout>
 
 <script>

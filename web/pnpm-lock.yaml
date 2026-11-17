@@ -24,6 +24,9 @@ importers:
       '@tailwindcss/vite':
         specifier: ^4
         version: 4.3.5(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
+      '@telnyx/webrtc':
+        specifier: ^2.28.2
+        version: 2.28.2
       astro:
         specifier: ^7.4.12
         version: 7.4.12(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)
@@ -52,6 +55,9 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+      impeccable:
+        specifier: 4.9.2
+        version: 4.9.2
       jsdom:
         specifier: ^31.0.1
         version: 31.0.1
@@ -667,6 +673,36 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@impeccable/cli-darwin-arm64@0.1.25':
+    resolution: {integrity: sha512-fT0Crplzh1CkyPIgBjjVNW688ZKg1nI6a9/MLCMRGDipopv5BUvYmxCAVghb5KLaLDk7lWKsHDiIt6buk5biVA==}
+    cpu: [arm64]
+    os: [darwin]
+    hasBin: true
+
+  '@impeccable/cli-darwin-x64@0.1.25':
+    resolution: {integrity: sha512-YpypqgDibPW4gzYENcgPxJkErrvxl8oCv4j0Tzs3ZDLBLJuVEI2SXONKJ5bHhPqAVVtnzyWQg0mhzx8fYiZR/A==}
+    cpu: [x64]
+    os: [darwin]
+    hasBin: true
+
+  '@impeccable/cli-linux-arm64@0.1.25':
+    resolution: {integrity: sha512-Biw+5OmfjGXeBESM1WLge2EJI+3WND4XqVXcF9YjqYQgdov3HKOsgqUpbhoTR/U24nPDVmTm15xvdyKGyFMOtQ==}
+    cpu: [arm64]
+    os: [linux]
+    hasBin: true
+
+  '@impeccable/cli-linux-x64@0.1.25':
+    resolution: {integrity: sha512-xzvN9bCXry1g5mqPj9PWupuhbJzdUGf/GAbsgRKXiaYt7HGD1Hxj9R6+eqDq3WA8qYVkk4PwJg5BSvoBOoZhdQ==}
+    cpu: [x64]
+    os: [linux]
+    hasBin: true
+
+  '@impeccable/cli-windows-x64@0.1.25':
+    resolution: {integrity: sha512-/v1bMHGxpyyzURTkjFIpBW54cuJfACSatxZnD9wP/2DsQmUWlIAf481Ib16keVwZDcOAy2NxgNiHED+SJWxINQ==}
+    cpu: [x64]
+    os: [win32]
+    hasBin: true
+
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
 
@@ -712,6 +748,10 @@ packages:
 
   '@oxc-project/types@0.156.0':
     resolution: {integrity: sha512-1Duyg48TdJNdyhEB8Xn1L36bT9Pv6GUtlKjHxOys8xkaF/rQq3XJE+bAurSK/AgIz5mGFsb77cn9Pb20+WCScw==}
+
+  '@peermetrics/webrtc-stats@5.9.0':
+    resolution: {integrity: sha512-eQYGGdj+H4MUEuwbccy9bxRV3uAqPM5+Say9PSx/alrtv5ccmKCqGfLbqXrRJ/qThZvjZNBna5K/YnCWoaTQBw==}
+    engines: {node: '>=18'}
 
   '@poppinss/colors@4.1.6':
     resolution: {integrity: sha512-H9xkIdFswbS8n1d6vmRd8+c10t2Qe+rZITbbDHHkQixH5+2x1FDGmi/0K+WgWiqQFKPSlIYB7jlH6Kpfn6Fleg==}
@@ -964,6 +1004,10 @@ packages:
     resolution: {integrity: sha512-BCNiY0a1ZjdOHVqw7kyb7U72BwfMF3dfUuN+tQsLWky/J5JOI/r7abibglXfygrZhVO/3u3V+E25kkKTeMkXaQ==}
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7 || ^8
+
+  '@telnyx/webrtc@2.28.2':
+    resolution: {integrity: sha512-m9aBO0RiNCG61oUmsSZefbxypFxuemku6TKkCVQYpCsxeCpH4idTjnIA/xVZZHqA5WQOesS3k2NYeUPsIdYNcA==}
+    engines: {node: '>=14.x'}
 
   '@tybys/wasm-util@0.10.5':
     resolution: {integrity: sha512-dOGOPxlaNV+G046mZzN+9C0dAcQZeSKcXiVaM0TYy/LM4ttTmgSBDxYfovcYI8Em3+eAbiAYpvWLOv8+ZVRJKA==}
@@ -1283,6 +1327,10 @@ packages:
   estree-walker@3.0.3:
     resolution: {integrity: sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==}
 
+  events@3.3.0:
+    resolution: {integrity: sha512-mQw+2fkQbALzQ7V0MY0IqdnXNOeTtP4r0lN9z7AAawCXgqea7bDii20AYrIBrFd/Hx0M2Ocz6S111CaFkUcb0Q==}
+    engines: {node: '>=0.8.x'}
+
   expect-type@1.4.0:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
@@ -1372,6 +1420,11 @@ packages:
 
   http-cache-semantics@4.3.0:
     resolution: {integrity: sha512-M5t5LlJpS1UHMjvwRQVdFHvPISGeLAxNcrWuJkeGh0KxsqCHZ1O3NXZU/8x7cD0BDcGW8kapxMKTvwlqrNkHkA==}
+
+  impeccable@4.9.2:
+    resolution: {integrity: sha512-4gO8ni/yZVpNW+3yP019VS+5C8f8J8rClnBdmPv0aod/oadYQW4A07T1aV5T3OAKH57xUfiKD2PwEVdAewyeig==}
+    engines: {node: '>=18.19.0'}
+    hasBin: true
 
   iron-webcrypto@1.2.1:
     resolution: {integrity: sha512-feOM6FaSr6rEABp/eDfVseKyTMDt+KGpeB35SkVn9Tyn0CqvVsY3EwI0v5i8nMHyJnzCIQf7nsy3p41TPkJZhg==}
@@ -1495,6 +1548,10 @@ packages:
   lightningcss@1.33.0:
     resolution: {integrity: sha512-WkUDrojuJs0xkgGf2udWxa3yGBRxPtxUkB79i6aCZLRgc7PM8fZe9TosfPDcvEpQZbuFASnHYmRLBLUbmLOIIA==}
     engines: {node: '>= 12.0.0'}
+
+  loglevel@1.9.2:
+    resolution: {integrity: sha512-HgMmCqIJSAKqo68l0rS2AanEWfkxaZ5wNiEFb5ggm08lDs9Xl2KxBlX3PTcaD2chBM1gXAYf491/M2Rv8Jwayg==}
+    engines: {node: '>= 0.6.0'}
 
   lru-cache@11.5.3:
     resolution: {integrity: sha512-U4N8FgzmWxc8k1VH8Kr6lQg18U7Fjvby6wXHVRX/ZZ7IwWbRMgrRbP0Wrb5q5NVinryp4SQampHKdvtecItxUg==}
@@ -1938,6 +1995,16 @@ packages:
         optional: true
       uploadthing:
         optional: true
+
+  uuid@7.0.3:
+    resolution: {integrity: sha512-DPSke0pXhTZgoF/d+WSt2QaKMCFSfx7QegxEWT+JOuHF5aWrKEn0G+ztjuJg/gG8/ItK+rbPCD/yNv8yyih6Cg==}
+    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+    hasBin: true
+
+  uuid@8.3.2:
+    resolution: {integrity: sha512-+NYs2QeMWy+GWFOEm9xnn6HCDp0l7QBD7ml8zLUmJ+93Q5NF0NocErnwkTkXVFNiX3/fpC6afS8Dhb/gz7R7eg==}
+    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+    hasBin: true
 
   verkit@0.5.0:
     resolution: {integrity: sha512-u4J1hr6Y+C/hit34GwL3eIcUf3wngT8TlYUjK7tk0jxydKLAq3sYvifjdTDA6U3KCKRcQCQDGf/srjxfZF3l7g==}
@@ -2733,6 +2800,21 @@ snapshots:
   '@img/sharp-win32-x64@0.35.5':
     optional: true
 
+  '@impeccable/cli-darwin-arm64@0.1.25':
+    optional: true
+
+  '@impeccable/cli-darwin-x64@0.1.25':
+    optional: true
+
+  '@impeccable/cli-linux-arm64@0.1.25':
+    optional: true
+
+  '@impeccable/cli-linux-x64@0.1.25':
+    optional: true
+
+  '@impeccable/cli-windows-x64@0.1.25':
+    optional: true
+
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
@@ -2787,6 +2869,11 @@ snapshots:
   '@oslojs/encoding@1.1.0': {}
 
   '@oxc-project/types@0.156.0': {}
+
+  '@peermetrics/webrtc-stats@5.9.0':
+    dependencies:
+      events: 3.3.0
+      uuid: 8.3.2
 
   '@poppinss/colors@4.1.6':
     dependencies:
@@ -2982,6 +3069,12 @@ snapshots:
       '@tailwindcss/oxide': 4.3.5
       tailwindcss: 4.3.5
       vite: 8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)
+
+  '@telnyx/webrtc@2.28.2':
+    dependencies:
+      '@peermetrics/webrtc-stats': 5.9.0
+      loglevel: 1.9.2
+      uuid: 7.0.3
 
   '@tybys/wasm-util@0.10.5':
     dependencies:
@@ -3389,6 +3482,8 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.10
 
+  events@3.3.0: {}
+
   expect-type@1.4.0: {}
 
   extend@3.0.2: {}
@@ -3479,6 +3574,14 @@ snapshots:
   html-void-elements@3.0.0: {}
 
   http-cache-semantics@4.3.0: {}
+
+  impeccable@4.9.2:
+    optionalDependencies:
+      '@impeccable/cli-darwin-arm64': 0.1.25
+      '@impeccable/cli-darwin-x64': 0.1.25
+      '@impeccable/cli-linux-arm64': 0.1.25
+      '@impeccable/cli-linux-x64': 0.1.25
+      '@impeccable/cli-windows-x64': 0.1.25
 
   iron-webcrypto@1.2.1: {}
 
@@ -3580,6 +3683,8 @@ snapshots:
       lightningcss-linux-x64-musl: 1.33.0
       lightningcss-win32-arm64-msvc: 1.33.0
       lightningcss-win32-x64-msvc: 1.33.0
+
+  loglevel@1.9.2: {}
 
   lru-cache@11.5.3: {}
 
@@ -4004,6 +4109,10 @@ snapshots:
       node-fetch-native: 1.6.7
       ofetch: 1.5.1
       ufo: 1.6.4
+
+  uuid@7.0.3: {}
+
+  uuid@8.3.2: {}
 
   verkit@0.5.0: {}
 

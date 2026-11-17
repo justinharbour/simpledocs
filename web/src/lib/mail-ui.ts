@@ -7,6 +7,9 @@ const reviewSection = document.querySelector<HTMLElement>('#mail-review')!;
 const preview = document.querySelector<HTMLElement>('#mail-preview')!;
 const payloadView = document.querySelector<HTMLElement>('#mail-payload')!;
 const confirmation = document.querySelector<HTMLInputElement>('#mail-confirm')!;
+const modeInput = document.querySelector<HTMLSelectElement>('#mail-mode')!;
+const modeLabel = document.querySelector<HTMLElement>('#mail-review-mode')!;
+const confirmationLabel = document.querySelector<HTMLElement>('#mail-confirm-label')!;
 const send = document.querySelector<HTMLButtonElement>('#mail-send')!;
 const edit = document.querySelector<HTMLButtonElement>('#mail-edit')!;
 const check = document.querySelector<HTMLButtonElement>('#mail-check')!;
@@ -19,14 +22,15 @@ const key = 'simpledocs-mail-draft-id';
 let id = sessionStorage.getItem(key) || crypto.randomUUID();
 sessionStorage.setItem(key, id);
 let revision = 0;
-let reviewed: { revision: number; reviewHash: string } | null = null;
+let reviewed: { revision: number; reviewHash: string; mode: 'test' | 'live' } | null = null;
 let locked = false;
 const url = () => `/api/mail-drafts/${id}`;
 idLabel.textContent = `Draft ID: ${id}. Keep this ID if you need help checking an order.`;
 
-function statusText(status: string) {
-  if (status === 'accepted') return 'Accepted by PostGrid. This is not confirmation of printing or delivery. Do not send again.';
-  return 'The order may have been created. Do not send again. Contact the operator to reconcile this draft ID with PostGrid.';
+function statusText(status: string, mode: unknown) {
+  const label = mode === 'test' ? 'TEST MODE' : mode === 'live' ? 'LIVE MODE' : 'MODE UNAVAILABLE';
+  if (status === 'accepted') return `${label}: Accepted by PostGrid. This is not confirmation of printing or delivery. Do not send again.`;
+  return `${label}: The order may have been created. Do not send again. Contact the operator to reconcile this draft ID with PostGrid.`;
 }
 function lock(text: string) {
   locked = true; fields.disabled = true; send.disabled = true; edit.disabled = true;
@@ -41,7 +45,7 @@ async function checkUnresolved() {
     unresolvedList.replaceChildren();
     for (const order of result.orders) {
       const item = document.createElement('li');
-      item.textContent = `Draft ${order.draft_id} — ${order.status} — confirmed ${order.confirmed_at}${order.provider_id ? ` — PostGrid ID: ${order.provider_id}` : ''}`;
+      item.textContent = `Draft ${order.draft_id} — ${order.provider_mode} mode — ${order.status} — confirmed ${order.confirmed_at}${order.provider_id ? ` — PostGrid ID: ${order.provider_id}` : ''}`;
       if (order.status === 'accepted' && typeof order.provider_id === 'string') {
         const button = document.createElement('button');
         button.type = 'button'; button.className = 'mt-2 block rounded-md border border-input px-4 py-2';
@@ -73,7 +77,7 @@ async function checkStatus() {
     if (response.status === 404) return false;
     if (!response.ok) throw new Error();
     const result = await response.json();
-    lock(`${statusText(result.status)}${result.provider_id ? ` PostGrid ID: ${result.provider_id}.` : ''}`);
+    lock(`${statusText(result.status, result.provider_mode)}${result.provider_id ? ` PostGrid ID: ${result.provider_id}.` : ''}`);
     newLetter.hidden = result.status !== 'accepted' || !result.acknowledged_at;
     return true;
   } catch {
@@ -120,16 +124,20 @@ form.addEventListener('submit', async event => {
     const saved = await fetch(url(), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision, content }) });
     if (!saved.ok) throw new Error('Could not save the draft. Reload to check its latest revision.');
     revision = (await saved.json()).revision;
-    const response = await fetch(`${url()}/review`, { cache: 'no-store' });
+    const mode = modeInput.value;
+    if (mode !== 'test' && mode !== 'live') throw new Error('Choose a valid mail mode.');
+    const response = await fetch(`${url()}/review?mode=${mode}`, { cache: 'no-store' });
     if (!response.ok) throw new Error('Could not prepare the review. Check the letter and try again.');
     const result = await response.json();
-    if (result.revision !== revision) throw new Error('The draft changed. Reload before reviewing.');
-    reviewed = { revision: result.revision, reviewHash: result.reviewHash };
+    if (result.revision !== revision || result.mode !== mode) throw new Error('The draft or selected mode changed. Reload before reviewing.');
+    reviewed = { revision: result.revision, reviewHash: result.reviewHash, mode };
+    modeLabel.textContent = mode === 'live' ? 'LIVE MODE — this creates a paid physical mailing.' : 'TEST MODE — uses the PostGrid test key; no live mailing.';
+    confirmationLabel.textContent = mode === 'live' ? 'I reviewed the letter and authorize this paid live mail order.' : 'I reviewed the letter and authorize this test-mode submission.';
     // Use textContent: provider input is untrusted and must never become active markup.
     preview.textContent = content.text;
     payloadView.textContent = JSON.stringify(result.payload, null, 2);
     confirmation.checked = false; send.disabled = true; reviewSection.hidden = false; fields.disabled = true;
-    message.textContent = 'Review the saved letter and exact request before authorizing the paid order.';
+    message.textContent = 'Review the saved letter, selected mode, and exact request before authorizing.';
     document.querySelector<HTMLElement>('#review-heading')!.focus();
   } catch (error) {
     reviewed = null; lock(error instanceof Error ? `${error.message} Reload this page to check the draft and order status.` : 'Unable to save or review. Reload to check the draft and order status.');
@@ -147,7 +155,7 @@ send.addEventListener('click', async () => {
     const response = await fetch(`${url()}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(authorization) });
     if (!response.ok) { if (!await checkUnresolved() && !await checkStatus()) lock('The order was not confirmed. Check status and contact the operator before trying again.'); return; }
     const result = await response.json();
-    lock(`${statusText(result.status)}${result.providerId ? ` PostGrid ID: ${result.providerId}.` : ''}`);
+    lock(`${statusText(result.status, authorization.mode)}${result.providerId ? ` PostGrid ID: ${result.providerId}.` : ''}`);
     newLetter.hidden = true;
   } catch { lock('The send outcome is unknown. Do not send again. Check status and contact the operator.'); }
   await checkUnresolved();

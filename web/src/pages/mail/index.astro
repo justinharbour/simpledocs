@@ -16,6 +16,10 @@ import PageHeader from "@/components/PageHeader.astro";
   <noscript><p>JavaScript is required to prepare and review a letter. No letter will be sent without it.</p></noscript>
   <form id="mail-form" method="post" class="mt-8 max-w-3xl space-y-8">
     <fieldset id="mail-fields" disabled class="space-y-8">
+      <label class="flex flex-col gap-1.5 text-sm font-medium" for="mail-mode">PostGrid mode
+        <select id="mail-mode" name="mode" class="rounded-md border border-input bg-background px-3 py-2 font-normal"><option value="test">Test key — no live mailing</option><option value="live">Live key — paid physical mail</option></select>
+        <span class="text-muted-foreground font-normal">Test mode uses your PostGrid test account. Live mode can incur charges and send physical mail.</span>
+      </label>
       {['to', 'from'].map((party) => (
         <fieldset class="space-y-4">
           <legend class="mb-3 text-lg font-semibold">{party === 'to' ? 'Recipient' : 'Return address'}</legend>
@@ -50,12 +54,13 @@ import PageHeader from "@/components/PageHeader.astro";
   </form>
   <section id="mail-review" hidden aria-labelledby="review-heading" class="mt-10 max-w-3xl space-y-5 border-t pt-7">
     <h2 id="review-heading" tabindex="-1" class="text-xl font-semibold">Review before sending</h2>
+    <p id="mail-review-mode" class="font-semibold"></p>
     <p class="text-sm">This programmatic preview shows the exact information that will be submitted. It is <strong>not rendered by PostGrid</strong>; the printed letter, layout, pagination and address handling may differ. An inserted address page can affect cost. Check the full request below.</p>
     <h3 class="font-semibold">Letter text</h3>
     <pre id="mail-preview" class="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-card p-4 font-sans text-sm"></pre>
     <h3 class="font-semibold">Exact PostGrid request</h3>
     <pre id="mail-payload" class="max-h-96 overflow-auto whitespace-pre-wrap break-all rounded-md border bg-card p-4 text-xs"></pre>
-    <label class="flex items-start gap-2 text-sm"><input id="mail-confirm" type="checkbox" class="mt-1" /> <span>I reviewed the recipient, return address, text and print options above. I authorize this paid mail order.</span></label>
+    <label class="flex items-start gap-2 text-sm"><input id="mail-confirm" type="checkbox" class="mt-1" /> <span id="mail-confirm-label"></span></label>
     <div class="flex flex-wrap gap-3"><button id="mail-send" type="button" disabled class="rounded-md bg-primary px-4 py-2 text-primary-foreground disabled:opacity-50">Confirm and send letter</button><button id="mail-edit" type="button" class="rounded-md border border-input px-4 py-2">Edit letter</button></div>
   </section>
   <button id="mail-check" type="button" hidden class="mt-5 rounded-md border border-input px-4 py-2">Check order status</button>

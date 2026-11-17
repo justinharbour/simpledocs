@@ -1,19 +1,93 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import PageHeader from "@/components/PageHeader.astro";
-import NotConnectedNotice from "@/components/NotConnectedNotice.astro";
-import EmptyState from "@/components/EmptyState.astro";
 ---
-
-<AppLayout title="Calls" description="Calls and voicemail.">
-  <PageHeader title="Calls" summary="Calls and voicemail." />
-  <NotConnectedNotice title="Calls are not connected">
-    Connect a phone provider and number to make or receive calls. Voicemail needs private recording storage.
-  </NotConnectedNotice>
-  <section aria-labelledby="list-heading" class="mt-10">
-    <h2 id="list-heading" class="mb-3 text-lg font-semibold">Call history and voicemail</h2>
-    <EmptyState title="No calls or voicemail yet">
-      Call history and voicemail recordings will appear here once calls are connected.
-    </EmptyState>
+<AppLayout title="Calls" description="Browser phone and recordings.">
+  <PageHeader title="Calls" summary="Connect this browser to make and receive calls." />
+  <p class="text-sm text-muted-foreground">Calls may incur charges. Do not use this phone for emergency calls. Microphone permission and a configured Telnyx connection are required.</p>
+  <section class="mt-8 max-w-xl" aria-labelledby="phone-heading">
+    <h2 id="phone-heading" class="text-lg font-semibold">Browser phone</h2>
+    <p id="phone-status" role="status" aria-live="polite" class="mt-2 text-sm">Disconnected.</p>
+    <div class="mt-4 flex flex-wrap gap-3">
+      <button id="connect" type="button" class="rounded-md bg-primary px-4 py-2 text-primary-foreground">Connect phone</button>
+      <button id="disconnect" type="button" disabled class="rounded-md border border-input px-4 py-2 disabled:opacity-50">Disconnect</button>
+    </div>
+    <form id="call-form" class="mt-6 flex flex-col gap-3">
+      <label for="call-number">Phone number <span class="text-sm text-muted-foreground">Include country code, for example +12025550102.</span></label>
+      <input id="call-number" type="tel" autocomplete="tel" pattern="\+[1-9][0-9]{1,14}" required class="rounded-md border border-input bg-background px-3 py-2" />
+      <label class="flex items-start gap-2"><input id="call-confirm" type="checkbox" required class="mt-1" /> I confirm this call is authorized and may incur charges.</label>
+      <button id="call" disabled type="submit" class="self-start rounded-md bg-primary px-4 py-2 text-primary-foreground disabled:opacity-50">Call</button>
+    </form>
+    <div class="mt-4 flex flex-wrap gap-3">
+      <button id="answer" type="button" disabled class="rounded-md border border-input px-4 py-2 disabled:opacity-50">Answer</button>
+      <button id="hangup" type="button" disabled class="rounded-md border border-input px-4 py-2 disabled:opacity-50">Hang up / decline</button>
+      <button id="mute" type="button" disabled class="rounded-md border border-input px-4 py-2 disabled:opacity-50">Mute</button>
+    </div>
+    <audio id="remote-audio" autoplay></audio>
   </section>
+  <section class="mt-10 max-w-xl" aria-labelledby="recordings-heading">
+    <h2 id="recordings-heading" class="text-lg font-semibold">Call recordings</h2>
+    <p class="mt-2 text-sm text-muted-foreground">Archived recordings from the configured connection appear here. Only recordings made by the voicemail flow are labelled voicemail.</p>
+    <button id="load-recordings" type="button" class="mt-4 rounded-md border border-input px-4 py-2">Load recordings</button>
+    <p id="recordings-status" role="status" class="mt-3 text-sm"></p>
+    <ul id="recordings" class="mt-3 space-y-4"></ul>
+  </section>
+  <script>
+    import { TelnyxRTC } from '@telnyx/webrtc';
+    const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+    const status = el<HTMLElement>('phone-status');
+    const connect = el<HTMLButtonElement>('connect'), disconnect = el<HTMLButtonElement>('disconnect');
+    const callButton = el<HTMLButtonElement>('call'), answer = el<HTMLButtonElement>('answer'), hangup = el<HTMLButtonElement>('hangup'), mute = el<HTMLButtonElement>('mute');
+    const remoteAudio = el<HTMLAudioElement>('remote-audio');
+    let client: TelnyxRTC | null = null;
+    let call: ReturnType<TelnyxRTC['newCall']> | null = null;
+    let callerNumber = '', ready = false, answered = false, muted = false;
+    const controls = () => { connect.disabled = !!client; disconnect.disabled = !client; callButton.disabled = !ready || !!call; answer.disabled = !call || call.direction !== 'inbound' || call.state !== 'ringing' || answered; hangup.disabled = !call; mute.disabled = !call || call.state !== 'active'; };
+    async function token() {
+      const response = await fetch('/api/voice/session', { method: 'POST', headers: { 'X-Requested-With': 'simpledocs' }, cache: 'no-store' });
+      if (!response.ok) throw new Error('unavailable');
+      return await response.json() as { loginToken: string; callerNumber: string };
+    }
+    connect.addEventListener('click', async () => {
+      connect.disabled = true; status.textContent = 'Connecting…';
+      try {
+        const session = await token(); callerNumber = session.callerNumber;
+        const next = new TelnyxRTC({ login_token: session.loginToken }); client = next;
+        next.on('telnyx.ready', () => { if (client !== next) return; ready = true; status.textContent = 'Connected. Ready for calls.'; controls(); });
+        next.on('telnyx.error', () => { if (client !== next) return; status.textContent = 'Phone connection error. Disconnect and try again.'; ready = false; controls(); });
+        next.on('telnyx.warning', (warning: { code?: number }) => { if (client === next && warning.code === 34001) status.textContent = 'Session is expiring. After your call, disconnect and reconnect.'; });
+        next.on('telnyx.notification', (notification: { type: string; call?: ReturnType<TelnyxRTC['newCall']> }) => {
+          if (client !== next || notification.type !== 'callUpdate' || !notification.call) return;
+          const update = notification.call;
+          if (call && call.id !== update.id) return;
+          call = update;
+          status.textContent = update.state === 'ringing' && update.direction === 'inbound' ? 'Incoming call.' : `Call: ${update.state}.`;
+          if (update.state === 'destroyed' || update.state === 'hangup') { call = null; answered = false; muted = false; mute.textContent = 'Mute'; }
+          controls();
+        });
+        next.connect(); controls();
+      } catch { client = null; ready = false; status.textContent = 'Phone unavailable. Check configuration or try again.'; controls(); }
+    });
+    disconnect.addEventListener('click', () => { if (call) void call.hangup(); client?.disconnect(); client = null; call = null; ready = false; answered = false; muted = false; mute.textContent = 'Mute'; status.textContent = 'Disconnected.'; controls(); });
+    el<HTMLFormElement>('call-form').addEventListener('submit', event => {
+      event.preventDefault(); if (!ready || !client || call) return;
+      const destination = el<HTMLInputElement>('call-number').value;
+      if (!/^\+[1-9]\d{1,14}$/.test(destination) || !el<HTMLInputElement>('call-confirm').checked) return;
+      try { call = client.newCall({ destinationNumber: destination, callerNumber, audio: true, remoteElement: remoteAudio }); status.textContent = 'Calling…'; controls(); }
+      catch { status.textContent = 'Unable to start the call. Check your microphone and connection.'; }
+    });
+    answer.addEventListener('click', () => { if (!call || answered || call.state !== 'ringing' || call.direction !== 'inbound') return; answered = true; controls(); void Promise.resolve(call.answer({ remoteElement: remoteAudio })).catch(() => { status.textContent = 'Unable to answer. Check your microphone.'; }); });
+    hangup.addEventListener('click', () => { if (call) void call.hangup(); });
+    mute.addEventListener('click', () => { if (!call) return; if (muted) call.unmuteAudio(); else call.muteAudio(); muted = !muted; mute.textContent = muted ? 'Unmute' : 'Mute'; });
+    window.addEventListener('beforeunload', () => { client?.disconnect(); });
+    el<HTMLButtonElement>('load-recordings').addEventListener('click', async () => {
+      const list = el<HTMLUListElement>('recordings'), message = el<HTMLElement>('recordings-status'); list.replaceChildren(); message.textContent = 'Loading…';
+      try {
+        const response = await fetch('/api/voice/recordings', { cache: 'no-store' }); if (!response.ok) throw new Error();
+        const data = await response.json() as { recordings: { recording_id: string; archived_at: string; kind: string }[] };
+        message.textContent = data.recordings.length ? 'Latest recordings' : 'No archived recordings.';
+        for (const item of data.recordings) { if (!/^[0-9a-f-]{36}$/i.test(item.recording_id)) continue; const li = document.createElement('li'); const label = document.createElement('p'); label.textContent = `${item.kind === 'voicemail' ? 'Voicemail' : 'Call recording'} · Archived ${item.archived_at} (UTC)`; const audio = document.createElement('audio'); audio.controls = true; audio.preload = 'none'; audio.src = `/api/voice/recordings/${item.recording_id}`; li.append(label, audio); list.append(li); }
+      } catch { message.textContent = 'Recordings unavailable. Try again later.'; }
+    });
+  </script>
 </AppLayout>
