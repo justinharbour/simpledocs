@@ -34,11 +34,19 @@ describe.skipIf(!built)("built site (run `pnpm build` first)", () => {
     for (const target of own) expect(target).toBe(href);
   });
 
-  it.each(pages.filter((href) => href !== "/compose/" && href !== "/fax/" && href !== "/mail/"))("%s states that nothing is connected and ships no form or fake action", (href) => {
+  it.each(pages.filter((href) => href !== "/compose/" && href !== "/fax/" && href !== "/mail/" && href !== "/calls/"))("%s states that nothing is connected and ships no form or fake action", (href) => {
     const doc = html(href);
     expect(doc).not.toMatch(/<form[\s>]/);
     expect(doc).not.toMatch(/type="submit"/);
     expect(doc.toLowerCase()).toMatch(/not connected|not available|not stored|nothing is connected|early build/);
+  });
+
+  it("provides a disconnected softphone with explicit call confirmation", () => {
+    const doc = html('/calls/');
+    expect(doc).toContain('Disconnected.');
+    expect(doc).toContain('id="call-confirm"');
+    expect(doc).toContain('id="call" disabled');
+    expect(doc).toContain('Do not use this phone for emergency calls');
   });
 
   it("provides a fax form with explicit confirmation", () => {
