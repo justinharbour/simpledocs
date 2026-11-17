@@ -3,6 +3,7 @@ import { handleDraft } from './drafts.mjs';
 import { handleFaxStatus } from './fax-status.mjs';
 import { handleFaxSend } from './fax-send.mjs';
 import { handleVoiceWebhook, handleVoiceRecording, listVoiceRecordings } from './voice-webhook.mjs';
+import { handleVoiceSession } from './voice-session.mjs';
 
 // Static Assets do not propagate ctx.access. Verify the Access assertion against
 // the configured team's keys instead; never trust an unverified identity header.
@@ -32,6 +33,10 @@ export function createWorker(resolveKeys = issuer => {
       actor = await verifyAccess(token, issuer, expected, resolveKeys(issuer));
     } catch {
       return new Response('Unauthorized', { status: 401, headers: { 'Cache-Control': 'no-store' } });
+    }
+    if (url.pathname === '/api/voice/session') return handleVoiceSession(request, env, actor);
+    if (url.pathname === '/api/voice/recordings' || url.pathname.startsWith('/api/voice/recordings/')) {
+      if (!env.VOICE_OWNER_SUBJECT || actor !== env.VOICE_OWNER_SUBJECT) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
     }
     if (url.pathname === '/api/voice/recordings') return listVoiceRecordings(request, env);
     const recording = /^\/api\/voice\/recordings\/([^/]+)$/.exec(url.pathname);
