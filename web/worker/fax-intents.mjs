@@ -41,3 +41,20 @@ export async function sendPreparedFax(db, { id, actor, config, confirmed }, subm
     .bind(result.outcome, result.providerId ?? null, new Date().toISOString(), id, actor).run();
   return result;
 }
+
+// Called only after authenticating a Telnyx event. The provider ID must match
+// the stored accepted submission; never associate an event using an untrusted
+// destination or actor. Repeated and out-of-order events are harmless. A
+// conflict between terminal statuses requires operator reconciliation.
+export async function applyFaxDeliveryEvent(db, { providerId, status }) {
+  if (!db || typeof providerId !== 'string' || !providerId.trim() || providerId.length > 256 || !['delivered', 'failed'].includes(status)) {
+    throw new TypeError('Invalid delivery event');
+  }
+  const result = await db.prepare("UPDATE fax_intents SET status = ?, updated_at = ? WHERE provider_id = ? AND status = 'accepted'")
+    .bind(status, new Date().toISOString(), providerId).run();
+  if (result.meta.changes === 1) return 'updated';
+  const existing = await db.prepare('SELECT status FROM fax_intents WHERE provider_id = ?').bind(providerId).first();
+  if (!existing) return 'unmatched';
+  if (existing.status === status) return 'duplicate';
+  return 'conflict';
+}

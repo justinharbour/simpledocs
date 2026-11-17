@@ -2,7 +2,7 @@ import { it } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { prepareFax, sendPreparedFax } from './fax-intents.mjs';
+import { prepareFax, sendPreparedFax, applyFaxDeliveryEvent } from './fax-intents.mjs';
 
 function database() {
   const db = new DatabaseSync(':memory:');
@@ -41,4 +41,15 @@ it('records uncertain outcome and refuses to submit again', async () => {
   assert.deepEqual(await sendPreparedFax(db, { id, actor: 'owner', config, confirmed: true }, async () => { throw Error('lost response'); }), { outcome: 'unknown' });
   assert.deepEqual(await sendPreparedFax(db, { id, actor: 'owner', config, confirmed: true }), { outcome: 'not_claimed' });
   assert.equal((await db.prepare('SELECT status FROM fax_intents WHERE id = ?').bind(id).first()).status, 'unknown');
+});
+
+it('applies only matched terminal events and does not regress a delivered fax', async () => {
+  const db = database(); await prepareFax(db, intent);
+  assert.equal(await applyFaxDeliveryEvent(db, { providerId: 'provider-1', status: 'delivered' }), 'unmatched');
+  await sendPreparedFax(db, { id, actor: 'owner', config, confirmed: true }, async () => ({ outcome: 'accepted', providerId: 'provider-1' }));
+  assert.equal(await applyFaxDeliveryEvent(db, { providerId: 'provider-1', status: 'delivered' }), 'updated');
+  assert.equal(await applyFaxDeliveryEvent(db, { providerId: 'provider-1', status: 'delivered' }), 'duplicate');
+  assert.equal(await applyFaxDeliveryEvent(db, { providerId: 'provider-1', status: 'failed' }), 'conflict');
+  assert.equal((await db.prepare('SELECT status FROM fax_intents WHERE id = ?').bind(id).first()).status, 'delivered');
+  await assert.rejects(() => applyFaxDeliveryEvent(db, { providerId: 'provider-1', status: 'queued' }), TypeError);
 });
