@@ -2,6 +2,7 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { handleDraft } from './drafts.mjs';
 import { handleFaxStatus } from './fax-status.mjs';
 import { handleFaxSend } from './fax-send.mjs';
+import { handleInboundFax } from './inbound-fax.mjs';
 
 // Static Assets do not propagate ctx.access. Verify the Access assertion against
 // the configured team's keys instead; never trust an unverified identity header.
@@ -17,6 +18,7 @@ export function createWorker(resolveKeys = issuer => {
 }) {
   return {
   async fetch(request, env) {
+    if (new URL(request.url).pathname === '/webhooks/telnyx/fax') return handleInboundFax(request, env);
     const expected = env.ACCESS_AUDIENCE;
     const issuer = env.ACCESS_TEAM_DOMAIN;
     const token = request.headers.get('cf-access-jwt-assertion');

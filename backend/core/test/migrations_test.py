@@ -4,6 +4,7 @@ import unittest
 
 MIGRATION = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0001_core.sql'
 MAIL_DRAFTS = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0002_mail_drafts.sql'
+INBOUND_FAX = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0004_inbound_fax_events.sql'
 
 class MigrationTest(unittest.TestCase):
     def setUp(self):
@@ -36,6 +37,13 @@ class MigrationTest(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT revision, content_json FROM mail_drafts').fetchone(), (2, '{"text":"first"}'))
         with self.assertRaises(sqlite3.IntegrityError):
             self.db.execute("INSERT INTO mail_drafts VALUES ('invalid','owner',1,'not json','now','now')")
+
+    def test_inbound_events_deduplicate(self):
+        self.db.executescript(INBOUND_FAX.read_text())
+        sql = 'INSERT INTO inbound_fax_events VALUES (?,?,?,?,?,?) ON CONFLICT(event_id) DO NOTHING'
+        self.db.execute(sql, ('event', 'fax', 'fax.received', 'then', 'now', 'private/key'))
+        self.db.execute(sql, ('event', 'fax', 'fax.received', 'then', 'later', 'private/key'))
+        self.assertEqual(self.db.execute('SELECT count(*) FROM inbound_fax_events').fetchone()[0], 1)
 
 if __name__ == '__main__':
     unittest.main()
