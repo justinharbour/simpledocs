@@ -9,11 +9,10 @@ with the applicable history window. The initialized schema was verified in
 GitHub Actions run 44039347148.
 
 Cloudflare documents automatic Time Travel for the production backend, with
-7 days of history on Workers Free and 30 days on Workers Paid. The applicable
-plan and required retention for this installation have not been confirmed. No
-independent long-term backup or restore test has been verified. An owner must
-decide whether the applicable window is sufficient before production binding.
-Longer retention requires a separately secured export and retention procedure.
+7 days of history on Workers Free and 30 days on Workers Paid. The owner confirmed
+the account has a Workers Paid plan and that no special additional retention is
+needed. No independent long-term backup or restore test has been verified.
+Longer retention would require a separately secured export and retention procedure.
 See [Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/)
 and [D1 limits](https://developers.cloudflare.com/d1/platform/limits/).
 
