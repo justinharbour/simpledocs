@@ -24,18 +24,12 @@ validates its identity and media before archiving. This path is tested with
 synthetic responses only; account-specific refresh timing and media hosts remain
 unverified. The inbox warning is not proactive alerting.
 
-An unconnected `sendPendingFaxAlert` primitive can send a content-free warning
-through a Cloudflare Email Service binding after a configurable age threshold.
-It is not scheduled, does not deduplicate or pace reminders, and does not prove
-delivery. Do not wire it to production until a durable alert/reminder state,
-failure monitoring, verified recipient and sending domain, and a reviewed
-binding and schedule are in place. Apple push is not implemented.
-
-An independent, unconnected `claimFaxAlertInterval` primitive and migration
-`0011` provide an atomic channel-wide interval reservation. A claim before a
-send consumes the interval even if the process crashes or the outcome is
-unknown. This only paces attempts; it does not report failures, guarantee a
-reminder, or prove delivery. It is not yet wired to the email primitive.
+The scheduled handler can send a content-free warning through a Cloudflare Email
+Service binding after a configurable age threshold. A durable interval claim
+paces attempts; a crash or unknown outcome consumes the interval and binding
+acceptance is not proof of delivery. Production still requires a verified sender
+domain, recipient, email binding, schedule, and failure monitoring. Apple push
+is not implemented.
 
 The exact `/webhooks/telnyx/fax` path is outside interactive Access in the
 Worker and uses Telnyx Ed25519 signatures over timestamp and exact raw bytes,
