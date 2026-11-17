@@ -4,7 +4,7 @@ import unittest
 
 MIGRATION = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0001_core.sql'
 MAIL_DRAFTS = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0002_mail_drafts.sql'
-INBOUND_FAX = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0006_inbound_fax_events.sql'
+INBOUND_FAX = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0007_inbound_fax_events.sql'
 
 class MigrationTest(unittest.TestCase):
     def setUp(self):
@@ -49,11 +49,13 @@ class MigrationTest(unittest.TestCase):
         migrations = sorted(INBOUND_FAX.parent.glob('*.sql'))
         prefixes = [p.name.split('_', 1)[0] for p in migrations]
         self.assertEqual(len(prefixes), len(set(prefixes)))
-        self.assertEqual(INBOUND_FAX.name, '0006_inbound_fax_events.sql')
+        self.assertEqual(INBOUND_FAX.name, '0007_inbound_fax_events.sql')
         if '0004' in prefixes:
             self.assertIn('0004_mail_intents.sql', [p.name for p in migrations])
         if '0005' in prefixes:
             self.assertIn('0005_mail_unresolved_actor.sql', [p.name for p in migrations])
+        if '0006' in prefixes:
+            self.assertIn('0006_mail_acknowledgement.sql', [p.name for p in migrations])
 
 if __name__ == '__main__':
     unittest.main()
