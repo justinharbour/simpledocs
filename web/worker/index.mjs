@@ -9,7 +9,11 @@ export async function verifyAccess(token, issuer, audience, keys) {
   if (typeof payload.email !== 'string' || !payload.email.trim() || typeof payload.sub !== 'string' || !payload.sub.trim()) throw new Error('Missing identity');
   return payload.sub;
 }
-export default {
+export function createWorker(resolveKeys = issuer => {
+  if (!keySets.has(issuer)) keySets.set(issuer, createRemoteJWKSet(new URL(`${issuer}/cdn-cgi/access/certs`)));
+  return keySets.get(issuer);
+}) {
+  return {
   async fetch(request, env) {
     const expected = env.ACCESS_AUDIENCE;
     const issuer = env.ACCESS_TEAM_DOMAIN;
@@ -19,8 +23,7 @@ export default {
     }
     let actor;
     try {
-      if (!keySets.has(issuer)) keySets.set(issuer, createRemoteJWKSet(new URL(`${issuer}/cdn-cgi/access/certs`)));
-      actor = await verifyAccess(token, issuer, expected, keySets.get(issuer));
+      actor = await verifyAccess(token, issuer, expected, resolveKeys(issuer));
     } catch {
       return new Response('Unauthorized', { status: 401, headers: { 'Cache-Control': 'no-store' } });
     }
@@ -39,4 +42,6 @@ export default {
     headers.set('X-Content-Type-Options', 'nosniff');
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   },
-};
+  };
+}
+export default createWorker();

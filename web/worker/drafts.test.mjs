@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { handleDraft } from './drafts.mjs';
+import { createWorker } from './index.mjs';
+import { generateKeyPair, exportJWK, SignJWT, createLocalJWKSet } from 'jose';
 
 const id = 'ed600156-741d-4fcb-a7b2-388d87883151';
 const url = `https://example.test/api/mail-drafts/${id}`;
@@ -36,4 +38,21 @@ it('accepts browser writes without content-length while limiting streamed bodies
   const make = body => new Request(url, { method: 'PUT', headers: { origin: 'https://example.test', 'content-type': 'application/json' }, body });
   assert.equal((await handleDraft(make(JSON.stringify({ revision: 0, content: {} })), db, 'owner', id)).status, 200);
   assert.equal((await handleDraft(make(JSON.stringify({ revision: 1, content: { text: 'x'.repeat(65536) } })), db, 'owner', id)).status, 413);
+});
+it('uses the verified JWT subject for the complete Worker draft path', async () => {
+  const { publicKey, privateKey } = await generateKeyPair('RS256', { extractable: true });
+  const jwk = await exportJWK(publicKey);
+  const keys = createLocalJWKSet({ keys: [{ ...jwk, kid: 'test', alg: 'RS256' }] });
+  const worker = createWorker(() => keys);
+  const issuer = 'https://example.cloudflareaccess.com';
+  const token = subject => new SignJWT({ email: 'owner@example.test' }).setProtectedHeader({ alg: 'RS256', kid: 'test' }).setIssuer(issuer).setAudience('expected').setSubject(subject).setIssuedAt().setExpirationTime('5m').sign(privateKey);
+  const env = { ACCESS_TEAM_DOMAIN: issuer, ACCESS_AUDIENCE: 'expected', DB: database() };
+  const owner = await token('owner');
+  const other = await token('other');
+  const request = (credential, options = {}) => new Request(url, { ...options, headers: { 'cf-access-jwt-assertion': credential, ...options.headers } });
+  const create = request(owner, { method: 'PUT', headers: { origin: 'https://example.test', 'content-type': 'application/json' }, body: JSON.stringify({ revision: 0, content: { text: 'private' } }) });
+  assert.equal((await worker.fetch(create, env)).status, 200);
+  assert.equal((await worker.fetch(request(other), env)).status, 404);
+  const response = await worker.fetch(request(owner), env);
+  assert.deepEqual((await response.json()).content, { text: 'private' });
 });
