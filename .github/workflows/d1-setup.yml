@@ -31,7 +31,7 @@ jobs:
           node-version: 22.23.4
       - name: Install Wrangler
         working-directory: web
-        run: pnpm install --frozen-lockfile
+        run: npm install --no-save --package-lock=false --ignore-scripts wrangler@4.163.0
       - name: Create and migrate new database
         working-directory: web
         run: node worker/initialize-d1.mjs
