@@ -4,7 +4,7 @@ import SwiftUI
 
 @main
 struct SimpleDocsApp: App {
-    @State private var model = WorkspaceModel(edition: .ownerBackend)
+    @State private var model = WorkspaceModel(edition: .connectedInstance)
 
     var body: some Scene {
         WindowGroup {

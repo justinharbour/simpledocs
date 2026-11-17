@@ -17,10 +17,16 @@ public final class WorkspaceModel {
     public var jobs: LoadState<[CommunicationJob]> {
         SyntheticData.jobs(for: scenario)
     }
+
+    /// Instance setup only exists for editions that link to a self-deployed instance.
+    public var sections: [WorkspaceSection] {
+        WorkspaceSection.allCases.filter { $0 != .instance || edition.requiresInstance }
+    }
 }
 
 public enum WorkspaceSection: String, CaseIterable, Identifiable, Hashable, Sendable {
     case records
+    case instance
     case capabilities
     case about
 
@@ -29,6 +35,7 @@ public enum WorkspaceSection: String, CaseIterable, Identifiable, Hashable, Send
     public var title: String {
         switch self {
         case .records: "Records"
+        case .instance: "Your instance"
         case .capabilities: "Capabilities"
         case .about: "About this edition"
         }
@@ -37,6 +44,7 @@ public enum WorkspaceSection: String, CaseIterable, Identifiable, Hashable, Send
     public var systemImage: String {
         switch self {
         case .records: "tray.full"
+        case .instance: "externaldrive.connected.to.line.below"
         case .capabilities: "switch.2"
         case .about: "info.circle"
         }

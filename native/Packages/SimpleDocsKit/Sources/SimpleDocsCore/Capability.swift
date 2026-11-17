@@ -82,11 +82,11 @@ extension AppEdition {
     public var capabilityStatuses: [CapabilityStatus] {
         Capability.allCases.map { capability in
             switch self {
-            case .ownerBackend:
+            case .connectedInstance:
                 CapabilityStatus(
                     capability: capability,
                     availability: .notConnected,
-                    detail: "Feature controls are enforced by the backend, which is not connected."
+                    detail: "Feature controls are set and enforced by your instance, which is not connected."
                 )
             case .directProvider:
                 directStatus(for: capability)

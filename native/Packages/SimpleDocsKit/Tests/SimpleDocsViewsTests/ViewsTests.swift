@@ -14,6 +14,11 @@ import Testing
         guard case .failed = model.jobs else { Issue.record("expected failed"); return }
     }
 
+    @Test func instanceSetupOnlyForConnectedEdition() {
+        #expect(WorkspaceModel(edition: .connectedInstance).sections.contains(.instance))
+        #expect(!WorkspaceModel(edition: .directProvider).sections.contains(.instance))
+    }
+
     @Test func viewsBuildForEveryEditionAndScenario() {
         for edition in AppEdition.allCases {
             for scenario in SyntheticScenario.allCases {

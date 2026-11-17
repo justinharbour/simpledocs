@@ -3,8 +3,8 @@ import SimpleDocsViews
 import SwiftUI
 
 @main
-struct SimpleDocsOwnerApp: App {
-    @State private var model = WorkspaceModel(edition: .ownerBackend)
+struct SimpleDocsConnectedApp: App {
+    @State private var model = WorkspaceModel(edition: .connectedInstance)
 
     var body: some Scene {
         WindowGroup {

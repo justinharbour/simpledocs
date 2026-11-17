@@ -10,7 +10,7 @@ public struct WorkspaceView: View {
 
     public var body: some View {
         NavigationSplitView {
-            List(WorkspaceSection.allCases, selection: $model.selection) { section in
+            List(model.sections, selection: $model.selection) { section in
                 NavigationLink(value: section) {
                     Label(section.title, systemImage: section.systemImage)
                 }
@@ -36,6 +36,8 @@ public struct WorkspaceView: View {
         switch model.selection ?? .records {
         case .records:
             RecordsView(model: model)
+        case .instance:
+            InstanceSetupView()
         case .capabilities:
             CapabilitiesView(edition: model.edition)
         case .about:
@@ -154,7 +156,7 @@ struct JobDetailView: View {
                 LabeledContent("Created") {
                     Text(job.createdAt, format: .dateTime.year().month().day().hour().minute())
                 }
-                if let explanation = job.outcome.explanation {
+                if let explanation = job.outcomeNote {
                     Text(explanation)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -250,7 +252,7 @@ struct EditionView: View {
                 }
             }
             Section {
-                Text("Credentials are never stored in source, app bundles or logs. This build has no credential entry and no network access to a backend or provider.")
+                Text("Credentials are never stored in source, app bundles or logs. This build has no credential entry and makes no network requests to an instance or provider.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

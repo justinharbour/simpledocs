@@ -20,10 +20,10 @@ packages:
   SimpleDocsKit:
     path: Packages/SimpleDocsKit
 targets:
-  SimpleDocsMacOwner:
+  SimpleDocsMacConnected:
     type: application
     platform: macOS
-    sources: [Apps/MacOwner]
+    sources: [Apps/MacConnected]
     dependencies:
       - package: SimpleDocsKit
         product: SimpleDocsCore
@@ -32,12 +32,12 @@ targets:
     settings:
       base:
         # Provisional identifiers; confirm before any signing.
-        PRODUCT_BUNDLE_IDENTIFIER: dev.justinharbour.simpledocs.mac.owner
-        PRODUCT_NAME: simpledocs Owner
-        CODE_SIGN_ENTITLEMENTS: Config/MacOwner.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: dev.justinharbour.simpledocs.mac.connected
+        PRODUCT_NAME: simpledocs
+        CODE_SIGN_ENTITLEMENTS: Config/MacConnected.entitlements
         ENABLE_HARDENED_RUNTIME: "YES"
         GENERATE_INFOPLIST_FILE: "YES"
-        INFOPLIST_KEY_CFBundleDisplayName: simpledocs Owner
+        INFOPLIST_KEY_CFBundleDisplayName: simpledocs
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
   SimpleDocsMacDirect:
     type: application
@@ -77,8 +77,8 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
 schemes:
-  SimpleDocsMacOwner:
-    build: {targets: {SimpleDocsMacOwner: all}}
+  SimpleDocsMacConnected:
+    build: {targets: {SimpleDocsMacConnected: all}}
   SimpleDocsMacDirect:
     build: {targets: {SimpleDocsMacDirect: all}}
   SimpleDocsiOS:
