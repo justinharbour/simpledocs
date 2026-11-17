@@ -19,7 +19,7 @@ Provide a simple, minimal communications workspace for fax, phone, voicemail and
 ## Capabilities and Constraints
 - Individual features can be disabled; a single number can be shared where provider capabilities permit, with inbound voice or fax individually disabled.
 - Store metadata in D1 and documents, proofs, and attachments in R2. Support sending a document through multiple channels and independently track each delivery.
-- PostGrid mail classes, tracking and return receipt depend on provider and destination availability. Require a provider-generated proof and explicit approval before sending.
+- PostGrid mail classes, tracking and return receipt depend on provider and destination availability. Require an exact-content local review and explicit confirmation before sending; disclose that it is not a provider-rendered proof.
 - Public portfolio repository, permissive license, conventional commits, pull requests instead of direct commits to main. Welcome contributions.
 - Prefer Cloudflare Zero Trust alongside Deploy to Cloudflare; if that is not feasible, consider explicitly configured Better Auth with environment secrets. Authentication is independently configured and verified per instance; the owner's Entra-backed Access remains an option. Provider webhooks require independent authentication and cannot depend on interactive login.
 - Personal iOS and macOS testing uses TestFlight. An App Store release is intended for the backend-connected app, including linking independently operated instances, subject to verified native authentication and platform review. Two signed downloadable macOS editions are also planned: provider-configurable and backend-connected. App Store availability for the direct-provider edition is not assumed.

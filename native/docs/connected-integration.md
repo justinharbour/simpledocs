@@ -16,6 +16,223 @@ It follows the proposed architecture and integration contracts in PR #2 (`docs/a
 | `ContextBinding` | Pins a pending action to the link and epoch it started under. |
 | `CredentialPolicy`, `NativeAuthStatus` | Gate for attaching a credential to a request. Fails closed. |
 | `APIVersion` | Picks a supported major version or refuses. |
+| `WorkerPlanner` | Inert plans for the current owner Worker's mail draft read/write and fax status read routes, bound to a selected link and epoch. No transport, credential, or authorization is provided. |
+| `ManagedOAuthTransaction` | Offline authorization-code transaction with random state, PKCE S256, instance resource and strict, single-use callback validation. It does not establish endpoint trust, open a browser or exchange a code. |
+
+## Owner Worker contract foundation
+
+`WorkerPlanner` models `/api/mail-drafts/{id}` GET/PUT and `/api/faxes/{id}` GET,
+not the proposed `/api/v1` interface. Plans validate the Worker's UUID-v4,
+draft revision, object JSON and 64 KiB request limit, and retain an instance
+binding that becomes stale on switching or unlinking. Unknown fax statuses stay
+unknown; acceptance is not delivery. Plans must not be logged: draft bodies may
+contain private data. This does not establish that any instance supports the
+owner Worker contract. There is deliberately no send or voice operation here.
+
+Before a transport executes a plan it must revalidate the binding and the
+credential policy, use verified instance-specific authentication, prevent
+cross-origin redirects and shared cookie/cache leakage, and discard responses
+whose binding became stale. These requirements are not implemented by an inert
+plan. The Worker's mutation routes require an exact same-origin `Origin` header;
+native compatibility must be verified rather than weakening the server check.
+The actual server authenticates through Access today; supporting other instance
+identity systems requires a separately reviewed server and native contract,
+not an Entra requirement or automatic fallback.
+
+## Cloudflare Access native authentication research (2026-11-17)
+
+Cloudflare's [Managed OAuth documentation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/)
+describes a user-based browser authorization-code flow for non-browser clients of
+self-hosted Access applications. It requires Managed OAuth enabled on that
+specific application and an RFC 8707-capable client. The documented discovery
+endpoint is `https://<app-domain>/.well-known/oauth-authorization-server`.
+Native custom-scheme callback URIs must be explicitly registered and match
+exactly; localhost and loopback clients have separate settings. Access tokens are
+opaque, and Access resolves them and forwards a signed assertion to the origin;
+they are not JWTs for the client to decode or forward as origin assertions.
+Cloudflare also documents access-token expiry and refresh-token grant duration.
+This flow uses whichever identity provider the instance administrator configures;
+it does not require Entra.
+
+This is documentation evidence, not a verified Simpledocs integration. Managed
+OAuth is not known to be enabled on any selected instance, and enabling it is an
+operator-controlled infrastructure change outside this work. A secure client
+still needs an instance-bound issuer/discovery trust design, registration and
+callback ownership, authorization-code PKCE and state validation, resource
+binding, token exchange, refresh/revocation semantics, Keychain isolation and
+redirect restrictions, all tested end to end. Confirm the exact metadata,
+registration, supported PKCE and resource behavior against the selected Access
+application rather than inferring them from this overview. Review the worker's
+same-origin mutation requirement for native clients without weakening it.
+
+The owner selected Managed OAuth for their instance; this is not a mandate for
+other operators. `ManagedOAuthTransaction` implements only an offline protocol
+component. It uses separately generated 256-bit random state and verifier,
+S256, a resource derived from the active origin, strict callback matching and
+single-use state, and refuses callbacks after an instance switch. Its endpoint
+arguments are **not** verified by the type: callers must independently establish
+trust before showing a browser or exchanging a code. The custom URI scheme must
+be reserved and registered for the actual signed app; PKCE mitigates, but does
+not eliminate, custom-scheme interception risks. Exchange material must never be
+logged. The resource spelling and provider support require real integration tests.
+
+Deployment remains a separate reviewed change: inventory and verify the exact
+Access application and its existing policy and identity-provider associations;
+review an exact callback URI and minimal Managed OAuth configuration; preserve
+all other settings; and read back the application and policy after any future
+authorized change. Cloudflare documents that Managed OAuth changes 401 behavior,
+so test existing web and API clients as well. No configuration is changed here.
+
+Cloudflare's [Access JWT validation documentation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)
+describes the `Cf-Access-Jwt-Assertion` header as an assertion forwarded to the
+origin, verified against that instance's configured issuer and application
+audience. That is distinct from the OAuth client's opaque token. Neither is a
+reason to accept an arbitrary identity issuer or embed an Access service token.
+
+No credential-bearing transport or authentication implementation is enabled in
+the app on this evidence. The guard remains in force; `CredentialPolicy` denies every
+request, and the app cannot connect. An operator-selected non-Cloudflare identity
+mode would need its own reviewed contract, not a silent fallback.
+
+### Credential-free discovery implementation
+
+The separate `SimpleDocsOAuth` package fetches the selected origin's documented
+metadata path using platform TLS validation, an ephemeral session with shared
+cookies, cache and credential storage disabled, no redirects, a timeout and a
+64 KiB streaming response cap. It checks HTTP status, response URL and JSON MIME
+type. Its intentionally conservative validator requires the issuer to exactly
+equal the selected origin, both endpoints on that origin, and advertised code,
+S256 and public-client support. This is more restrictive than OAuth generally and
+may reject a valid Cloudflare configuration; cross-origin trust cannot be inferred
+from an unverified metadata response. Metadata is bound to the registry snapshot;
+callers must recheck the live selection after the asynchronous fetch. This package
+is not linked to an app. Browser sign-in, exchange and storage components are
+separate and not integrated; authenticated API transport remains unimplemented.
+
+### Cloudflare team-origin discovery finding
+
+Cloudflare's [Access OAuth walkthrough](https://developers.cloudflare.com/cloudflare-one/access-controls/authenticate-agents/)
+describes a protected-resource metadata document on the application origin that
+advertises a team authorization server. The illustrated authorization, token,
+and dynamic-registration endpoints are on the team `cloudflareaccess.com`
+origin, not the application origin. The walkthrough also documents a public
+client registration request and an S256 challenge compatibility restriction
+requiring an alphanumeric initial character. These are documentation examples,
+not confirmation of an individual instance's live behavior.
+
+On 2026-11-17 a read-only account API lookup found the `Simpledocs` self-hosted
+Access application at the documented owner hostname. The application response
+did not contain `oauth_configuration`; this does not prove its effective feature
+state. No application or policy was modified. The actual protected-resource and
+authorization-server metadata and client-registration behavior were not verified.
+
+An appropriate next trust design is to obtain the exact team issuer through an
+independent operator-controlled channel, bind it to the specific instance link,
+compare the resource metadata's resource and authorization-server values with
+that configuration, then fetch issuer metadata over TLS and require an exact
+issuer match and explicitly constrained authorization, registration and token
+endpoints. The issuer must not be accepted solely because it has a Cloudflare
+suffix. Validate actual callback registration, resource spelling, and PKCE
+behavior against a dedicated test instance before permitting a code exchange.
+The current same-origin-only validator cannot support the documented team-origin
+example. The PKCE generator enforces the documented initial-character
+compatibility restriction, but this has not been verified against a live server.
+Do not link or use it as a working Cloudflare flow.
+
+`CloudflareTrust` implements the validation portion of that design: the caller
+must independently supply the exact team origin, tied to the current link;
+resource metadata must advertise that origin, and issuer metadata must match it
+and the documented endpoint paths and public-client/PKCE capabilities. Merely
+constructing this value does not prove where the configuration came from. These
+validators currently accept supplied bytes only: there is no orchestrated fetch,
+client registration, integrated browser flow or app integration.
+They do not constitute a working sign-in. The exact metadata shape and resource
+conventions remain unverified against the selected Access application.
+
+The unlinked `SimpleDocsOAuth` package now also contains an
+`ASWebAuthenticationSession` wrapper, an authorization-code exchange transport
+that refuses redirects and bounds responses, and per-link device-only Keychain
+storage. These are separate components, not an integrated authentication flow:
+the UI does not obtain or confirm issuer configuration; no client registration,
+orchestration, token refresh, expiration handling, unlink purge or authenticated
+API transport is implemented. The registry parameters are snapshots, so callers
+must coordinate selection changes and reject stale results after every await;
+the components do not cancel in-flight work on switching instances. TokenStore
+deletion requires an active link and therefore must occur before unlinking. Never
+use the stored expiry interval as proof that a token is currently valid. Keychain
+behavior under signed sandboxed app targets and browser callbacks need device
+tests. Request and response bytes and Keychain contents are sensitive; do not log
+them. No end-to-end or live provider verification has been performed.
+
+The unlinked package also has an experimental `SessionCoordinator` that owns a
+registry snapshot, cancels a pending injected stage on selection change, rejects
+late results, and requires successful local purge before unlink. These guarantees
+apply only when all registry and credential access goes through the same owner;
+the existing transport and store do not enforce that ownership themselves.
+`IssuerConfirmation` checks explicit exact confirmation of resource and issuer,
+but is not a UI or evidence of independent issuer provenance. Public client
+registration metadata and an absolute expiry model are provided, but neither is
+integrated with network registration or Keychain persistence. No refresh or
+authenticated Worker transport exists. The mock tests exercise the coordinator
+boundary, not HTTP, real browser callbacks, or signed Keychain behavior. Do not
+link this package to an app until these remaining pieces and their security
+boundaries are completed and tested.
+
+### Experimental flow update
+
+The preceding component descriptions predate `ConnectedFlow` and `ConnectedHTTP`.
+The unlinked package now orchestrates resource and issuer discovery, public
+client registration, browser authorization, code exchange and instance-scoped
+Worker requests, with in-memory expiry and cancellation through one coordinator.
+The HTTP adapter disables shared credentials, cookies and caches, denies redirects,
+and bounds responses. Synthetic adapter tests cover a successful flow, issuer
+substitution, expiration and selection changes. They do not test the actual HTTP
+adapter, signed browser/Keychain behavior, or a Cloudflare test deployment.
+
+Subsequent URLProtocol-backed tests exercise the actual `ConnectedHTTP` session
+for bounded JSON responses, rejection of a 302 response and non-JSON content,
+and the expected synthetic bearer header on a planned Worker request. These do
+not exercise TLS, a real redirect chain, token-exchange HTTP, or a live server.
+The browser wrapper also isolates callbacks and cancellation by session ID so a
+late callback from an old session cannot complete a newer session.
+
+This is not yet an app feature. There is no issuer confirmation UI, persistent
+credential integration, refresh, or verified callback registration. Cloudflare's
+walkthrough illustrates a loopback redirect, not the custom scheme used here;
+its example issuer metadata also differs from the exact issuer value required by
+our current validator. These compatibility assumptions must be checked against a
+dedicated configured test instance before enabling the flow. The existing app
+credential policy remains fail-closed. Dynamic client registration is a server
+mutation when the experimental flow is actually run; no such request was made
+in these tests. In-flight requests canceled on an instance switch may already
+have reached the original instance; cancellation cannot undo server effects.
+
+The Worker additionally requires `cf-access-jwt-assertion` and independently
+validates it; the native transport sends the documented OAuth bearer header.
+Whether Access supplies the expected assertion to this Worker for Managed OAuth
+requests has not been verified. Do not remove or bypass the Worker check to make
+the client connect. A dedicated configured test deployment is needed to verify
+the complete Access-to-Worker identity and authorization boundary.
+
+### Readiness evidence update
+
+The owner reports a read-only protected-resource metadata response for the
+Simpledocs hostname: `protected: true`, team `justinharbour.cloudflareaccess.com`,
+the matching team authorization server, and only `cloudflared` in authentication
+methods. This report is not an independently verified issuer binding and does
+not establish that Managed OAuth is enabled or disabled. An authorization-server
+URL by itself is not evidence of a usable Managed OAuth configuration. The
+validator now refuses an explicit cloudflared-only advertisement before client
+registration; absent method fields do not establish readiness either. No live
+client registration or policy change was made.
+
+Cloudflare's [Managed OAuth documentation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/)
+now explicitly says opaque OAuth tokens are resolved by Access into a signed
+assertion forwarded to the origin, and that private-use native redirect URIs are
+supported when explicitly allowlisted. This answers the general product-contract
+questions above, but does not verify this deployment's configuration, exact
+metadata, callback allowlist, or actual end-to-end Worker validation. The app
+remains disconnected until those are tested safely on a configured instance.
 
 ## Address parsing
 
@@ -52,7 +269,7 @@ Format validity is **not** instance validity. No code path may describe a parsed
 
 ## Not integrated or not verified
 
-- **Not wired into the app.** No app target, `project.yml` entry or shared `SimpleDocsKit` source references this package. That is enforced, not just stated: see "CI gate" below.
+- **Experimental sign-in UI, not production-ready.** The connected macOS and iOS targets provide explicit instance and issuer confirmation and invoke the in-memory OAuth lifecycle. The callback scheme is not registered or verified with the provider, Worker acceptance is unverified, and workspace data remains sample data. Local sign-out does not revoke a provider token. The direct-provider app remains independent; push is not wired.
 - **No sign-in.** The Access/OAuth flow, issuer and audience binding, renewal and revocation are undecided (see PR #2 architecture). The package cannot authenticate anyone.
 - **No discovery.** The discovery route, schema and its authenticity binding are undecided. `APIVersion.negotiate` only handles a list the caller supplies, and that list must be treated as untrusted. `InstanceTrust` has a single `userEnteredUnverified` state.
 - **No networking.** No `URLSession`, TLS or certificate policy, redirect delegate, timeout, response-size limit, or error-envelope decoding. `OriginBinding` and `CredentialPolicy` are the checks a future transport must call; the transport itself is unwritten and unreviewed.
@@ -71,7 +288,7 @@ The `native-connected` job in `.github/workflows/ci.yml` always runs (it does no
 `ci/guard.sh` fails the build if:
 
 - the package, its sources or its tests are missing
-- anything under `native/` outside the package and `native/docs` mentions `SimpleDocsConnected` (so linking it into an app or `project.yml` needs a reviewed change to the guard)
+- anything under `native/` outside the package, `SimpleDocsOAuth` and `native/docs` mentions `SimpleDocsConnected` (so linking it into an app or `project.yml` needs a reviewed change to the guard)
 - `Package.swift` declares a dependency
 - sources use `URLSession`, `URLRequest`, `Network`, `Security`/`SecItem`, `AuthenticationServices`, `WebKit` or similar
 - a `verified`, `trusted`, `authenticated` or `signedIn` case is added

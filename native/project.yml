@@ -19,16 +19,29 @@ settings:
 packages:
   SimpleDocsKit:
     path: Packages/SimpleDocsKit
+  SimpleDocsConnected:
+    path: Packages/SimpleDocsConnected
+  SimpleDocsOAuth:
+    path: Packages/SimpleDocsOAuth
 targets:
   SimpleDocsMacConnected:
     type: application
     platform: macOS
-    sources: [Apps/MacConnected]
+    sources: [Apps/MacConnected, Apps/ConnectedShared]
+    info:
+      path: Config/MacConnected-Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLSchemes: [dev.justinharbour.simpledocs]
     dependencies:
       - package: SimpleDocsKit
         product: SimpleDocsCore
       - package: SimpleDocsKit
         product: SimpleDocsViews
+      - package: SimpleDocsConnected
+        product: SimpleDocsConnected
+      - package: SimpleDocsOAuth
+        product: SimpleDocsOAuth
     settings:
       base:
         # Provisional identifiers; confirm before any signing.
@@ -60,12 +73,21 @@ targets:
   SimpleDocsiOS:
     type: application
     platform: iOS
-    sources: [Apps/iOS]
+    sources: [Apps/iOS, Apps/ConnectedShared]
+    info:
+      path: Config/iOS-Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLSchemes: [dev.justinharbour.simpledocs]
     dependencies:
       - package: SimpleDocsKit
         product: SimpleDocsCore
       - package: SimpleDocsKit
         product: SimpleDocsViews
+      - package: SimpleDocsConnected
+        product: SimpleDocsConnected
+      - package: SimpleDocsOAuth
+        product: SimpleDocsOAuth
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.justinharbour.simpledocs.ios
@@ -76,6 +98,22 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+  SimpleDocsSignInTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Tests/ConnectedApp]
+    dependencies:
+      - target: SimpleDocsMacConnected
+      - package: SimpleDocsConnected
+        product: SimpleDocsConnected
+      - package: SimpleDocsOAuth
+        product: SimpleDocsOAuth
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
+        PRODUCT_BUNDLE_IDENTIFIER: dev.justinharbour.simpledocs.signintests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/simpledocs.app/Contents/MacOS/simpledocs"
+        BUNDLE_LOADER: "$(TEST_HOST)"
 schemes:
   SimpleDocsMacConnected:
     build: {targets: {SimpleDocsMacConnected: all}}
@@ -83,3 +121,6 @@ schemes:
     build: {targets: {SimpleDocsMacDirect: all}}
   SimpleDocsiOS:
     build: {targets: {SimpleDocsiOS: all}}
+  SimpleDocsSignInTests:
+    build: {targets: {SimpleDocsMacConnected: all, SimpleDocsSignInTests: [test]}}
+    test: {targets: [SimpleDocsSignInTests]}

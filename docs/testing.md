@@ -24,7 +24,7 @@ Every item carries one label. Do not upgrade a label without a merged test that 
 | Owner backend pairing, Access sign-in | Planned / Blocked | `AppEdition.ownerBackend` reports "not connected" in the foundation. Native Access/OAuth flow is unverified (PR #2). |
 | Cloudflare Deploy button and self-host provisioning | Planned / Blocked | Proposed in PR #2; deploy-button flow, resource ownership and costs are unverified. |
 | Telnyx fax/voice webhooks and signatures | Blocked | Signature scheme, headers, replay rules and event ordering are unverified (PR #3). |
-| PostGrid create, proof and tracking | Blocked | Whether a provider-side 1:1 proof and release path exists for the intended account is unverified (PR #3). |
+| PostGrid create, review and tracking | Partial | Local review and fake send foundation; provider behavior, account capabilities and tracking remain unverified. |
 
 Nothing in this plan should be read as "tests pass today." At present there are no end-to-end, API or provider integration tests.
 
@@ -119,7 +119,7 @@ Contract basis: PR #2 "Domain model" and "API surface".
 
 ### S5. Proof and approval gate for paid mail (A, Planned; P, Blocked)
 
-This is the most important gate in the plan. An ordinary PostGrid letter preview is generated after order creation, so it cannot serve as a pre-send proof. Live mail stays blocked until a safe pre-send proof path is verified for the intended account (PR #3, "Unknown / must validate").
+Owner clarification: a local programmatic review is acceptable; provider-generated pre-send proof is not required. Ordinary PostGrid previews are generated after order creation. The foundation uses a revision-bound review of exact inputs and discloses rendering differences; a usable review UI and production validation remain outstanding. The historical S5 proof cases below describe the former proof design and are not claims about the implemented API.
 
 | # | Step | Pass | Fail |
 | --- | --- | --- | --- |
