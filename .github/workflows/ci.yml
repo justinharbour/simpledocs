@@ -117,6 +117,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Verify (check, build, test)
         run: pnpm verify
+      - name: Impeccable source design check
+        run: pnpm exec impeccable detect --github src
       - name: Verify core and migrations
         working-directory: backend/core
         run: npm test

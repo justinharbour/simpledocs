@@ -55,6 +55,9 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+      impeccable:
+        specifier: 4.9.2
+        version: 4.9.2
       jsdom:
         specifier: ^31.0.1
         version: 31.0.1
@@ -669,6 +672,36 @@ packages:
     engines: {node: '>=20.9.0'}
     cpu: [x64]
     os: [win32]
+
+  '@impeccable/cli-darwin-arm64@0.1.25':
+    resolution: {integrity: sha512-fT0Crplzh1CkyPIgBjjVNW688ZKg1nI6a9/MLCMRGDipopv5BUvYmxCAVghb5KLaLDk7lWKsHDiIt6buk5biVA==}
+    cpu: [arm64]
+    os: [darwin]
+    hasBin: true
+
+  '@impeccable/cli-darwin-x64@0.1.25':
+    resolution: {integrity: sha512-YpypqgDibPW4gzYENcgPxJkErrvxl8oCv4j0Tzs3ZDLBLJuVEI2SXONKJ5bHhPqAVVtnzyWQg0mhzx8fYiZR/A==}
+    cpu: [x64]
+    os: [darwin]
+    hasBin: true
+
+  '@impeccable/cli-linux-arm64@0.1.25':
+    resolution: {integrity: sha512-Biw+5OmfjGXeBESM1WLge2EJI+3WND4XqVXcF9YjqYQgdov3HKOsgqUpbhoTR/U24nPDVmTm15xvdyKGyFMOtQ==}
+    cpu: [arm64]
+    os: [linux]
+    hasBin: true
+
+  '@impeccable/cli-linux-x64@0.1.25':
+    resolution: {integrity: sha512-xzvN9bCXry1g5mqPj9PWupuhbJzdUGf/GAbsgRKXiaYt7HGD1Hxj9R6+eqDq3WA8qYVkk4PwJg5BSvoBOoZhdQ==}
+    cpu: [x64]
+    os: [linux]
+    hasBin: true
+
+  '@impeccable/cli-windows-x64@0.1.25':
+    resolution: {integrity: sha512-/v1bMHGxpyyzURTkjFIpBW54cuJfACSatxZnD9wP/2DsQmUWlIAf481Ib16keVwZDcOAy2NxgNiHED+SJWxINQ==}
+    cpu: [x64]
+    os: [win32]
+    hasBin: true
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1387,6 +1420,11 @@ packages:
 
   http-cache-semantics@4.3.0:
     resolution: {integrity: sha512-M5t5LlJpS1UHMjvwRQVdFHvPISGeLAxNcrWuJkeGh0KxsqCHZ1O3NXZU/8x7cD0BDcGW8kapxMKTvwlqrNkHkA==}
+
+  impeccable@4.9.2:
+    resolution: {integrity: sha512-4gO8ni/yZVpNW+3yP019VS+5C8f8J8rClnBdmPv0aod/oadYQW4A07T1aV5T3OAKH57xUfiKD2PwEVdAewyeig==}
+    engines: {node: '>=18.19.0'}
+    hasBin: true
 
   iron-webcrypto@1.2.1:
     resolution: {integrity: sha512-feOM6FaSr6rEABp/eDfVseKyTMDt+KGpeB35SkVn9Tyn0CqvVsY3EwI0v5i8nMHyJnzCIQf7nsy3p41TPkJZhg==}
@@ -2762,6 +2800,21 @@ snapshots:
   '@img/sharp-win32-x64@0.35.5':
     optional: true
 
+  '@impeccable/cli-darwin-arm64@0.1.25':
+    optional: true
+
+  '@impeccable/cli-darwin-x64@0.1.25':
+    optional: true
+
+  '@impeccable/cli-linux-arm64@0.1.25':
+    optional: true
+
+  '@impeccable/cli-linux-x64@0.1.25':
+    optional: true
+
+  '@impeccable/cli-windows-x64@0.1.25':
+    optional: true
+
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
@@ -3521,6 +3574,14 @@ snapshots:
   html-void-elements@3.0.0: {}
 
   http-cache-semantics@4.3.0: {}
+
+  impeccable@4.9.2:
+    optionalDependencies:
+      '@impeccable/cli-darwin-arm64': 0.1.25
+      '@impeccable/cli-darwin-x64': 0.1.25
+      '@impeccable/cli-linux-arm64': 0.1.25
+      '@impeccable/cli-linux-x64': 0.1.25
+      '@impeccable/cli-windows-x64': 0.1.25
 
   iron-webcrypto@1.2.1: {}
 
