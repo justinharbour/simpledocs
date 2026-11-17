@@ -1,8 +1,9 @@
 # Inbound fax intake (not enabled or deployed)
 
-Migration sequencing: PR #36 owns `0004_mail_intents.sql`; this feature uses
-`0005_inbound_fax_events.sql`. Merge mail into `develop` first, integrate it
-into this branch, then validate migrations 0001–0005 in order before considering
+Migration sequencing: PR #36 owns `0004_mail_intents.sql` and
+`0005_mail_unresolved_actor.sql`; this feature uses `0006_inbound_fax_events.sql`.
+Voice is planned for `0007`. Merge mail into `develop` first, integrate it
+into this branch, then validate migrations 0001–0006 in order before considering
 this PR for merge or any separately authorized database upgrade. Renumbering
 does not apply a migration or change an existing database.
 

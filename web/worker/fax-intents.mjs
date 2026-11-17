@@ -25,8 +25,10 @@ export async function sendPreparedFax(db, { id, actor, config, confirmed }, subm
     return { outcome: 'unavailable' };
   }
   const now = new Date().toISOString();
-  const claimed = await db.prepare("UPDATE fax_intents SET status = 'submitting', updated_at = ? WHERE id = ? AND actor_id = ? AND status = 'prepared'")
-    .bind(now, id, actor).run();
+  // The predicate and claim are one SQLite write, so distinct IDs racing for
+  // the same actor cannot both cross the irreversible provider boundary.
+  const claimed = await db.prepare("UPDATE fax_intents SET status = 'submitting', updated_at = ? WHERE id = ? AND actor_id = ? AND status = 'prepared' AND NOT EXISTS (SELECT 1 FROM fax_intents WHERE actor_id = ? AND status IN ('submitting', 'unknown', 'accepted'))")
+    .bind(now, id, actor, actor).run();
   if (claimed.meta.changes !== 1) return { outcome: 'not_claimed' };
   const row = await db.prepare('SELECT destination, media_name FROM fax_intents WHERE id = ? AND actor_id = ?').bind(id, actor).first();
   let result = { outcome: 'unknown' };

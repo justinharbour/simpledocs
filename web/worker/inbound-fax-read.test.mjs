@@ -10,7 +10,7 @@ test('verified and explicitly authorized subject can list and retrieve private P
   const mf = new Miniflare({ modules: true, script: 'export default { fetch() { return new Response("ok") } }', compatibilityDate: '2026-07-01', d1Databases: ['DB'], r2Buckets: ['FAX_MEDIA'] });
   try {
     const db = await mf.getD1Database('DB'), bucket = await mf.getR2Bucket('FAX_MEDIA');
-    const migration = await readFile(new URL('../../backend/core/migrations/0005_inbound_fax_events.sql', import.meta.url), 'utf8');
+    const migration = await readFile(new URL('../../backend/core/migrations/0006_inbound_fax_events.sql', import.meta.url), 'utf8');
     await db.prepare(migration.replace(/^--.*$/gm, '').trim()).run();
     const event = '11111111-1111-4111-8111-111111111111', fax = '22222222-2222-4222-8222-222222222222';
     const key = `inbound-fax/${fax}/${event}/${'a'.repeat(64)}.pdf`;

@@ -33,6 +33,15 @@ export function createWorker(resolveKeys = issuer => {
       return new Response('Unauthorized', { status: 401, headers: { 'Cache-Control': 'no-store' } });
     }
     const url = new URL(request.url);
+    if (url.pathname === '/api/faxes/unresolved') {
+      if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
+      try {
+        if (!env.DB) throw new Error();
+        const rows = await env.DB.prepare("SELECT id, status, created_at FROM fax_intents WHERE actor_id = ? AND status IN ('submitting', 'unknown', 'accepted') ORDER BY created_at, id").bind(actor).all();
+        if (!rows.success || !Array.isArray(rows.results)) throw new Error();
+        return Response.json({ intents: rows.results }, { headers: { 'Cache-Control': 'no-store' } });
+      } catch { return Response.json({ error: 'Fax status unavailable' }, { status: 503, headers: { 'Cache-Control': 'no-store' } }); }
+    }
     if (url.pathname === '/api/inbound-faxes') return handleInboundFaxRead(request, env, actor);
     const inboundPdf = /^\/api\/inbound-faxes\/([^/]+)\/pdf$/.exec(url.pathname);
     if (inboundPdf) return handleInboundFaxRead(request, env, actor, inboundPdf[1]);
