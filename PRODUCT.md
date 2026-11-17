@@ -22,7 +22,7 @@ Provide a simple, minimal communications workspace for fax, phone, voicemail and
 - PostGrid mail classes, tracking and return receipt depend on provider and destination availability. Require a provider-generated proof and explicit approval before sending.
 - Public portfolio repository, permissive license, conventional commits, pull requests instead of direct commits to main. Welcome contributions.
 - Access uses the existing Entra policy; provider webhooks require independent authentication and cannot depend on interactive Access login.
-- Personal iOS and macOS testing uses TestFlight without an App Store release. Distribute two signed downloadable macOS editions: provider-configurable and owner backend-connected.
+- Personal iOS and macOS testing uses TestFlight. An App Store release is intended for the backend-connected app, including linking independently operated instances, subject to verified native authentication and platform review. Two signed downloadable macOS editions are also planned: provider-configurable and backend-connected. App Store availability for the direct-provider edition is not assumed.
 
 ## Brand Commitments
 Name: simpledocs. Extremely minimal and simple interface. Use Starwind UI.
