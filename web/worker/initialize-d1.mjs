@@ -22,7 +22,7 @@ execFileSync(wrangler, ['d1', 'migrations', 'apply', 'simpledocs-d1-prod', '--re
 execFileSync(wrangler, ['d1', 'migrations', 'list', 'simpledocs-d1-prod', '--remote', '--config', 'wrangler.d1-initialize.json'], { stdio: 'inherit' });
 const output = execFileSync(wrangler, ['d1', 'execute', 'simpledocs-d1-prod', '--remote', '--config', 'wrangler.d1-initialize.json', '--json', '--command', "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"], { encoding: 'utf8' });
 const names = JSON.parse(output)[0].results.map(row => row.name);
-for (const name of ['d1_migrations', 'document_revisions', 'jobs', 'deliveries', 'submission_intents', 'proofs', 'approvals', 'provider_events', 'audit_events', 'mail_drafts', 'fax_intents']) {
+for (const name of ['d1_migrations', 'document_revisions', 'jobs', 'deliveries', 'submission_intents', 'proofs', 'approvals', 'provider_events', 'audit_events', 'mail_drafts', 'fax_intents', 'mail_intents']) {
   if (!names.includes(name)) throw new Error(`Missing table ${name}`);
 }
 console.log(`Verified tables: ${names.join(', ')}`);

@@ -5,6 +5,10 @@ import unittest
 MIGRATION = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0001_core.sql'
 MAIL_DRAFTS = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0002_mail_drafts.sql'
 INBOUND_FAX = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0007_inbound_fax_events.sql'
+FAX_INTENTS = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0003_fax_intents.sql'
+MAIL_INTENTS = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0004_mail_intents.sql'
+MAIL_UNRESOLVED = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0005_mail_unresolved_actor.sql'
+MAIL_ACK = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0006_mail_acknowledgement.sql'
 
 class MigrationTest(unittest.TestCase):
     def setUp(self):
@@ -56,6 +60,58 @@ class MigrationTest(unittest.TestCase):
             self.assertIn('0005_mail_unresolved_actor.sql', [p.name for p in migrations])
         if '0006' in prefixes:
             self.assertIn('0006_mail_acknowledgement.sql', [p.name for p in migrations])
+    def test_mail_intent_upgrade_preserves_drafts_and_single_claim(self):
+        self.db.executescript(MAIL_DRAFTS.read_text())
+        self.db.executescript(FAX_INTENTS.read_text())
+        self.db.execute("INSERT INTO mail_drafts VALUES (?,?,?,?,?,?)", ('d', 'owner', 1, '{}', 'now', 'now'))
+        self.db.executescript(MAIL_INTENTS.read_text())
+        self.assertEqual(self.db.execute('SELECT content_json FROM mail_drafts WHERE id=?', ('d',)).fetchone(), ('{}',))
+        values = ('d', 'owner', 1, 'hash', '{}', 'submitting', None, 'now', 'now')
+        self.db.execute('INSERT INTO mail_intents VALUES (?,?,?,?,?,?,?,?,?)', values)
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute('INSERT INTO mail_intents VALUES (?,?,?,?,?,?,?,?,?)', values)
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("UPDATE mail_intents SET status='retry'")
+        self.db.executescript(MAIL_UNRESOLVED.read_text())
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute('INSERT INTO mail_intents VALUES (?,?,?,?,?,?,?,?,?)', ('d2', 'owner', 1, 'hash', '{}', 'unknown', None, 'now', 'now'))
+        self.db.execute("UPDATE mail_intents SET status='accepted' WHERE draft_id='d'")
+        self.db.execute('INSERT INTO mail_intents VALUES (?,?,?,?,?,?,?,?,?)', ('d2', 'owner', 1, 'hash', '{}', 'unknown', None, 'now', 'now'))
+
+    def test_mail_migration_names_are_contiguous_and_unambiguous(self):
+        names = sorted(p.name for p in MAIL_INTENTS.parent.glob('*.sql'))
+        self.assertEqual([n for n in names if n.startswith(('0004_', '0005_', '0006_'))],
+                         ['0004_mail_intents.sql', '0005_mail_unresolved_actor.sql', '0006_mail_acknowledgement.sql'])
+        self.assertNotIn('0008_mail_acknowledgement.sql', names)
+
+    def test_unresolved_index_refuses_existing_conflicts_without_discarding_rows(self):
+        self.db.executescript(MAIL_INTENTS.read_text())
+        for draft in ('d1', 'd2'):
+            self.db.execute('INSERT INTO mail_intents VALUES (?,?,?,?,?,?,?,?,?)', (draft, 'owner', 1, 'hash', '{}', 'unknown', None, 'now', 'now'))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.executescript(MAIL_UNRESOLVED.read_text())
+        self.assertEqual(self.db.execute('SELECT count(*) FROM mail_intents').fetchone(), (2,))
+
+    def test_unacknowledged_acceptance_blocks_until_acknowledged(self):
+        self.db.executescript(MAIL_INTENTS.read_text())
+        self.db.executescript(MAIL_UNRESOLVED.read_text())
+        self.db.executescript(MAIL_ACK.read_text())
+        insert = 'INSERT INTO mail_intents (draft_id,actor_id,revision,review_hash,payload_json,status,provider_id,confirmed_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)'
+        self.db.execute(insert, ('d', 'owner', 1, 'hash', '{}', 'accepted', 'letter_1', 'now', 'now'))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(insert, ('d2', 'owner', 1, 'hash', '{}', 'submitting', None, 'now', 'now'))
+        self.db.execute("UPDATE mail_intents SET acknowledged_at='now' WHERE draft_id='d'")
+        self.db.execute(insert, ('d2', 'owner', 1, 'hash', '{}', 'submitting', None, 'now', 'now'))
+
+    def test_ack_migration_conflict_keeps_existing_gate_and_rows(self):
+        self.db.executescript(MAIL_INTENTS.read_text())
+        self.db.executescript(MAIL_UNRESOLVED.read_text())
+        for draft in ('d1', 'd2'):
+            self.db.execute('INSERT INTO mail_intents VALUES (?,?,?,?,?,?,?,?,?)', (draft, 'owner', 1, 'hash', '{}', 'accepted', 'letter_1', 'now', 'now'))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.executescript(MAIL_ACK.read_text())
+        self.assertEqual(self.db.execute('SELECT count(*) FROM mail_intents').fetchone(), (2,))
+        self.assertIsNotNone(self.db.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='mail_one_unresolved_per_actor'").fetchone())
 
 if __name__ == '__main__':
     unittest.main()

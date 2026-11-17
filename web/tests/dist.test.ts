@@ -34,7 +34,7 @@ describe.skipIf(!built)("built site (run `pnpm build` first)", () => {
     for (const target of own) expect(target).toBe(href);
   });
 
-  it.each(pages.filter((href) => href !== "/compose/" && href !== "/fax/"))("%s states that nothing is connected and ships no form or fake action", (href) => {
+  it.each(pages.filter((href) => href !== "/compose/" && href !== "/fax/" && href !== "/mail/"))("%s states that nothing is connected and ships no form or fake action", (href) => {
     const doc = html(href);
     expect(doc).not.toMatch(/<form[\s>]/);
     expect(doc).not.toMatch(/type="submit"/);
@@ -46,6 +46,17 @@ describe.skipIf(!built)("built site (run `pnpm build` first)", () => {
     expect(doc).toContain('id="fax-form"');
     expect(doc).toContain('name="document"');
     expect(doc).toContain('name="confirmed"');
+  });
+
+  it("provides a local mail review with an initially disabled confirmation", () => {
+    const doc = html("/mail/");
+    expect(doc).toContain('id="mail-form"');
+    expect(doc).toMatch(/id="mail-form" method="post"/);
+    expect(doc).toMatch(/id="mail-fields" disabled/);
+    expect(doc).toContain('id="mail-payload"');
+    expect(doc).toContain('id="mail-confirm"');
+    expect(doc).toMatch(/id="mail-send"[^>]*disabled/);
+    expect(doc).toContain('not rendered by PostGrid');
   });
 
   it("ships a 404 page that links home", () => {
