@@ -74,6 +74,7 @@ jobs:
     outputs:
       web: ${{ steps.tracked.outputs.web }}
       native_package: ${{ steps.tracked.outputs.native_package }}
+      native_direct: ${{ steps.tracked.outputs.native_direct }}
       native_apps: ${{ steps.tracked.outputs.native_apps }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -86,6 +87,7 @@ jobs:
           {
             echo "web=$(has web/package.json)"
             echo "native_package=$(has native/Packages/SimpleDocsKit/Package.swift)"
+            echo "native_direct=$(has native/Packages/SimpleDocsDirect/Package.swift)"
             echo "native_apps=$(has native/project.yml)"
           } >> "$GITHUB_OUTPUT"
 
@@ -142,6 +144,24 @@ jobs:
         working-directory: native/Packages/SimpleDocsKit
         run: swift test
 
+  native-direct:
+    name: Native (SimpleDocsDirect swift test)
+    needs: detect
+    if: ${{ needs.detect.outputs.native_direct == 'true' }}
+    runs-on: xcode-27
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Select Xcode 27.2
+        run: sudo xcode-select -s /Applications/Xcode_27.2.app/Contents/Developer
+      - name: Swift test
+        working-directory: native/Packages/SimpleDocsDirect
+        run: swift test
+
   native-apps:
     name: Native (${{ matrix.scheme }} build)
     needs: detect
@@ -187,7 +207,7 @@ jobs:
   pr-gate:
     name: pr-gate
     if: ${{ always() }}
-    needs: [detect, workflow-lint, pr-title, dependency-review, web, native-package, native-apps]
+    needs: [detect, workflow-lint, pr-title, dependency-review, web, native-package, native-direct, native-apps]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -204,9 +224,11 @@ jobs:
           DETECT_RESULT: ${{ needs.detect.result }}
           WEB_TRACKED: ${{ needs.detect.outputs.web }}
           PKG_TRACKED: ${{ needs.detect.outputs.native_package }}
+          DIRECT_TRACKED: ${{ needs.detect.outputs.native_direct }}
           APPS_TRACKED: ${{ needs.detect.outputs.native_apps }}
           WEB_RESULT: ${{ needs.web.result }}
           PKG_RESULT: ${{ needs.native-package.result }}
+          DIRECT_RESULT: ${{ needs.native-direct.result }}
           APPS_RESULT: ${{ needs.native-apps.result }}
         run: |
           failed=0
@@ -235,8 +257,12 @@ jobs:
             if [ "$tracked" = "true" ]; then
               check "$name" "$result"
               echo "| $name | tracked | $result |"
-            else
+            elif [ "$tracked" = "false" ]; then
               echo "| $name | not present | NOT RUN |"
+            else
+              echo "::error title=Project state unknown::$name has invalid detection output."
+              failed=1
+              echo "| $name | unknown | NOT RUN |"
             fi
           }
 
@@ -254,10 +280,11 @@ jobs:
             echo "| --- | --- | --- |"
             project_row "Web (pnpm verify)" "$WEB_TRACKED" "$WEB_RESULT"
             project_row "Native SimpleDocsKit (swift test)" "$PKG_TRACKED" "$PKG_RESULT"
+            project_row "Native SimpleDocsDirect (swift test)" "$DIRECT_TRACKED" "$DIRECT_RESULT"
             project_row "Native apps (3 unsigned builds)" "$APPS_TRACKED" "$APPS_RESULT"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          if [ "$WEB_TRACKED$PKG_TRACKED$APPS_TRACKED" = "falsefalsefalse" ]; then
+          if [ "$WEB_TRACKED$PKG_TRACKED$DIRECT_TRACKED$APPS_TRACKED" = "falsefalsefalsefalse" ]; then
             echo "::notice title=Application projects not run::No web or native project is tracked yet."
           fi
 
