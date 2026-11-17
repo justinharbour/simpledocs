@@ -26,3 +26,11 @@ it is unset. Do not allow untrusted pull requests to access production secrets.
 Run `python3 infra/tofu/test_encryption.py` with OpenTofu installed to test
 encryption and recovery using disposable local state and a disposable key. This
 does not verify R2 behavior or recoverability of the production key.
+
+`verify_r2_lock.py` is a proposed manual integration test, not yet approved or
+run. It needs OpenTofu, AWS CLI, the R2 endpoint and S3 credentials in the
+environment. It creates and deletes a randomly named disposable state object
+under `simpledocs/verification/`, not the production key. A failed test may
+leave objects or a lock requiring manual inspection. A successful test proves
+only the operations exercised, not least-privilege credential scope or backup
+recovery. Review a trusted execution path before supplying credentials.
