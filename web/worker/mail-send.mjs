@@ -78,7 +78,9 @@ export async function handleMail(request, env, actor, id, action, fetcher = fetc
   try { body = await readJson(request); } catch { return reply({ error: 'Invalid request' }, 400); }
   if (!body || Object.keys(body).sort().join(',') !== 'confirmed,mode,reviewHash,revision' || !['test', 'live'].includes(body.mode) || body.confirmed !== true || !Number.isSafeInteger(body.revision) || body.revision < 1 || !/^[a-f0-9]{64}$/.test(body.reviewHash ?? '')) return reply({ error: 'Explicit confirmation of reviewed content required' }, 400);
   const apiKey = body.mode === 'test' ? env.POSTGRID_TEST_KEY : env.POSTGRID_LIVE_KEY;
-  if (typeof apiKey !== 'string' || !apiKey.trim()) return reply({ error: 'Selected mail mode is unavailable' }, 503);
+  // Do not trust the secret binding name alone: swapped keys could otherwise
+  // turn a user-confirmed test into a paid physical mailing.
+  if (typeof apiKey !== 'string' || apiKey !== apiKey.trim() || !apiKey.startsWith(body.mode === 'test' ? 'test_sk' : 'live_sk') || apiKey.length <= 7) return reply({ error: 'Selected mail mode is unavailable' }, 503);
   const row = await env.DB.prepare('SELECT revision, content_json FROM mail_drafts WHERE id = ? AND actor_id = ?').bind(id, actor).first();
   if (!row || row.revision !== body.revision) return reply({ error: 'Draft changed or not found' }, 409);
   let payload;

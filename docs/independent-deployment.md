@@ -87,6 +87,9 @@ Worker needs separate `POSTGRID_TEST_KEY` and `POSTGRID_LIVE_KEY` secrets and
 deployment, not logged or committed. Missing keys fail closed per mode. The
 same unresolved-order gate applies across both modes. Verify provider test-key
 semantics before activation; mocks do not establish live provider behavior.
+PostGrid documents `test_sk` and `live_sk` prefixes for the respective keys:
+https://postgrid.readme.io/docs/sending-postcards-using-the-api#api-keys.
+The Worker checks these prefixes to fail closed if the bindings are swapped.
 
 The production Worker already has a D1 binding in `web/wrangler.jsonc`; the
 initialization script is not an upgrade tool and must not be run against it.

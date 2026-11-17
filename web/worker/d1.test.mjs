@@ -36,7 +36,7 @@ it('serializes separate mail draft claims using a local D1 binding', async () =>
     const ids = ['ed600156-741d-4fcb-a7b2-388d87883151', 'ad600156-741d-4fcb-a7b2-388d87883151'];
     const addr = { firstName: 'Test', addressLine1: '1 Example', city: 'Test', provinceOrState: 'MA', postalOrZip: '00000', countryCode: 'US' };
     const content = { to: addr, from: addr, text: 'Test', color: false, doubleSided: false, mailingClass: 'first_class' };
-    const env = { DB: db, MAIL_ENABLED: 'true', POSTGRID_LIVE_KEY: 'fake' };
+    const env = { DB: db, MAIL_ENABLED: 'true', POSTGRID_LIVE_KEY: 'live_sk_fake' };
     const requests = [];
     for (const id of ids) {
       const url = `https://example.test/api/mail-drafts/${id}`;
