@@ -32,3 +32,28 @@ test('fails closed on missing configuration and delivery failure', async () => {
   assert.equal(sent.length, 0);
   assert.equal(await sendPendingFaxAlert({ ...env, FAX_ALERT_EMAIL: { async send() { throw Error('synthetic'); } } }, { now }), 'unavailable');
 });
+
+test('database errors and malformed query results never send an alert', async () => {
+  const { env, sent } = fixture();
+  for (const first of [
+    async () => { throw new Error('synthetic sensitive database detail'); },
+    async () => null,
+    async () => ({ count: -1 }),
+    async () => ({ count: '1' }),
+  ]) {
+    const DB = { prepare() { return { bind() { return { first }; } }; } };
+    assert.equal(await sendPendingFaxAlert({ ...env, DB }, { now }), 'unavailable');
+  }
+  assert.equal(sent.length, 0);
+});
+
+test('multiple pending receipts produce only one generic message per invocation', async () => {
+  const { db, sent, env } = fixture();
+  const insert = db.prepare('INSERT INTO inbound_fax_pending VALUES (?, ?, ?, ?)');
+  insert.run('event-one', 'private-fax-one', 'then', '2026-01-01T00:00:00.000Z');
+  insert.run('event-two', 'private-fax-two', 'then', '2026-01-01T00:01:00.000Z');
+  assert.equal(await sendPendingFaxAlert(env, { now }), 'accepted');
+  assert.equal(sent.length, 1);
+  const content = JSON.stringify(sent[0]);
+  for (const secret of ['event-one', 'event-two', 'private-fax-one', 'private-fax-two']) assert.ok(!content.includes(secret));
+});
