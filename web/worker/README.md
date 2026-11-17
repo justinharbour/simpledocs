@@ -1,5 +1,11 @@
 # Owner Worker draft
 
+Build the deployable files with `pnpm install --frozen-lockfile`, `pnpm build`,
+and `pnpm build:worker` from `web/`. The resulting static directory is `dist/`
+and the single Worker module is `build/worker/index.js`. These outputs are not
+an authorization to deploy; record and verify their digests against the reviewed
+source and keep them unchanged between infrastructure plan and apply.
+
 This is a protected static preview, not a functional application. It does not
 implement D1, R2, provider actions, webhooks, or persistence. The deployment is
 not ready for production until Access configuration and infrastructure ownership
