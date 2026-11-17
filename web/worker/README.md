@@ -18,8 +18,8 @@ preview URLs without testing the same authentication boundary.
 
 The mail-draft API uses the verified Access subject and a `DB` D1 binding. It
 returns 503 without that binding; the infrastructure does not yet provision it
-or apply the migrations, and the UI is not connected. SQLite-backed tests are
-not a substitute for D1 integration or live security testing. Writes require a
+or apply the migrations, and the UI is not connected. Tests include Miniflare's
+local D1 binding, but not deployed D1 or live security testing. Writes require a
 same-origin JSON request, bounded body, and a current revision.
 
 The owner has deferred the PostGrid provider-preview requirement for the rough
