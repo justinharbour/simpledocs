@@ -16,6 +16,36 @@ backup procedures. No provider sending is enabled.
 
 ## Provisioning sequence (not yet executed)
 
+### Owner hostname review (2026-11-17)
+
+Read-only account inventory found the active `justinharbour.dev` zone in the
+target account and no exact DNS record for `simpledocs.justinharbour.dev`.
+The account-level Access application listing had no application containing that
+hostname. Recheck zone-level applications, wildcard DNS and routes, custom
+domains, and overlapping Access rules immediately before making changes; this
+inventory alone does not establish exclusive hostname ownership.
+
+The intended reusable policy is `36ee1f67-a91a-494c-b503-94bf48820ffa`
+(`Allow Entra Authenticated Users Only`). It allows the Azure AD login method
+`bc4cede3-4ee0-4bd6-9393-34c10ca6a6d8`, configured with directory ID
+`b345fb42-c8c3-4e04-93a5-974f7e5eb2ad`. This verifies the configured login
+method and directory, not the Entra tenant's own membership or authorization
+settings. Do not modify the shared policy or identity provider. The Access team
+origin is `https://justinharbour.cloudflareaccess.com`; the new application's
+audience must be obtained after creation and checked before deployment.
+
+Provision the self-hosted application through a separately reviewed Wrangler/
+GitHub Actions path, attaching the existing reusable policy and no bypass or
+additional allow policies. Verify the application and policy association by
+read-back before enabling the hostname. Add the exact team origin and application
+audience as Worker variables in a reviewed change and deploy them while the
+Worker remains unrouted. Only then review a separate route/custom-domain change.
+Test an unauthenticated request, a non-tenant identity, the owner's allowed
+login, and static assets; if access controls fail, disable the route immediately.
+An Access app alone does not prove enforcement until requests traverse the
+hostname, and a verified JWT alone does not replace the Access policy check.
+These owner-specific settings must not become requirements for other installs.
+
 1. Inventory `simpledocs-wkr-prod`, `simpledocs-d1-prod`, the hostname and any
    Access applications in the target account. Stop on an ownership collision;
    do not adopt or overwrite an existing resource without reviewing its owner.
