@@ -269,7 +269,7 @@ Format validity is **not** instance validity. No code path may describe a parsed
 
 ## Not integrated or not verified
 
-- **Not wired into the app.** No app target, `project.yml` entry or shared `SimpleDocsKit` source references this package. The separate `SimpleDocsOAuth` discovery package depends on it; neither is linked into an app.
+- **Build-linked, not wired into app behavior.** The connected macOS and iOS targets declare both packages in `project.yml`; app sources still do not invoke them. The direct-provider app remains independent. This does not enable sign-in or notifications.
 - **No sign-in.** The Access/OAuth flow, issuer and audience binding, renewal and revocation are undecided (see PR #2 architecture). The package cannot authenticate anyone.
 - **No discovery.** The discovery route, schema and its authenticity binding are undecided. `APIVersion.negotiate` only handles a list the caller supplies, and that list must be treated as untrusted. `InstanceTrust` has a single `userEnteredUnverified` state.
 - **No networking.** No `URLSession`, TLS or certificate policy, redirect delegate, timeout, response-size limit, or error-envelope decoding. `OriginBinding` and `CredentialPolicy` are the checks a future transport must call; the transport itself is unwritten and unreviewed.
