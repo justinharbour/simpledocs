@@ -10,11 +10,19 @@ private final class NoHTTPRedirects: NSObject, URLSessionTaskDelegate, @unchecke
 
 /// Ephemeral transport for the experimental coordinator; response contents are never logged.
 @MainActor public final class ConnectedHTTP: ConnectedFlowAdapter {
-    private let browser: OAuthBrowser
-    public init(browser: OAuthBrowser) { self.browser = browser }
+    private let browser: OAuthBrowser?
+    private let protocolClasses: [AnyClass]?
+    public init(browser: OAuthBrowser) { self.browser = browser; self.protocolClasses = nil }
+
+    /// Test-only injection; production always uses the system HTTPS stack.
+    init(testProtocolClasses: [AnyClass]) {
+        self.browser = nil
+        self.protocolClasses = testProtocolClasses
+    }
 
     private func request(_ request: URLRequest, maximum: Int) async throws -> Data {
         let config = URLSessionConfiguration.ephemeral
+        if let protocolClasses { config.protocolClasses = protocolClasses }
         config.urlCache = nil; config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.httpCookieStorage = nil; config.httpShouldSetCookies = false; config.urlCredentialStorage = nil
         config.timeoutIntervalForRequest = 15
@@ -45,7 +53,8 @@ private final class NoHTTPRedirects: NSObject, URLSessionTaskDelegate, @unchecke
         return try await request(req, maximum: 65_536)
     }
     public func authorize(url: URL, callbackScheme: String) async throws -> URL {
-        try await browser.authorize(url: url, callbackScheme: callbackScheme)
+        guard let browser else { throw ConnectedFlowError.invalidResponse }
+        return try await browser.authorize(url: url, callbackScheme: callbackScheme)
     }
     public func exchange(_ request: TokenRequest, registry: InstanceRegistry) async throws -> OAuthTokens {
         try await TokenTransport.exchange(request, registry: registry)

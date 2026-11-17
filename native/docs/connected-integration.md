@@ -189,6 +189,13 @@ and bounds responses. Synthetic adapter tests cover a successful flow, issuer
 substitution, expiration and selection changes. They do not test the actual HTTP
 adapter, signed browser/Keychain behavior, or a Cloudflare test deployment.
 
+Subsequent URLProtocol-backed tests exercise the actual `ConnectedHTTP` session
+for bounded JSON responses, rejection of a 302 response and non-JSON content,
+and the expected synthetic bearer header on a planned Worker request. These do
+not exercise TLS, a real redirect chain, token-exchange HTTP, or a live server.
+The browser wrapper also isolates callbacks and cancellation by session ID so a
+late callback from an old session cannot complete a newer session.
+
 This is not yet an app feature. There is no issuer confirmation UI, persistent
 credential integration, refresh, or verified callback registration. Cloudflare's
 walkthrough illustrates a loopback redirect, not the custom scheme used here;
@@ -199,6 +206,13 @@ credential policy remains fail-closed. Dynamic client registration is a server
 mutation when the experimental flow is actually run; no such request was made
 in these tests. In-flight requests canceled on an instance switch may already
 have reached the original instance; cancellation cannot undo server effects.
+
+The Worker additionally requires `cf-access-jwt-assertion` and independently
+validates it; the native transport sends the documented OAuth bearer header.
+Whether Access supplies the expected assertion to this Worker for Managed OAuth
+requests has not been verified. Do not remove or bypass the Worker check to make
+the client connect. A dedicated configured test deployment is needed to verify
+the complete Access-to-Worker identity and authorization boundary.
 
 ## Address parsing
 

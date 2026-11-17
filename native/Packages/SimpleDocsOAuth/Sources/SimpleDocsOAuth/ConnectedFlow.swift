@@ -27,6 +27,7 @@ public enum ConnectedFlowError: Error { case invalidResponse, noSession, invalid
 
     public func signIn(confirmation: IssuerConfirmation, binding: ContextBinding, callback: URL,
                        now: @escaping @MainActor () -> Date = Date.init) async throws {
+        owner.cancel()
         session = nil
         guard confirmation.binding == binding, let active = owner.registry.active, owner.registry.isCurrent(binding),
               active.scope.origin.canonical == confirmation.resource else { throw CoordinatorError.staleContext }
