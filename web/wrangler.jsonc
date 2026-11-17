@@ -4,6 +4,11 @@
   "compatibility_date": "2026-11-16",
   "workers_dev": false,
   "preview_urls": false,
+  "vars": {
+    "FAX_ENABLED": "true",
+    "TELNYX_FAX_CONNECTION_ID": "3095469622875391187",
+    "TELNYX_FAX_FROM": "+12134147728"
+  },
   "routes": [
     { "pattern": "simpledocs.justinharbour.dev", "custom_domain": true }
   ],
