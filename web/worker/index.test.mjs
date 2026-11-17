@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPair, exportJWK, SignJWT, createLocalJWKSet } from 'jose';
-import worker, { verifyAccess } from './index.mjs';
+import worker, { createWorker, verifyAccess } from './index.mjs';
 
 const request = (token, path = '/', options = {}) => new Request(`https://example.test${path}`, { ...options, headers: token ? { 'cf-access-jwt-assertion': token } : {} });
 const issuer = 'https://example.cloudflareaccess.com';
@@ -39,5 +39,19 @@ describe('owner Worker Access boundary', () => {
     await assert.rejects(verifyAccess(await sign('other', '5m'), issuer, 'expected', keys));
     await assert.rejects(verifyAccess(await sign('expected', '-1m'), issuer, 'expected', keys));
     await assert.rejects(verifyAccess(await sign('expected', '5m'), 'https://other.cloudflareaccess.com', 'expected', keys));
+  });
+  it('does not treat a direct bearer token as an Access assertion', async () => {
+    const { publicKey, privateKey } = await generateKeyPair('RS256', { extractable: true });
+    const jwk = await exportJWK(publicKey);
+    const keys = createLocalJWKSet({ keys: [{ ...jwk, kid: 'test', alg: 'RS256' }] });
+    const token = await new SignJWT({ email: 'owner@example.test' }).setProtectedHeader({ alg: 'RS256', kid: 'test' }).setIssuer(issuer).setAudience('expected').setSubject('owner').setIssuedAt().setExpirationTime('5m').sign(privateKey);
+    let assetCalls = 0;
+    const testEnv = { ...env, ASSETS: { fetch: async () => { assetCalls++; return new Response('asset'); } } };
+    const isolatedWorker = createWorker(() => keys);
+    const bearerOnly = new Request('https://example.test/', { headers: { Authorization: `Bearer ${token}` } });
+    assert.equal((await isolatedWorker.fetch(bearerOnly, testEnv)).status, 401);
+    assert.equal(assetCalls, 0);
+    assert.equal((await isolatedWorker.fetch(request(token), testEnv)).status, 200);
+    assert.equal(assetCalls, 1);
   });
 });
