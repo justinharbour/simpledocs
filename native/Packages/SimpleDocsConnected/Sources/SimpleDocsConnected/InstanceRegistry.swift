@@ -52,6 +52,7 @@ public struct UnlinkReceipt: Sendable, Equatable {
 
 public enum LinkError: Error, Equatable, Sendable {
     case alreadyLinked
+    case linkIDReused
     case notLinked
 }
 
@@ -61,6 +62,8 @@ public struct InstanceRegistry: Sendable, Equatable {
     public private(set) var instances: [InstanceLinkID: LinkedInstance] = [:]
     public private(set) var activeLinkID: InstanceLinkID?
     public private(set) var epoch: UInt64 = 0
+    /// Every ID ever issued by this registry, including unlinked ones. IDs are never reused.
+    private var issuedLinkIDs: Set<InstanceLinkID> = []
 
     public init() {}
 
@@ -69,13 +72,25 @@ public struct InstanceRegistry: Sendable, Equatable {
         return ActiveContext(scope: instance.scope, epoch: epoch)
     }
 
-    /// Links a confirmed origin. Linking never selects it and never copies state from another link.
+    /// Links an origin under a freshly generated ID. Linking never selects it, never changes the
+    /// active instance or epoch, and never copies state from another link.
     @discardableResult
-    public mutating func link(_ confirmed: ConfirmedOrigin, id: InstanceLinkID = InstanceLinkID()) throws -> LinkedInstance {
-        guard !instances.values.contains(where: { $0.origin == confirmed.origin }) else {
+    public mutating func link(_ acknowledged: AcknowledgedOrigin) throws -> LinkedInstance {
+        var id = InstanceLinkID()
+        while issuedLinkIDs.contains(id) { id = InstanceLinkID() }
+        return try link(acknowledged, id: id)
+    }
+
+    /// Deterministic injection for tests only (not public). An ID that is currently linked, or was
+    /// ever issued and since unlinked, is refused before any state changes.
+    @discardableResult
+    mutating func link(_ acknowledged: AcknowledgedOrigin, id: InstanceLinkID) throws -> LinkedInstance {
+        guard !issuedLinkIDs.contains(id) else { throw LinkError.linkIDReused }
+        guard !instances.values.contains(where: { $0.origin == acknowledged.origin }) else {
             throw LinkError.alreadyLinked
         }
-        let instance = LinkedInstance(scope: SessionScope(linkID: id, origin: confirmed.origin), trust: .userEnteredUnverified)
+        let instance = LinkedInstance(scope: SessionScope(linkID: id, origin: acknowledged.origin), trust: .userEnteredUnverified)
+        issuedLinkIDs.insert(id)
         instances[id] = instance
         return instance
     }

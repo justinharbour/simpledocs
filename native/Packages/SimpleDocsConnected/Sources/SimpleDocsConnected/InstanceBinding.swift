@@ -2,21 +2,28 @@ import CryptoKit
 import Foundation
 
 /// Local identity of one link between this app and one instance. It is generated on the device
-/// and means nothing to any server. Unlinking and relinking the same origin yields a new value,
-/// so state that belonged to the earlier link cannot be mistaken for the new one.
+/// by `InstanceRegistry` and means nothing to any server. Unlinking and relinking the same origin
+/// yields a new value, so state that belonged to the earlier link cannot be mistaken for the new one.
+/// There is no public initializer: callers cannot choose, reuse or collide IDs.
 public struct InstanceLinkID: Hashable, Sendable, CustomStringConvertible {
     public let rawValue: UUID
 
-    public init(_ rawValue: UUID = UUID()) {
+    init(_ rawValue: UUID = UUID()) {
         self.rawValue = rawValue
     }
 
     public var description: String { rawValue.uuidString.lowercased() }
 }
 
-/// Proof that the person was shown a specific origin and accepted it. The acknowledged text must
-/// equal the canonical origin, so a caller cannot confirm one string and link another.
-public struct ConfirmedOrigin: Sendable, Equatable {
+/// An origin paired with a caller-supplied acknowledgment string.
+///
+/// This is only a consistency check: it rejects a mismatch between the origin being linked and the
+/// text the caller says it displayed, which catches typos and programming mistakes. It is **not**
+/// evidence that a person saw or accepted anything. This package cannot observe the UI, and any code
+/// can pass `origin.canonical` as the acknowledgment. The UI layer must separately show the origin
+/// (including `hasPunycodeLabel`) and obtain an explicit confirmation before it constructs this value,
+/// and that step needs its own UI tests.
+public struct AcknowledgedOrigin: Sendable, Equatable {
     public let origin: InstanceOrigin
 
     public init?(origin: InstanceOrigin, acknowledgedDisplay: String) {
@@ -32,7 +39,7 @@ public struct SessionScope: Hashable, Sendable {
     public let linkID: InstanceLinkID
     public let origin: InstanceOrigin
 
-    public init(linkID: InstanceLinkID, origin: InstanceOrigin) {
+    init(linkID: InstanceLinkID, origin: InstanceOrigin) {
         self.linkID = linkID
         self.origin = origin
     }

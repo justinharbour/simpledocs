@@ -135,13 +135,13 @@ import Testing
     }
 }
 
-@Suite struct ConfirmedOriginTests {
-    @Test func confirmationMustMatchDisplayedOrigin() throws {
+@Suite struct AcknowledgedOriginTests {
+    @Test func acknowledgmentMustMatchOriginText() throws {
         let value = try InstanceOrigin.parse("https://docs.example.com").get()
-        #expect(ConfirmedOrigin(origin: value, acknowledgedDisplay: "https://docs.example.com") != nil)
-        #expect(ConfirmedOrigin(origin: value, acknowledgedDisplay: "https://docs.example.com/") == nil)
-        #expect(ConfirmedOrigin(origin: value, acknowledgedDisplay: "https://evil.example") == nil)
-        #expect(ConfirmedOrigin(origin: value, acknowledgedDisplay: "") == nil)
+        #expect(AcknowledgedOrigin(origin: value, acknowledgedDisplay: "https://docs.example.com") != nil)
+        #expect(AcknowledgedOrigin(origin: value, acknowledgedDisplay: "https://docs.example.com/") == nil)
+        #expect(AcknowledgedOrigin(origin: value, acknowledgedDisplay: "https://evil.example") == nil)
+        #expect(AcknowledgedOrigin(origin: value, acknowledgedDisplay: "") == nil)
     }
 }
 

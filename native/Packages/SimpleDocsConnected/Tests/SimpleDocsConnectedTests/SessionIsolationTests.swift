@@ -2,16 +2,16 @@ import Foundation
 import Testing
 @testable import SimpleDocsConnected
 
-private func confirmed(_ text: String) -> ConfirmedOrigin {
+private func acknowledged(_ text: String) -> AcknowledgedOrigin {
     let origin = try! InstanceOrigin.parse(text).get()
-    return ConfirmedOrigin(origin: origin, acknowledgedDisplay: origin.canonical)!
+    return AcknowledgedOrigin(origin: origin, acknowledgedDisplay: origin.canonical)!
 }
 
 @Suite struct SessionScopeTests {
     @Test func differentOriginsNeverShareNames() throws {
         let id = InstanceLinkID()
-        let a = SessionScope(linkID: id, origin: confirmed("https://a.example.com").origin)
-        let b = SessionScope(linkID: id, origin: confirmed("https://b.example.com").origin)
+        let a = SessionScope(linkID: id, origin: acknowledged("https://a.example.com").origin)
+        let b = SessionScope(linkID: id, origin: acknowledged("https://b.example.com").origin)
         #expect(a.keychainAccount != b.keychainAccount)
         #expect(a.cachePathComponents != b.cachePathComponents)
         #expect(a.idempotencyNamespace != b.idempotencyNamespace)
@@ -19,7 +19,7 @@ private func confirmed(_ text: String) -> ConfirmedOrigin {
     }
 
     @Test func relinkingTheSameOriginGetsNewNames() {
-        let origin = confirmed("https://a.example.com").origin
+        let origin = acknowledged("https://a.example.com").origin
         let first = SessionScope(linkID: InstanceLinkID(), origin: origin)
         let second = SessionScope(linkID: InstanceLinkID(), origin: origin)
         #expect(first.originDigest == second.originDigest)
@@ -30,7 +30,7 @@ private func confirmed(_ text: String) -> ConfirmedOrigin {
 
     @Test func namesAreStableAndFileSafe() {
         let id = InstanceLinkID(UUID(uuidString: "11111111-2222-3333-4444-555555555555")!)
-        let scope = SessionScope(linkID: id, origin: confirmed("https://a.example.com:8443").origin)
+        let scope = SessionScope(linkID: id, origin: acknowledged("https://a.example.com:8443").origin)
         #expect(scope.originDigest.count == 64)
         #expect(scope.keychainAccount == "instance-session.\(scope.originDigest).11111111-2222-3333-4444-555555555555")
         for component in scope.cachePathComponents {
@@ -41,8 +41,8 @@ private func confirmed(_ text: String) -> ConfirmedOrigin {
 
     @Test func portIsPartOfTheScope() {
         let id = InstanceLinkID()
-        let plain = SessionScope(linkID: id, origin: confirmed("https://a.example.com").origin)
-        let custom = SessionScope(linkID: id, origin: confirmed("https://a.example.com:8443").origin)
+        let plain = SessionScope(linkID: id, origin: acknowledged("https://a.example.com").origin)
+        let custom = SessionScope(linkID: id, origin: acknowledged("https://a.example.com:8443").origin)
         #expect(plain.originDigest != custom.originDigest)
     }
 }
@@ -50,21 +50,21 @@ private func confirmed(_ text: String) -> ConfirmedOrigin {
 @Suite struct InstanceRegistryTests {
     @Test func linkingDoesNotSelectOrVerify() throws {
         var registry = InstanceRegistry()
-        let linked = try registry.link(confirmed("https://a.example.com"))
+        let linked = try registry.link(acknowledged("https://a.example.com"))
         #expect(registry.active == nil)
         #expect(linked.trust == .userEnteredUnverified)
     }
 
     @Test func duplicateOriginIsRejected() throws {
         var registry = InstanceRegistry()
-        try registry.link(confirmed("https://a.example.com"))
-        #expect(throws: LinkError.alreadyLinked) { try registry.link(confirmed("https://A.example.com:443/")) }
+        try registry.link(acknowledged("https://a.example.com"))
+        #expect(throws: LinkError.alreadyLinked) { try registry.link(acknowledged("https://A.example.com:443/")) }
     }
 
     @Test func switchingStartsANewEpochAndStalesPendingWork() throws {
         var registry = InstanceRegistry()
-        let a = try registry.link(confirmed("https://a.example.com"))
-        let b = try registry.link(confirmed("https://b.example.com"))
+        let a = try registry.link(acknowledged("https://a.example.com"))
+        let b = try registry.link(acknowledged("https://b.example.com"))
         let contextA = try registry.activate(a.linkID)
         let pending = ContextBinding(contextA)
         #expect(registry.isCurrent(pending))
@@ -77,7 +77,7 @@ private func confirmed(_ text: String) -> ConfirmedOrigin {
 
     @Test func reselectingTheActiveInstanceKeepsPendingWork() throws {
         var registry = InstanceRegistry()
-        let a = try registry.link(confirmed("https://a.example.com"))
+        let a = try registry.link(acknowledged("https://a.example.com"))
         let context = try registry.activate(a.linkID)
         let pending = ContextBinding(context)
         _ = try registry.activate(a.linkID)
@@ -86,7 +86,7 @@ private func confirmed(_ text: String) -> ConfirmedOrigin {
 
     @Test func unlinkPurgesEverythingAndDoesNotClaimRevocation() throws {
         var registry = InstanceRegistry()
-        let a = try registry.link(confirmed("https://a.example.com"))
+        let a = try registry.link(acknowledged("https://a.example.com"))
         let context = try registry.activate(a.linkID)
         let pending = ContextBinding(context)
         let receipt = try registry.unlink(a.linkID)
@@ -101,17 +101,90 @@ private func confirmed(_ text: String) -> ConfirmedOrigin {
 
     @Test func relinkAfterUnlinkIsADifferentLink() throws {
         var registry = InstanceRegistry()
-        let first = try registry.link(confirmed("https://a.example.com"))
+        let first = try registry.link(acknowledged("https://a.example.com"))
         _ = try registry.unlink(first.linkID)
-        let second = try registry.link(confirmed("https://a.example.com"))
+        let second = try registry.link(acknowledged("https://a.example.com"))
         #expect(first.linkID != second.linkID)
         #expect(first.scope.keychainAccount != second.scope.keychainAccount)
     }
 
+    @Test func duplicateLinkIDCannotReplaceTheActiveInstance() throws {
+        var registry = InstanceRegistry()
+        let a = try registry.link(acknowledged("https://a.example.com"))
+        let context = try registry.activate(a.linkID)
+        let pending = ContextBinding(context)
+        let before = registry
+        #expect(throws: LinkError.linkIDReused) {
+            try registry.link(acknowledged("https://b.example.com"), id: a.linkID)
+        }
+        #expect(registry == before, "a refused link must not change any state")
+        #expect(registry.active == context)
+        #expect(registry.active?.scope.origin == a.origin)
+        #expect(registry.instances[a.linkID]?.origin == a.origin)
+        #expect(registry.isCurrent(pending))
+    }
+
+    @Test func duplicateLinkIDWithSameOriginIsAlsoRefused() throws {
+        var registry = InstanceRegistry()
+        let a = try registry.link(acknowledged("https://a.example.com"))
+        #expect(throws: LinkError.linkIDReused) {
+            try registry.link(acknowledged("https://a.example.com"), id: a.linkID)
+        }
+    }
+
+    @Test func duplicateLinkIDWithOtherInactiveInstance() throws {
+        var registry = InstanceRegistry()
+        let a = try registry.link(acknowledged("https://a.example.com"))
+        let b = try registry.link(acknowledged("https://b.example.com"))
+        _ = try registry.activate(a.linkID)
+        #expect(throws: LinkError.linkIDReused) {
+            try registry.link(acknowledged("https://c.example.com"), id: b.linkID)
+        }
+        #expect(registry.instances[b.linkID]?.origin == b.origin)
+        #expect(registry.instances.count == 2)
+    }
+
+    @Test func unlinkedLinkIDCannotBeReused() throws {
+        var registry = InstanceRegistry()
+        let a = try registry.link(acknowledged("https://a.example.com"))
+        let pending = ContextBinding(try registry.activate(a.linkID))
+        _ = try registry.unlink(a.linkID)
+        for origin in ["https://a.example.com", "https://b.example.com"] {
+            #expect(throws: LinkError.linkIDReused) {
+                try registry.link(acknowledged(origin), id: a.linkID)
+            }
+        }
+        #expect(registry.instances.isEmpty)
+        #expect(registry.active == nil)
+        #expect(!registry.isCurrent(pending))
+        // Selecting the stale ID must not bring anything back.
+        #expect(throws: LinkError.notLinked) { try registry.activate(a.linkID) }
+    }
+
+    @Test func refusedDuplicateOriginDoesNotConsumeTheID() throws {
+        var registry = InstanceRegistry()
+        _ = try registry.link(acknowledged("https://a.example.com"))
+        let fresh = InstanceLinkID()
+        #expect(throws: LinkError.alreadyLinked) {
+            try registry.link(acknowledged("https://a.example.com"), id: fresh)
+        }
+        let b = try registry.link(acknowledged("https://b.example.com"), id: fresh)
+        #expect(b.linkID == fresh)
+    }
+
+    @Test func generatedIDsAreDistinct() throws {
+        var registry = InstanceRegistry()
+        var seen = Set<InstanceLinkID>()
+        for index in 0..<50 {
+            let linked = try registry.link(acknowledged("https://h\(index).example.com"))
+            #expect(seen.insert(linked.linkID).inserted)
+        }
+    }
+
     @Test func unlinkingAnotherInstanceKeepsActivePendingWork() throws {
         var registry = InstanceRegistry()
-        let a = try registry.link(confirmed("https://a.example.com"))
-        let b = try registry.link(confirmed("https://b.example.com"))
+        let a = try registry.link(acknowledged("https://a.example.com"))
+        let b = try registry.link(acknowledged("https://b.example.com"))
         let pending = ContextBinding(try registry.activate(a.linkID))
         _ = try registry.unlink(b.linkID)
         #expect(registry.isCurrent(pending))
@@ -121,7 +194,7 @@ private func confirmed(_ text: String) -> ConfirmedOrigin {
 @Suite struct CredentialPolicyTests {
     private func registry(active: Bool = true) throws -> (InstanceRegistry, LinkedInstance) {
         var registry = InstanceRegistry()
-        let instance = try registry.link(confirmed("https://a.example.com"))
+        let instance = try registry.link(acknowledged("https://a.example.com"))
         if active { _ = try registry.activate(instance.linkID) }
         return (registry, instance)
     }
@@ -153,7 +226,7 @@ private func confirmed(_ text: String) -> ConfirmedOrigin {
 
     @Test func staleContextIsDenied() throws {
         var (registry, a) = try registry()
-        let b = try registry.link(confirmed("https://b.example.com"))
+        let b = try registry.link(acknowledged("https://b.example.com"))
         let pending = ContextBinding(registry.active!)
         _ = try registry.activate(b.linkID)
         #expect(CredentialPolicy.evaluate(target: URL(string: "https://b.example.com/")!, pending: pending, registry: registry) == .staleContext)
