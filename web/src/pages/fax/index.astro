@@ -1,19 +1,46 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import PageHeader from "@/components/PageHeader.astro";
-import NotConnectedNotice from "@/components/NotConnectedNotice.astro";
-import EmptyState from "@/components/EmptyState.astro";
 ---
-
-<AppLayout title="Fax" description="Faxes sent and received, each with its delivery record.">
-  <PageHeader title="Fax" summary="Faxes sent and received, each with its delivery record." />
-  <NotConnectedNotice title="Fax is not connected">
-    Connect a fax provider and number before sending or receiving. A completed status is not proof the other side received every page.
-  </NotConnectedNotice>
-  <section aria-labelledby="list-heading" class="mt-10">
-    <h2 id="list-heading" class="mb-3 text-lg font-semibold">Fax history</h2>
-    <EmptyState title="No faxes yet">
-      Sent and received faxes will be listed here with their status and attached document.
-    </EmptyState>
-  </section>
+<AppLayout title="Send a fax" description="Send a PDF and check its delivery status.">
+  <PageHeader title="Send a fax" summary="Choose a PDF and enter the destination number." />
+  <form id="fax-form" class="mt-10 flex max-w-xl flex-col gap-5">
+    <label class="flex flex-col gap-2" for="destination">Fax number <span class="text-muted-foreground text-sm">Include the country code, for example +12025550102.</span></label>
+    <input class="rounded-md border border-input bg-background px-3 py-2" id="destination" name="destination" type="tel" required pattern="\+[1-9][0-9]{1,14}" />
+    <label class="flex flex-col gap-2" for="document">PDF document <span class="text-muted-foreground text-sm">Maximum 5 MB.</span></label>
+    <input id="document" name="document" type="file" accept="application/pdf,.pdf" required />
+    <label class="flex items-start gap-2"><input class="mt-1" type="checkbox" name="confirmed" value="true" required /> I confirm this is an authorized recipient and agree to the fax charges.</label>
+    <button class="self-start rounded-md bg-primary px-4 py-2 text-primary-foreground" type="submit">Send fax</button>
+  </form>
+  <p id="fax-status" class="mt-5" role="status" aria-live="polite"></p>
+  <button id="fax-check" type="button" hidden class="mt-3 rounded-md border border-input px-4 py-2">Check delivery status</button>
+  <script>
+    const form = document.querySelector<HTMLFormElement>('#fax-form')!;
+    const status = document.querySelector<HTMLElement>('#fax-status')!;
+    const check = document.querySelector<HTMLButtonElement>('#fax-check')!;
+    const send = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    let id = sessionStorage.getItem('simpledocs-last-fax');
+    if (id) { check.hidden = false; status.textContent = 'You can check the status of your last fax.'; }
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      id = crypto.randomUUID(); sessionStorage.setItem('simpledocs-last-fax', id);
+      send.disabled = true; check.hidden = false; status.textContent = 'Sending fax…';
+      try {
+        const response = await fetch(`/api/faxes/${id}`, { method: 'POST', body: new FormData(form) });
+        const result = await response.json();
+        if (!response.ok) { status.textContent = `${result.error || 'The outcome is unknown.'} Check status before sending again.`; return; }
+        status.textContent = result.status === 'accepted' ? 'Accepted by Telnyx. Delivery is not yet confirmed.' : `Fax status: ${result.status}. Do not send again until the outcome is known.`;
+      } catch { status.textContent = 'The outcome is unknown. Check status before sending again.'; }
+    });
+    check.addEventListener('click', async () => {
+      if (!id) return;
+      check.disabled = true;
+      try {
+        const response = await fetch(`/api/faxes/${id}`);
+        const result = await response.json();
+        status.textContent = response.ok ? `Fax status: ${result.status}.` : 'Status is unavailable. Do not send again until the outcome is known.';
+      } catch { status.textContent = 'Status is unavailable. Do not send again until the outcome is known.'; }
+      check.disabled = false;
+    });
+  </script>
 </AppLayout>
