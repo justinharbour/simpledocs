@@ -6,6 +6,7 @@
   "preview_urls": false,
   "vars": {
     "FAX_ENABLED": "true",
+    "MAIL_ENABLED": "true",
     "TELNYX_FAX_CONNECTION_ID": "3095469622875391187",
     "TELNYX_FAX_FROM": "+12134147728"
   },

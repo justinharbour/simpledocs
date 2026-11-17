@@ -1,5 +1,6 @@
-// Internal alert primitive only: no scheduler, binding or production recipient is
-// configured here. Never include fax identifiers, numbers, URLs or content.
+// Never include fax identifiers, numbers, URLs or content in alerts or logs.
+import { claimFaxAlertInterval } from './inbound-fax-alert-pacing.mjs';
+
 export async function sendPendingFaxAlert(env, { now = Date.now() } = {}) {
   if (env.FAX_ALERTS_ENABLED !== 'true') return 'disabled';
   const threshold = Number(env.FAX_ALERT_AFTER_SECONDS);
@@ -12,6 +13,10 @@ export async function sendPendingFaxAlert(env, { now = Date.now() } = {}) {
     const pending = await env.DB.prepare('SELECT COUNT(*) AS count FROM inbound_fax_unarchived WHERE received_at <= ?').bind(cutoff).first();
     if (!Number.isSafeInteger(pending?.count) || pending.count < 0) return 'unavailable';
     if (pending.count === 0) return 'none';
+    const interval = Number(env.FAX_ALERT_INTERVAL_SECONDS);
+    if (!Number.isSafeInteger(interval) || interval < 60 || interval > 86400) return 'unavailable';
+    const claim = await claimFaxAlertInterval(env.DB, { now, intervalMs: interval * 1000 });
+    if (claim !== 'claimed') return claim;
     await env.FAX_ALERT_EMAIL.send({
       from: sender, to: recipient, subject: 'Simpledocs: inbound fax needs attention',
       text: 'One or more inbound faxes have not been archived. Sign in to Simpledocs and contact the operator to investigate.',

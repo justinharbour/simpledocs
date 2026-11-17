@@ -56,5 +56,9 @@ jobs:
           command: deploy --var ACCESS_TEAM_DOMAIN:https://justinharbour.cloudflareaccess.com --var ACCESS_AUDIENCE:${{ steps.access.outputs.audience }}
           secrets: |
             TELNYX_API_TOKEN
+            POSTGRID_TEST_KEY
+            POSTGRID_LIVE_KEY
         env:
           TELNYX_API_TOKEN: ${{ secrets.TELNYX_API_TOKEN }}
+          POSTGRID_TEST_KEY: ${{ secrets.POSTGRID_TEST_KEY }}
+          POSTGRID_LIVE_KEY: ${{ secrets.POSTGRID_LIVE_KEY }}
