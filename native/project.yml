@@ -1,0 +1,85 @@
+name: SimpleDocs
+options:
+  bundleIdPrefix: dev.justinharbour.simpledocs
+  deploymentTarget:
+    macOS: "14.0"
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    # No signing identity, team or provisioning is configured. Signing is a separate, authorized step.
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGNING_ALLOWED: "NO"
+    CODE_SIGNING_REQUIRED: "NO"
+    MARKETING_VERSION: "0.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+packages:
+  SimpleDocsKit:
+    path: Packages/SimpleDocsKit
+targets:
+  SimpleDocsMacConnected:
+    type: application
+    platform: macOS
+    sources: [Apps/MacConnected]
+    dependencies:
+      - package: SimpleDocsKit
+        product: SimpleDocsCore
+      - package: SimpleDocsKit
+        product: SimpleDocsViews
+    settings:
+      base:
+        # Provisional identifiers; confirm before any signing.
+        PRODUCT_BUNDLE_IDENTIFIER: dev.justinharbour.simpledocs.mac.connected
+        PRODUCT_NAME: simpledocs
+        CODE_SIGN_ENTITLEMENTS: Config/MacConnected.entitlements
+        ENABLE_HARDENED_RUNTIME: "YES"
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_KEY_CFBundleDisplayName: simpledocs
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+  SimpleDocsMacDirect:
+    type: application
+    platform: macOS
+    sources: [Apps/MacDirect]
+    dependencies:
+      - package: SimpleDocsKit
+        product: SimpleDocsCore
+      - package: SimpleDocsKit
+        product: SimpleDocsViews
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.justinharbour.simpledocs.mac.direct
+        PRODUCT_NAME: simpledocs Direct
+        CODE_SIGN_ENTITLEMENTS: Config/MacDirect.entitlements
+        ENABLE_HARDENED_RUNTIME: "YES"
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_KEY_CFBundleDisplayName: simpledocs Direct
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+  SimpleDocsiOS:
+    type: application
+    platform: iOS
+    sources: [Apps/iOS]
+    dependencies:
+      - package: SimpleDocsKit
+        product: SimpleDocsCore
+      - package: SimpleDocsKit
+        product: SimpleDocsViews
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.justinharbour.simpledocs.ios
+        PRODUCT_NAME: simpledocs
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_KEY_CFBundleDisplayName: simpledocs
+        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+schemes:
+  SimpleDocsMacConnected:
+    build: {targets: {SimpleDocsMacConnected: all}}
+  SimpleDocsMacDirect:
+    build: {targets: {SimpleDocsMacDirect: all}}
+  SimpleDocsiOS:
+    build: {targets: {SimpleDocsiOS: all}}
