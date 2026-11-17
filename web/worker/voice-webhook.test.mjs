@@ -66,3 +66,52 @@ test('lifecycle event requires no recording storage and conflicts are rejected',
   assert.equal((await handleVoiceWebhook(await signed(JSON.stringify(event('call.hangup'))), env, fetch, now)).status, 200);
   assert.equal((await handleVoiceWebhook(await signed(JSON.stringify(event('call.answered'))), env, fetch, now)).status, 409);
 });
+
+test('voicemail answers only dedicated incoming calls, greets then records and classifies its recording', async () => {
+  const { env, db } = setup();
+  Object.assign(env, { VOICEMAIL_ENABLED: 'true', VOICE_INBOUND_ENABLED: 'true', VOICEMAIL_NUMBER: '+12025550102', VOICEMAIL_GREETING: 'Please leave a message.', TELNYX_API_TOKEN: 'test' });
+  const commands = [];
+  const fetcher = async (url, options) => {
+    if (url.startsWith('https://api.telnyx.com/')) { commands.push({ url, body: JSON.parse(options.body) }); return Response.json({ data: { result: 'ok' } }); }
+    return new Response('audio');
+  };
+  const send = async (type, eventId, extra = {}) => {
+    const e = event(type); e.data.id = eventId; Object.assign(e.data.payload, extra);
+    return handleVoiceWebhook(await signed(JSON.stringify(e)), env, fetcher, now);
+  };
+  assert.equal((await send('call.initiated', 'init', { direction: 'incoming', to: '+12025550102' })).status, 200);
+  assert.equal((await send('call.initiated', 'init', { direction: 'incoming', to: '+12025550102' })).status, 200);
+  assert.equal(commands.length, 1); assert.match(commands[0].url, /\/answer$/);
+  const marker = commands[0].body.client_state;
+  await send('call.answered', 'answered', { client_state: marker });
+  assert.match(commands[1].url, /\/speak$/);
+  await send('call.speak.ended', 'spoken', { client_state: marker });
+  assert.match(commands[2].url, /\/record_start$/);
+  await send('call.recording.saved', 'recorded', { client_state: commands[2].body.client_state });
+  assert.equal(db.prepare('SELECT kind FROM voice_recordings').get().kind, 'voicemail');
+});
+
+test('disabled, unrelated, outbound and stale calls never trigger commands', async () => {
+  const { env } = setup(); let count = 0;
+  const fetcher = async () => { count++; return new Response('ok'); };
+  const send = async (type, id, extra) => { const e = event(type); e.data.id = id; Object.assign(e.data.payload, extra); return handleVoiceWebhook(await signed(JSON.stringify(e)), env, fetcher, now); };
+  await send('call.initiated', 'disabled', { direction: 'incoming', to: '+12025550102' });
+  Object.assign(env, { VOICEMAIL_ENABLED: 'true', VOICE_INBOUND_ENABLED: 'true', VOICEMAIL_NUMBER: '+12025550102', VOICEMAIL_GREETING: 'Leave a message.', TELNYX_API_TOKEN: 'test' });
+  await send('call.initiated', 'outgoing', { direction: 'outgoing', to: '+12025550102' });
+  await send('call.initiated', 'wrong-number', { direction: 'incoming', to: '+12025550103' });
+  await send('call.hangup', 'ended', {});
+  await send('call.initiated', 'late', { direction: 'incoming', to: '+12025550102' });
+  assert.equal(count, 0);
+});
+
+test('uncertain provider command is not retried and generic recording remains unclassified', async () => {
+  const { env, db } = setup(); let count = 0;
+  Object.assign(env, { VOICEMAIL_ENABLED: 'true', VOICE_INBOUND_ENABLED: 'true', VOICEMAIL_NUMBER: '+12025550102', VOICEMAIL_GREETING: 'Leave a message.', TELNYX_API_TOKEN: 'test' });
+  const e = event('call.initiated'); Object.assign(e.data.payload, { direction: 'incoming', to: '+12025550102' });
+  const send = async () => handleVoiceWebhook(await signed(JSON.stringify(e)), env, async () => { count++; throw Error('timeout'); }, now);
+  await send(); await send(); assert.equal(count, 1);
+  assert.equal(db.prepare('SELECT outcome FROM voicemail_commands').get().outcome, 'unknown');
+  const recording = event(); recording.data.id = 'record';
+  assert.equal((await handleVoiceWebhook(await signed(JSON.stringify(recording)), env, async () => new Response('audio'), now)).status, 200);
+  assert.equal(db.prepare('SELECT kind FROM voice_recordings').get().kind, 'recording');
+});

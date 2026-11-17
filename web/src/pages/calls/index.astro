@@ -27,7 +27,7 @@ import PageHeader from "@/components/PageHeader.astro";
   </section>
   <section class="mt-10 max-w-xl" aria-labelledby="recordings-heading">
     <h2 id="recordings-heading" class="text-lg font-semibold">Call recordings</h2>
-    <p class="mt-2 text-sm text-muted-foreground">Archived recordings from the configured connection appear here. They are not necessarily voicemail.</p>
+    <p class="mt-2 text-sm text-muted-foreground">Archived recordings from the configured connection appear here. Only recordings made by the voicemail flow are labelled voicemail.</p>
     <button id="load-recordings" type="button" class="mt-4 rounded-md border border-input px-4 py-2">Load recordings</button>
     <p id="recordings-status" role="status" class="mt-3 text-sm"></p>
     <ul id="recordings" class="mt-3 space-y-4"></ul>
@@ -84,9 +84,9 @@ import PageHeader from "@/components/PageHeader.astro";
       const list = el<HTMLUListElement>('recordings'), message = el<HTMLElement>('recordings-status'); list.replaceChildren(); message.textContent = 'Loading…';
       try {
         const response = await fetch('/api/voice/recordings', { cache: 'no-store' }); if (!response.ok) throw new Error();
-        const data = await response.json() as { recordings: { recording_id: string; archived_at: string }[] };
+        const data = await response.json() as { recordings: { recording_id: string; archived_at: string; kind: string }[] };
         message.textContent = data.recordings.length ? 'Latest recordings' : 'No archived recordings.';
-        for (const item of data.recordings) { if (!/^[0-9a-f-]{36}$/i.test(item.recording_id)) continue; const li = document.createElement('li'); const label = document.createElement('p'); label.textContent = `Archived ${item.archived_at} (UTC)`; const audio = document.createElement('audio'); audio.controls = true; audio.preload = 'none'; audio.src = `/api/voice/recordings/${item.recording_id}`; li.append(label, audio); list.append(li); }
+        for (const item of data.recordings) { if (!/^[0-9a-f-]{36}$/i.test(item.recording_id)) continue; const li = document.createElement('li'); const label = document.createElement('p'); label.textContent = `${item.kind === 'voicemail' ? 'Voicemail' : 'Call recording'} · Archived ${item.archived_at} (UTC)`; const audio = document.createElement('audio'); audio.controls = true; audio.preload = 'none'; audio.src = `/api/voice/recordings/${item.recording_id}`; li.append(label, audio); list.append(li); }
       } catch { message.textContent = 'Recordings unavailable. Try again later.'; }
     });
   </script>
