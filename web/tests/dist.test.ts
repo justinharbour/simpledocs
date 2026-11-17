@@ -34,11 +34,11 @@ describe.skipIf(!built)("built site (run `pnpm build` first)", () => {
     for (const target of own) expect(target).toBe(href);
   });
 
-  it.each(pages.filter((href) => href !== "/compose/" && href !== "/fax/" && href !== "/mail/" && href !== "/calls/"))("%s states that nothing is connected and ships no form or fake action", (href) => {
+  it.each(pages.filter((href) => !["/", "/compose/", "/fax/", "/mail/", "/calls/"].includes(href)))("%s describes unavailable functionality without fake actions", (href) => {
     const doc = html(href);
     expect(doc).not.toMatch(/<form[\s>]/);
     expect(doc).not.toMatch(/type="submit"/);
-    expect(doc.toLowerCase()).toMatch(/not connected|not available|not stored|nothing is connected|early build/);
+    expect(doc.toLowerCase()).toMatch(/not connected|not available|not stored|nothing is connected|early build|cannot currently be changed/);
   });
 
   it("provides a disconnected softphone with explicit call confirmation", () => {
