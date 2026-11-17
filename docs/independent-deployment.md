@@ -76,3 +76,69 @@ These owner-specific settings must not become requirements for other installs.
 
 References: [D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/)
 and [Time Travel and backups](https://developers.cloudflare.com/d1/reference/time-travel/).
+
+## Mail foundation upgrade plan (not authorized or executed)
+
+The production Worker already has a D1 binding in `web/wrangler.jsonc`; the
+initialization script is not an upgrade tool and must not be run against it.
+Before any separate deployment, independently verify the account, database ID,
+ownership, existing migration history and schema, active writers, backup and
+recovery procedures, and a current Time Travel bookmark and retention. Review
+`0004_mail_intents.sql`, `0005_mail_unresolved_actor.sql`, `0006_mail_acknowledgement.sql` and the complete pending migration list; do not assume
+earlier migrations were applied. Arrange a safe write window and apply only the
+reviewed pending migrations through the separately authorized Wrangler migration
+path, then read back history and schema without querying private content. Do not
+run migrations automatically as part of the deploy workflow. Time Travel restore
+overwrites data; it is an explicitly authorized recovery operation, not a test.
+The partial unique index in 0005 fails if any actor already has multiple
+unresolved claims; stop and reconcile through a separately reviewed process,
+never discard or reset rows to force the migration. Deploying the mail sender
+without this index would not enforce the actor-wide gate, so verify it exists
+before deploying the new Worker. Migration 0006 also intentionally fails if
+existing unacknowledged accepted and unresolved rows conflict for an actor;
+do not discard rows. Verify the expanded unique index and acknowledgement
+column before enabling the new code.
+
+Mail is planned to land first with 0004–0006, followed by inbound fax as 0007
+and voice as 0008. These are coordination requests, not proof that the other
+branches have been renumbered or merged. Recheck all branches and pending files.
+Wrangler tracks applied migration names in the configured migrations table
+(normally `d1_migrations`), and lists unapplied files; filename order is not
+proof of historical execution order. Before any rollout, inspect the actual
+ledger in application order and schema for every target database, and compare
+them with the exact migration names and the reviewed pending list. **Stop** if
+the old `0008_mail_acknowledgement.sql`, either old fax/voice filename, any
+later migration, an unexpected ledger entry, or a partially applied schema is
+present. Do not rename recorded entries, edit the ledger, replay renamed SQL,
+or insert an earlier migration and assume the history is safe. Obtain a
+separately reviewed, database-specific forward migration and recovery plan.
+Confirm backups and active-writer compatibility before any authorized changes.
+See [Cloudflare D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/).
+
+Deploy the reviewed Worker only after schema verification. Keep `MAIL_ENABLED`
+unset and do not configure a PostGrid key during this upgrade. The mail routes
+require the same verified Access assertion as all other routes; test denial and
+owner-only access on the actual hostname without submitting an order. Existing
+Worker deployment can happen only through the independent repository's reviewed
+main-branch GitHub Actions workflow, not this PR. Verify rollback compatibility
+and do not drop the intent table or erase claims during rollback.
+
+Enabling mail is a separate reviewed owner decision. Only then provision
+`POSTGRID_API_KEY` as an encrypted Worker secret for the intended account and
+environment through the approved Wrangler/GitHub Actions secret-handling path;
+never put its value in source, vars, build artifacts, logs, shell arguments or
+chat. Verify secret presence and correct Worker binding without printing its
+value, and set `MAIL_ENABLED=true` only in the separately reviewed activation.
+Check whether the deployment command preserves existing secrets and variables
+before executing; the current workflow explicitly sets only Access variables
+and does not provision the PostGrid secret or enable mail. Define rotation and
+revocation before activation. No production, sandbox or paid provider action is
+authorized by this plan.
+
+Mail drafts and frozen request bodies contain sensitive personal information in
+D1. Restrict database access and retention, review Cloudflare request/logging and
+exception telemetry settings, and prohibit request/response body capture and
+provider key logging before activation. The mail code contains no explicit
+content or credential logging, but that does not establish the configuration of
+platform or external logging. Review the operator reconciliation procedure in
+`web/worker/README.md` before enabling sending.

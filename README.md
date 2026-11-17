@@ -8,7 +8,7 @@ An open-source communications workspace for fax, voice, voicemail, and physical 
 
 - Send and receive fax through Telnyx, with delivery records and document attachments.
 - Make and receive calls in a browser softphone, with voicemail and call history.
-- Send physical mail through PostGrid, inspect and approve a provider-generated proof before sending, and record available tracking and return-receipt information.
+- Send physical mail through PostGrid, review locally generated content and explicitly confirm before sending, and record available tracking and return-receipt information. The local review is not a provider-rendered proof.
 - Send the same document through multiple selected channels while tracking each delivery separately.
 - Use planned native Swift apps on iOS and macOS. The owner's app connects to the Cloudflare backend; a separate downloadable macOS edition is intended to use the user's own Telnyx and PostGrid credentials directly.
 - Enable or disable capabilities individually, including inbound fax and inbound voice, with an optional shared phone number where supported by the provider.
