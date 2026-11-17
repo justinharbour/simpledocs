@@ -31,3 +31,9 @@ it('persists drafts per actor and rejects stale revisions and cross-origin write
   assert.deepEqual((await response.json()).content, { text: 'updated' });
   assert.equal((await handleDraft(new Request(url), null, 'owner', id)).status, 503);
 });
+it('accepts browser writes without content-length while limiting streamed bodies', async () => {
+  const db = database();
+  const make = body => new Request(url, { method: 'PUT', headers: { origin: 'https://example.test', 'content-type': 'application/json' }, body });
+  assert.equal((await handleDraft(make(JSON.stringify({ revision: 0, content: {} })), db, 'owner', id)).status, 200);
+  assert.equal((await handleDraft(make(JSON.stringify({ revision: 1, content: { text: 'x'.repeat(65536) } })), db, 'owner', id)).status, 413);
+});

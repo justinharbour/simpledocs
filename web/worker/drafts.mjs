@@ -12,8 +12,9 @@ export async function handleDraft(request, db, actor, id) {
   }
   if (request.method !== 'PUT') return reply({ error: 'Method not allowed' }, 405);
   if (request.headers.get('origin') !== new URL(request.url).origin || request.headers.get('content-type') !== 'application/json') return reply({ error: 'Invalid request origin or content type' }, 403);
-  const length = Number(request.headers.get('content-length'));
-  if (!Number.isSafeInteger(length) || length <= 0 || length > 65536) return reply({ error: 'Invalid content length' }, 413);
+  const lengthHeader = request.headers.get('content-length');
+  const length = lengthHeader === null ? null : Number(lengthHeader);
+  if (length !== null && (!/^\d+$/.test(lengthHeader) || !Number.isSafeInteger(length) || length <= 0 || length > 65536)) return reply({ error: 'Invalid content length' }, 413);
   let body;
   try {
     if (!request.body) return reply({ error: 'Invalid request body' }, 400);
@@ -24,10 +25,10 @@ export async function handleDraft(request, db, actor, id) {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > length || size > 65536) { await reader.cancel(); return reply({ error: 'Request too large' }, 413); }
+      if ((length !== null && size > length) || size > 65536) { await reader.cancel(); return reply({ error: 'Request too large' }, 413); }
       chunks.push(value);
     }
-    if (size !== length) return reply({ error: 'Invalid content length' }, 400);
+    if (length !== null && size !== length) return reply({ error: 'Invalid content length' }, 400);
     const bytes = new Uint8Array(size);
     let offset = 0;
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
