@@ -7,6 +7,20 @@ into this branch, then validate migrations 0001–0006 in order before consideri
 this PR for merge or any separately authorized database upgrade. Renumbering
 does not apply a migration or change an existing database.
 
+### Expired-media recovery design gap
+
+The [Telnyx refresh action](https://developers.telnyx.com/api-reference/programmable-fax-commands/refresh-a-fax)
+documents `POST /faxes/{id}/actions/refresh` and a `{ "data": { "result": "ok" } }`
+acknowledgement, not a replacement media URL. Do not treat that acknowledgement
+as a recovered fax. Before enabling intake, verify with Telnyx how refreshed media
+is delivered and its retention limits. A durable recovery implementation needs
+to record the verified event ID, fax ID and timestamps before attempting media
+retrieval, preserve pending state across crashes, and independently retry or
+alert until the PDF is stored and linked. It must never persist signed URLs or
+acknowledge a received event as complete solely because refresh succeeded.
+The current handler does not persist failed download attempts; webhook retries
+alone are not a durable recovery mechanism.
+
 The exact `/webhooks/telnyx/fax` path is outside interactive Access in the
 Worker and uses Telnyx Ed25519 signatures over timestamp and exact raw bytes,
 with a five-minute window. It fails closed unless the `TELNYX_INBOUND_FAX_ENABLED`
