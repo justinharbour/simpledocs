@@ -52,7 +52,7 @@ Format validity is **not** instance validity. No code path may describe a parsed
 
 ## Not integrated or not verified
 
-- **Not wired into the app.** No app target, `project.yml` entry, shared `SimpleDocsKit` source, or CI job references this package. CI runs only `SimpleDocsKit`, so these tests do not run in CI until a workflow step is added (`swift test` in `native/Packages/SimpleDocsConnected`, with full Xcode for the Swift Testing macros).
+- **Not wired into the app.** No app target, `project.yml` entry or shared `SimpleDocsKit` source references this package. That is enforced, not just stated: see "CI gate" below.
 - **No sign-in.** The Access/OAuth flow, issuer and audience binding, renewal and revocation are undecided (see PR #2 architecture). The package cannot authenticate anyone.
 - **No discovery.** The discovery route, schema and its authenticity binding are undecided. `APIVersion.negotiate` only handles a list the caller supplies, and that list must be treated as untrusted. `InstanceTrust` has a single `userEnteredUnverified` state.
 - **No networking.** No `URLSession`, TLS or certificate policy, redirect delegate, timeout, response-size limit, or error-envelope decoding. `OriginBinding` and `CredentialPolicy` are the checks a future transport must call; the transport itself is unwritten and unreviewed.
@@ -63,6 +63,22 @@ Format validity is **not** instance validity. No code path may describe a parsed
 - **No cancellation of in-flight requests** on switch or unlink; the epoch lets a caller detect staleness but nothing enforces it.
 - **Tests** ran with `swift test` on macOS under Xcode 27.2. The library compiled for generic iOS with `xcodebuild`, but iOS tests were not run, and the package was not compiled inside the Xcode app project.
 - **API contract is a proposal.** `/api/v1` and the version list are not a deployed API.
+
+## CI gate
+
+The `native-connected` job in `.github/workflows/ci.yml` always runs (it does not use project detection, so a deleted package fails instead of being skipped) and `pr-gate` requires it to succeed; skipped, cancelled or missing counts as failure. It runs `ci/guard.sh`, then `swift test`, and fails unless Swift Testing reports a passing run of at least 30 tests (a run that finds no tests exits 0 otherwise).
+
+`ci/guard.sh` fails the build if:
+
+- the package, its sources or its tests are missing
+- anything under `native/` outside the package and `native/docs` mentions `SimpleDocsConnected` (so linking it into an app or `project.yml` needs a reviewed change to the guard)
+- `Package.swift` declares a dependency
+- sources use `URLSession`, `URLRequest`, `Network`, `Security`/`SecItem`, `AuthenticationServices`, `WebKit` or similar
+- a `verified`, `trusted`, `authenticated` or `signedIn` case is added
+
+The guard is a text search. It deters accidental drift and forces review; it is not a security proof, and a determined change to the package and the guard in the same PR is still possible, so code owners should review `ci/` and the workflow. Raising the test floor as tests are added is manual.
+
+PR #11 also edits `ci.yml` (adds `native-direct`). The `native-connected` job sits after `native-apps` to limit overlap, but both PRs change the `pr-gate` `needs:` line, so whichever merges second must resolve that one-line conflict by listing both jobs.
 
 ## Test
 
