@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { deliveryStateLabels, deliveryStateMeanings, deliveryStates } from "@/lib/delivery";
 import { exampleDeliveries } from "@/lib/examples";
-import { flags } from "@/lib/flags";
+import { flags, instanceChecks } from "@/lib/flags";
 import { primaryNav } from "@/lib/navigation";
 
 describe("delivery states", () => {
@@ -21,7 +21,7 @@ describe("delivery states", () => {
       expect(deliveryStateLabels[state].toLowerCase()).not.toContain("delivered");
     }
     expect(deliveryStateMeanings.submitted.toLowerCase()).toContain("not delivery");
-    expect(deliveryStateMeanings.unknown.toLowerCase()).toContain("not treated as a failure");
+    expect(deliveryStateMeanings.unknown.toLowerCase()).toContain("not be treated as a failure");
   });
 
   it("shows partial success and an unknown outcome among the examples", () => {
@@ -121,9 +121,72 @@ describe.skipIf(!built)("workflow pages (run `pnpm build` first)", () => {
 
   it("Compose says proof comes from the provider and that sending is off", () => {
     const text = read("/compose/").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-    expect(text).toContain("The mail provider produces a proof");
+    expect(text).toContain("The mail provider would produce a proof");
     expect(text).toContain("Sending is turned off");
-    expect(text).toContain("made-up examples");
+    expect(text).toContain("synthetic examples");
+  });
+
+  it("Compose describes the proof flow as proposed, not as implemented", () => {
+    const text = read("/compose/").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    expect(text).toContain("Proposed: paper mail would never be ordered");
+    expect(text).toContain("The mail provider would produce a proof");
+    expect(text).not.toContain("The mail provider produces a proof");
+    expect(text).not.toContain("is never sent again");
+    expect(text).not.toContain("nothing is resent automatically");
+  });
+
+  it("Settings words the instance model and flags as proposed", () => {
+    const text = read("/settings/").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    expect(text).toContain("Proposed: simpledocs would be run by");
+    expect(text).not.toContain("meant to be run by");
+    expect(text).not.toContain("You will be asked to confirm");
+    expect(text).not.toContain("will not cancel work");
+  });
+
+  it.each(pages)("%s has no <label for> that points at a missing id", (href) => {
+    const doc = read(href);
+    const ids = new Set([...doc.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
+    const targets = [...doc.matchAll(tagPattern("label"))]
+      .map((m) => /\sfor="([^"]+)"/.exec(m[0])?.[1])
+      .filter((v): v is string => Boolean(v));
+    for (const target of targets) expect(ids.has(target), `label for="${target}"`).toBe(true);
+  });
+
+  it.each(pages)("%s has no aria-labelledby or aria-describedby pointing at a missing id", (href) => {
+    const doc = read(href);
+    const ids = new Set([...doc.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
+    for (const m of doc.matchAll(/aria-(?:labelledby|describedby)="([^"]+)"/g)) {
+      for (const ref of m[1].split(/\s+/)) expect(ids.has(ref), `aria reference "${ref}"`).toBe(true);
+    }
+  });
+
+  it("Compose names each checkbox with a real element and describes every group", () => {
+    const doc = read("/compose/");
+    const boxes = [...doc.matchAll(tagPattern("span"))].map((m) => m[0]).filter((t) => /role="checkbox"/.test(t));
+    expect(boxes).toHaveLength(2);
+    for (const tag of boxes) expect(tag).toMatch(/aria-labelledby="channel-(fax|mail)-label"/);
+    const fieldsets = [...doc.matchAll(tagPattern("fieldset"))].map((m) => m[0]);
+    expect(fieldsets.length).toBeGreaterThanOrEqual(3);
+    for (const tag of fieldsets) expect(tag).toMatch(/aria-describedby="[^"]+"/);
+  });
+
+  it("Settings detail is shown below the md breakpoint, not only in a hidden column", () => {
+    const doc = read("/settings/");
+    const inline = [...doc.matchAll(tagPattern("span"))].map((m) => m[0]).filter((t) => /md:hidden/.test(t));
+    expect(inline).toHaveLength(instanceChecks.length);
+    for (const check of instanceChecks) expect(doc).toContain(check.detail);
+  });
+
+  it("Records shows each example note below the md breakpoint too", () => {
+    const doc = read("/records/");
+    expect(doc.match(/md:hidden/g)?.length).toBeGreaterThanOrEqual(exampleDeliveries.length);
+  });
+
+  it("marks every example surface with a strong Synthetic example label", () => {
+    const records = read("/records/");
+    expect(records.match(/Synthetic example/g)?.length).toBeGreaterThanOrEqual(exampleDeliveries.length + 1);
+    const compose = read("/compose/");
+    expect(compose.match(/Synthetic example/g)?.length).toBeGreaterThanOrEqual(3);
   });
 
   it("Settings shows every flag off and none on", () => {

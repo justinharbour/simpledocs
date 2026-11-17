@@ -1,4 +1,4 @@
-// Capability flags proposed in docs/contracts.md. Every flag defaults to off and none can be changed from this build.
+// Capability flags proposed in docs/contracts.md, which default to off. None can be changed from this build.
 export type Flag = {
   id: string;
   label: string;
@@ -8,10 +8,10 @@ export type Flag = {
 export const flags: readonly Flag[] = [
   { id: "fax.outbound", label: "Send faxes", detail: "Outgoing faxes from this instance." },
   { id: "fax.inbound", label: "Receive faxes", detail: "Incoming faxes on a connected number." },
-  { id: "voice.outbound", label: "Make calls", detail: "Outgoing calls from the browser." },
+  { id: "voice.outbound", label: "Make calls", detail: "Outgoing calls." },
   { id: "voice.inbound", label: "Receive calls", detail: "Incoming calls on a connected number." },
-  { id: "voice.voicemail", label: "Voicemail", detail: "Record and keep voicemail. Needs private storage." },
-  { id: "mail.outbound", label: "Send paper mail", detail: "Letters sent only after you approve a provider proof." },
+  { id: "voice.voicemail", label: "Voicemail", detail: "Record and keep voicemail. Would need private storage." },
+  { id: "mail.outbound", label: "Send paper mail", detail: "Outgoing paper mail. Proposed to need an approved provider proof." },
 ];
 
 export type InstanceCheck = {
@@ -19,7 +19,7 @@ export type InstanceCheck = {
   detail: string;
 };
 
-// What an instance needs before any channel can be turned on. All are unconfigured in this build.
+// What an instance would need before any channel could be turned on. All are unconfigured in this build.
 export const instanceChecks: readonly InstanceCheck[] = [
   { name: "Sign-in", detail: "Who may use this instance, and the identity provider that proves it." },
   { name: "Backend API", detail: "The service this page talks to. API version 1 is proposed, not published." },

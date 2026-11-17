@@ -2,7 +2,7 @@
 
 The static front end for simpledocs, built with [Astro](https://astro.build) 7 and [Starwind UI](https://starwind.dev) 3.
 
-> **Status: workflow previews.** Compose, Records and Settings show how the flows will look. Every control on them is disabled and says why. No provider, API, authentication or storage is connected, nothing can be sent, saved or changed, and no page submits anything. All names, numbers and addresses are synthetic examples. Do not enter real phone numbers, addresses or documents.
+> **Status: workflow previews.** Compose, Records and Settings show how the flows are proposed to look. Every control on them is disabled and says why. No provider, API, authentication or storage is connected, nothing can be sent, saved or changed, and no page submits anything. All names, numbers and addresses are synthetic examples. Do not enter real phone numbers, addresses or documents.
 
 The proposed API, states and flags are in [`../docs/contracts.md`](../docs/contracts.md) and [`../docs/architecture.md`](../docs/architecture.md) (pull request #2, still a proposal). This UI follows them but does not implement them.
 

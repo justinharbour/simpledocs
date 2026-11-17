@@ -32,9 +32,9 @@ import { flags, instanceChecks } from "@/lib/flags";
   <section aria-labelledby="instance-heading" class="mt-10 flex max-w-xl flex-col gap-4">
     <h2 id="instance-heading" class="text-lg font-semibold">Instance</h2>
     <p class="text-muted-foreground max-w-prose text-sm text-pretty">
-      simpledocs is meant to be run by whoever uses it, on their own Cloudflare account, with their own sign-in, storage and provider accounts. An instance belongs to its operator and is not shared with anyone else's. No instance is set up or linked in this build, and there is no one-click install yet.
+      Proposed: simpledocs would be run by whoever uses it, on their own Cloudflare account, with their own sign-in, storage and provider accounts, and each instance would belong to its operator. No instance is set up or linked in this build, and there is no install flow.
     </p>
-    <Field id="instance-origin" label="Instance address" hint="The HTTPS address of your instance. You will be asked to confirm it before signing in.">
+    <Field id="instance-origin" label="Instance address" hint="The HTTPS address of your instance. Proposed: you would be asked to confirm it before signing in.">
       <Input id="instance-origin" type="url" disabled aria-describedby="instance-origin-hint instance-reason" />
     </Field>
     <div class="flex flex-wrap gap-3">
@@ -48,7 +48,7 @@ import { flags, instanceChecks } from "@/lib/flags";
   <section aria-labelledby="checks-heading" class="mt-10">
     <h2 id="checks-heading" class="mb-1 text-lg font-semibold">What an instance needs</h2>
     <p class="text-muted-foreground mb-3 max-w-prose text-sm text-pretty">
-      Each item must be set up and checked before any channel can be turned on. An instance that is only partly set up keeps everything off.
+      Proposed: each item would need to be set up and checked before any channel could be turned on. Nothing is set up in this build.
     </p>
     <Table>
       <TableCaption class="sr-only">Requirements for an instance and their status</TableCaption>
@@ -63,7 +63,10 @@ import { flags, instanceChecks } from "@/lib/flags";
         {
           instanceChecks.map((check) => (
             <TableRow>
-              <TableCell class="font-medium">{check.name}</TableCell>
+              <TableCell class="font-medium whitespace-normal">
+                {check.name}
+                <span class="text-muted-foreground mt-1 block text-sm font-normal text-pretty md:hidden">{check.detail}</span>
+              </TableCell>
               <TableCell><StateMark state="not-connected" /></TableCell>
               <TableCell class="text-muted-foreground hidden whitespace-normal md:table-cell">{check.detail}</TableCell>
             </TableRow>
@@ -76,7 +79,7 @@ import { flags, instanceChecks } from "@/lib/flags";
   <section aria-labelledby="flags-heading" class="mt-10 max-w-xl">
     <h2 id="flags-heading" class="mb-1 text-lg font-semibold">Channels</h2>
     <p class="text-muted-foreground mb-4 max-w-prose text-sm text-pretty">
-      Each channel has its own switch, so inbound and outbound can be controlled separately. All are off and locked. Turning one off later will not cancel work a provider already accepted, and it will not change how a phone number is routed.
+      Proposed: each channel would have its own switch, so inbound and outbound could be controlled separately. All are off and locked here. Proposed: turning one off later would not cancel work a provider already accepted, or change how a phone number is routed.
     </p>
     <fieldset disabled class="m-0 border-0 p-0" aria-describedby="flags-reason">
       <legend class="sr-only">Channel switches (unavailable, all off)</legend>
@@ -105,7 +108,7 @@ import { flags, instanceChecks } from "@/lib/flags";
     </fieldset>
     <div class="mt-4">
       <UnavailableReason id="flags-reason">
-        Switches cannot be changed. They need a backend that checks sign-in and permission, and turning a channel on needs an administrator and is recorded. A switch on this page would never be what enforces it.
+        Switches cannot be changed. Proposed: they would need a backend that checks sign-in and permission, and turning a channel on would need an administrator and be recorded. A switch on this page would never be what enforces it.
       </UnavailableReason>
     </div>
   </section>

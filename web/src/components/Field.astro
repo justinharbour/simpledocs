@@ -1,12 +1,16 @@
 ---
 import { Label } from "@/components/starwind/label";
+import SyntheticLabel from "@/components/SyntheticLabel.astro";
 
-type Props = { id: string; label: string; hint?: string };
-const { id, label, hint } = Astro.props;
+type Props = { id: string; label: string; hint?: string; synthetic?: boolean };
+const { id, label, hint, synthetic = false } = Astro.props;
 ---
 
 <div class="flex flex-col gap-1.5">
-  <Label for={id}>{label}</Label>
+  <div class="flex flex-wrap items-center gap-2">
+    <Label for={id}>{label}</Label>
+    {synthetic && <SyntheticLabel />}
+  </div>
   <slot />
   {hint && <p id={`${id}-hint`} class="text-muted-foreground text-sm text-pretty">{hint}</p>}
 </div>

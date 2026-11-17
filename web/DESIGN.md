@@ -47,6 +47,8 @@ Compose, Records and Settings preview flows that have no backend. Each control i
 
 - Buttons use `UnavailableButton`: outline variant, `disabled` with `focusableWhenDisabled`, and `aria-describedby` pointing at an `UnavailableReason` paragraph that starts with "Not available." and a lock icon.
 - Inputs, checkboxes and switches are disabled and labelled; groups sit in a `fieldset disabled` with a screen-reader legend. Disabled checkboxes and switches also carry `aria-disabled="true"`.
-- Values shown in fields are made-up examples and are named as such in the label or nearby text.
+- Values shown in fields are synthetic and carry a `SyntheticLabel` ("Synthetic example" badge) beside the label. Copy about behavior that is only specified in the contracts is worded "Proposed" or "would", never as fact.
+- Hidden table columns must not hide content: the detail also appears inline in the first cell below `md`.
+- Starwind's checkbox points its `<label for>` at `data-id`, which is not an element id. Name checkboxes with `aria-labelledby` pointing at a real element instead.
 - Delivery status uses `DeliveryStateMark`: an icon plus a text label for each proposed state. Only "Delivered" claims delivery; "Outcome unknown" is neither success nor failure.
 - Disabled controls fall below the 44px target size and have reduced opacity by design. They are not operable, and their meaning is carried by text, not by the control.

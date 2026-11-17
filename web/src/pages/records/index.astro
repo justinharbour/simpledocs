@@ -4,6 +4,7 @@ import PageHeader from "@/components/PageHeader.astro";
 import NotConnectedNotice from "@/components/NotConnectedNotice.astro";
 import EmptyState from "@/components/EmptyState.astro";
 import DeliveryStateMark from "@/components/DeliveryStateMark.astro";
+import SyntheticLabel from "@/components/SyntheticLabel.astro";
 import Field from "@/components/Field.astro";
 import UnavailableReason from "@/components/UnavailableReason.astro";
 import { Input } from "@/components/starwind/input";
@@ -40,9 +41,12 @@ import { exampleDeliveries } from "@/lib/examples";
   </section>
 
   <section aria-labelledby="examples-heading" class="mt-10">
-    <h2 id="examples-heading" class="mb-1 text-lg font-semibold">How a delivery will read (examples)</h2>
+    <div class="mb-1 flex flex-wrap items-center gap-2">
+      <h2 id="examples-heading" class="text-lg font-semibold">How a delivery could read</h2>
+      <SyntheticLabel />
+    </div>
     <p class="text-muted-foreground mb-3 max-w-prose text-sm text-pretty">
-      These four rows are made-up examples of how status will be shown. They are not records, and nothing was sent. A job with two channels has two deliveries, so one can succeed while the other fails.
+      These four rows are synthetic examples of how proposed statuses could be shown. They are not records, and nothing was sent. Proposed: a job with two channels would have two deliveries, so one could succeed while the other fails.
     </p>
     <Table>
       <TableCaption class="sr-only">Example deliveries, not real records</TableCaption>
@@ -58,7 +62,13 @@ import { exampleDeliveries } from "@/lib/examples";
         {
           exampleDeliveries.map((row) => (
             <TableRow>
-              <TableCell class="font-medium">{row.job}</TableCell>
+              <TableCell class="font-medium whitespace-normal">
+                <span class="flex flex-wrap items-center gap-2">
+                  {row.job}
+                  <SyntheticLabel />
+                </span>
+                <span class="text-muted-foreground mt-1 block text-sm font-normal text-pretty md:hidden">{row.note}</span>
+              </TableCell>
               <TableCell>{row.channel}</TableCell>
               <TableCell><DeliveryStateMark state={row.state} /></TableCell>
               <TableCell class="text-muted-foreground hidden whitespace-normal md:table-cell">{row.note}</TableCell>
@@ -67,15 +77,12 @@ import { exampleDeliveries } from "@/lib/examples";
         }
       </TableBody>
     </Table>
-    <p class="text-muted-foreground mt-3 max-w-prose text-sm text-pretty md:hidden">
-      On a narrow screen the "What it means" column is hidden. The glossary below explains every status.
-    </p>
   </section>
 
   <section aria-labelledby="glossary-heading" class="mt-10">
     <h2 id="glossary-heading" class="mb-1 text-lg font-semibold">Status glossary</h2>
     <p class="text-muted-foreground mb-3 max-w-prose text-sm text-pretty">
-      Proposed delivery statuses. Not every channel uses every one. The status the provider reported is kept separately from these.
+      Proposed delivery statuses and what each would mean. None is implemented. Not every channel would use every one, and the status a provider reported would be kept separately from these.
     </p>
     <dl class="grid max-w-3xl gap-x-6 gap-y-3 text-sm sm:grid-cols-[12rem_1fr]">
       {

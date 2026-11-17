@@ -9,27 +9,32 @@ import { Checkbox } from "@/components/starwind/checkbox";
 import { Input } from "@/components/starwind/input";
 import { Textarea } from "@/components/starwind/textarea";
 import { exampleJob } from "@/lib/examples";
+
+const channels = [
+  { id: "channel-fax", label: "Fax" },
+  { id: "channel-mail", label: "Paper mail" },
+];
 ---
 
 <AppLayout
   title="Compose"
-  description="Preview of how a fax and a paper letter will be prepared, approved and sent. Nothing can be sent yet."
+  description="Preview of how a fax and a paper letter are proposed to be prepared, approved and sent. Nothing can be sent yet."
 >
   <PageHeader
     title="Compose"
-    summary="Prepare one document for fax, paper mail or both. Each one is delivered, approved and tracked on its own."
+    summary="Prepare one document for fax, paper mail or both. Proposed: each would be delivered, approved and tracked on its own."
   />
 
   <NotConnectedNotice title="Compose is a preview, not a working form">
-    Nothing you see here can be typed into, saved or sent. The values shown are made-up examples. Do not use real phone numbers, addresses or documents.
+    Nothing you see here can be typed into, saved or sent. The values shown are synthetic examples. Do not use real phone numbers, addresses or documents.
   </NotConnectedNotice>
 
   <div class="mt-10 flex max-w-xl flex-col gap-10">
     <section aria-labelledby="document-heading" class="flex flex-col gap-4">
       <h2 id="document-heading" class="text-lg font-semibold">Document</h2>
-      <fieldset disabled class="flex flex-col gap-4 border-0 p-0">
+      <fieldset disabled class="flex flex-col gap-4 border-0 p-0" aria-describedby="document-hint">
         <legend class="sr-only">Document (unavailable)</legend>
-        <Field id="document" label="File to send" hint="PDF. Once storage is connected, the file is kept privately and never gets a public link.">
+        <Field id="document" label="File to send" hint="PDF. Proposed: once storage is connected, the file would be kept privately, with no public link.">
           <Input id="document" type="file" disabled aria-describedby="document-hint" />
         </Field>
       </fieldset>
@@ -37,30 +42,36 @@ import { exampleJob } from "@/lib/examples";
 
     <section aria-labelledby="channels-heading" class="flex flex-col gap-4">
       <h2 id="channels-heading" class="text-lg font-semibold">Channels</h2>
-      <p class="text-muted-foreground max-w-prose text-sm text-pretty">
-        Pick one or both. Each creates its own delivery with its own status. If one fails, the other is never sent again.
+      <p id="channels-desc" class="text-muted-foreground max-w-prose text-sm text-pretty">
+        Pick one or both. Proposed: each would create its own delivery with its own status, and a failure in one would not cause the other to be sent again.
       </p>
-      <fieldset disabled class="flex flex-col gap-4 border-0 p-0">
+      <fieldset disabled class="flex flex-col gap-4 border-0 p-0" aria-describedby="channels-desc">
         <legend class="sr-only">Channels (unavailable)</legend>
-        <Checkbox id="channel-fax" label="Fax" disabled aria-disabled="true" />
-        <Checkbox id="channel-mail" label="Paper mail" disabled aria-disabled="true" />
+        {
+          channels.map((channel) => (
+            <div class="flex items-center gap-2">
+              <Checkbox id={channel.id} disabled aria-disabled="true" aria-labelledby={`${channel.id}-label`} />
+              <span id={`${channel.id}-label`} class="font-medium">{channel.label}</span>
+            </div>
+          ))
+        }
       </fieldset>
     </section>
 
     <section aria-labelledby="recipient-heading" class="flex flex-col gap-4">
       <h2 id="recipient-heading" class="text-lg font-semibold">Recipient</h2>
-      <p class="text-muted-foreground max-w-prose text-sm text-pretty">
-        Example values only. Changing the recipient or the document later creates a new revision and cancels any approval.
+      <p id="recipient-desc" class="text-muted-foreground max-w-prose text-sm text-pretty">
+        Every value here is a synthetic example. Proposed: changing the recipient or the document later would create a new revision and cancel any approval.
       </p>
-      <fieldset disabled class="flex flex-col gap-4 border-0 p-0">
+      <fieldset disabled class="flex flex-col gap-4 border-0 p-0" aria-describedby="recipient-desc">
         <legend class="sr-only">Recipient (unavailable)</legend>
-        <Field id="fax-number" label="Fax number (example)">
+        <Field id="fax-number" label="Fax number" synthetic>
           <Input id="fax-number" type="tel" disabled value={exampleJob.fax.number} />
         </Field>
-        <Field id="mail-name" label="Name for paper mail (example)">
+        <Field id="mail-name" label="Name for paper mail" synthetic>
           <Input id="mail-name" type="text" disabled value={exampleJob.mail.recipient} />
         </Field>
-        <Field id="mail-address" label="Mailing address (example)">
+        <Field id="mail-address" label="Mailing address" synthetic>
           <Textarea id="mail-address" rows={3} disabled value={exampleJob.mail.address.join("\n")} />
         </Field>
       </fieldset>
@@ -69,7 +80,7 @@ import { exampleJob } from "@/lib/examples";
     <section aria-labelledby="proof-heading" class="flex flex-col gap-4">
       <h2 id="proof-heading" class="text-lg font-semibold">Proof and approval</h2>
       <p class="text-muted-foreground max-w-prose text-sm text-pretty">
-        Paper mail is never ordered from a preview drawn by this app. The mail provider produces a proof of the exact letter, and you approve that proof before anything is ordered. A proof shows what you approved. It does not show that the letter arrived.
+        Proposed: paper mail would never be ordered from a preview drawn by this app. The mail provider would produce a proof of the exact letter, and you would approve that proof before anything is ordered. A proof shows what was approved, not that the letter arrived.
       </p>
       <div class="flex flex-wrap gap-3">
         <UnavailableButton reasonId="proof-reason">Request provider proof</UnavailableButton>
@@ -83,13 +94,13 @@ import { exampleJob } from "@/lib/examples";
     <section aria-labelledby="send-heading" class="flex flex-col gap-4">
       <h2 id="send-heading" class="text-lg font-semibold">Send</h2>
       <p class="text-muted-foreground max-w-prose text-sm text-pretty">
-        When sending exists, "accepted" will mean the request was recorded and passed on, not that it was delivered. A request that times out is shown as an unknown outcome, and nothing is resent automatically.
+        Proposed: once sending exists, "accepted" would mean the request was recorded and passed on, not that it was delivered. A request that times out would show as an unknown outcome, and nothing would be resent automatically.
       </p>
       <div class="flex flex-wrap gap-3">
         <UnavailableButton reasonId="send-reason">Send</UnavailableButton>
       </div>
       <UnavailableReason id="send-reason">
-        Sending is turned off. There is no backend, no provider connection and no sign-in yet, and the fax and mail features are off by default.
+        Sending is turned off. There is no backend, no provider connection and no sign-in yet, and the fax and mail features are proposed to be off by default.
         <a href="/settings/" class="underline underline-offset-4">See settings</a>.
       </UnavailableReason>
     </section>

@@ -1,6 +1,6 @@
 import type { DeliveryState } from "@/lib/delivery";
 
-// Synthetic examples that show how states read. They are not stored, sent or received by anything.
+// Synthetic examples that show how proposed states could read. They are not stored, sent or received by anything.
 export type ExampleDelivery = {
   job: string;
   channel: "Fax" | "Paper mail";
@@ -13,25 +13,25 @@ export const exampleDeliveries: readonly ExampleDelivery[] = [
     job: "Example job A",
     channel: "Fax",
     state: "delivered",
-    note: "The provider reported delivery. This is the only state that claims it.",
+    note: "The provider reported delivery. Only this state claims it.",
   },
   {
     job: "Example job A",
     channel: "Paper mail",
     state: "failed",
-    note: "Mail failed on its own. The fax is not sent again because of it.",
+    note: "Proposed: a mail failure would not cause the delivered fax to be sent again.",
   },
   {
     job: "Example job B",
     channel: "Paper mail",
     state: "unknown",
-    note: "The request timed out, so it is unclear whether the provider accepted it. Check with the provider; do not resend.",
+    note: "Proposed: after a timeout the outcome is shown as unknown, not failed, and nothing would be resent automatically.",
   },
   {
     job: "Example job C",
     channel: "Paper mail",
     state: "awaiting_approval",
-    note: "A provider proof is ready to review. Nothing is sent until you approve it.",
+    note: "Proposed: a provider proof is ready to review, and nothing would be sent until it is approved.",
   },
 ];
 
