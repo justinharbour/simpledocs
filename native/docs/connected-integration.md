@@ -94,6 +94,21 @@ on this evidence. The guard remains in force; `CredentialPolicy` denies every
 request, and the app cannot connect. An operator-selected non-Cloudflare identity
 mode would need its own reviewed contract, not a silent fallback.
 
+### Credential-free discovery implementation
+
+The separate `SimpleDocsOAuth` package fetches the selected origin's documented
+metadata path using platform TLS validation, an ephemeral session with shared
+cookies, cache and credential storage disabled, no redirects, a timeout and a
+64 KiB streaming response cap. It checks HTTP status, response URL and JSON MIME
+type. Its intentionally conservative validator requires the issuer to exactly
+equal the selected origin, both endpoints on that origin, and advertised code,
+S256 and public-client support. This is more restrictive than OAuth generally and
+may reject a valid Cloudflare configuration; cross-origin trust cannot be inferred
+from an unverified metadata response. Metadata is bound to the registry snapshot;
+callers must recheck the live selection after the asynchronous fetch. This package
+is not linked to an app and does not send credentials. Browser sign-in, exchange,
+storage and authenticated transport remain unimplemented.
+
 ## Address parsing
 
 The parser does not rely on `URL` or `URLComponents` leniency. It rejects:
@@ -129,7 +144,7 @@ Format validity is **not** instance validity. No code path may describe a parsed
 
 ## Not integrated or not verified
 
-- **Not wired into the app.** No app target, `project.yml` entry or shared `SimpleDocsKit` source references this package. That is enforced, not just stated: see "CI gate" below.
+- **Not wired into the app.** No app target, `project.yml` entry or shared `SimpleDocsKit` source references this package. The separate `SimpleDocsOAuth` discovery package depends on it; neither is linked into an app.
 - **No sign-in.** The Access/OAuth flow, issuer and audience binding, renewal and revocation are undecided (see PR #2 architecture). The package cannot authenticate anyone.
 - **No discovery.** The discovery route, schema and its authenticity binding are undecided. `APIVersion.negotiate` only handles a list the caller supplies, and that list must be treated as untrusted. `InstanceTrust` has a single `userEnteredUnverified` state.
 - **No networking.** No `URLSession`, TLS or certificate policy, redirect delegate, timeout, response-size limit, or error-envelope decoding. `OriginBinding` and `CredentialPolicy` are the checks a future transport must call; the transport itself is unwritten and unreviewed.
@@ -148,7 +163,7 @@ The `native-connected` job in `.github/workflows/ci.yml` always runs (it does no
 `ci/guard.sh` fails the build if:
 
 - the package, its sources or its tests are missing
-- anything under `native/` outside the package and `native/docs` mentions `SimpleDocsConnected` (so linking it into an app or `project.yml` needs a reviewed change to the guard)
+- anything under `native/` outside the package, `SimpleDocsOAuth` and `native/docs` mentions `SimpleDocsConnected` (so linking it into an app or `project.yml` needs a reviewed change to the guard)
 - `Package.swift` declares a dependency
 - sources use `URLSession`, `URLRequest`, `Network`, `Security`/`SecItem`, `AuthenticationServices`, `WebKit` or similar
 - a `verified`, `trusted`, `authenticated` or `signedIn` case is added
