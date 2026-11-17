@@ -4,7 +4,7 @@ import unittest
 
 MIGRATION = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0001_core.sql'
 MAIL_DRAFTS = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0002_mail_drafts.sql'
-INBOUND_FAX = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0004_inbound_fax_events.sql'
+INBOUND_FAX = pathlib.Path(__file__).resolve().parents[1] / 'migrations/0005_inbound_fax_events.sql'
 
 class MigrationTest(unittest.TestCase):
     def setUp(self):
@@ -44,6 +44,14 @@ class MigrationTest(unittest.TestCase):
         self.db.execute(sql, ('event', 'fax', 'fax.received', 'then', 'now', 'private/key'))
         self.db.execute(sql, ('event', 'fax', 'fax.received', 'then', 'later', 'private/key'))
         self.assertEqual(self.db.execute('SELECT count(*) FROM inbound_fax_events').fetchone()[0], 1)
+
+    def test_migration_sequence_has_unique_prefixes(self):
+        migrations = sorted(INBOUND_FAX.parent.glob('*.sql'))
+        prefixes = [p.name.split('_', 1)[0] for p in migrations]
+        self.assertEqual(len(prefixes), len(set(prefixes)))
+        self.assertEqual(INBOUND_FAX.name, '0005_inbound_fax_events.sql')
+        if '0004' in prefixes:
+            self.assertIn('0004_mail_intents.sql', [p.name for p in migrations])
 
 if __name__ == '__main__':
     unittest.main()

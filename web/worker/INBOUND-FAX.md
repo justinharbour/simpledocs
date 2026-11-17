@@ -1,5 +1,11 @@
 # Inbound fax intake (not enabled or deployed)
 
+Migration sequencing: PR #36 owns `0004_mail_intents.sql`; this feature uses
+`0005_inbound_fax_events.sql`. Merge mail into `develop` first, integrate it
+into this branch, then validate migrations 0001–0005 in order before considering
+this PR for merge or any separately authorized database upgrade. Renumbering
+does not apply a migration or change an existing database.
+
 The exact `/webhooks/telnyx/fax` path is outside interactive Access in the
 Worker and uses Telnyx Ed25519 signatures over timestamp and exact raw bytes,
 with a five-minute window. It fails closed unless the `TELNYX_INBOUND_FAX_ENABLED`
