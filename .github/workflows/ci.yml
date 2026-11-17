@@ -1,0 +1,129 @@
+name: CI
+
+# Runs only for pull requests. Fork PRs get no secrets and a read-only token.
+# Do not add pull_request_target, secrets, OIDC or environments to this workflow.
+on:
+  pull_request:
+    branches: [develop, main]
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  workflow-lint:
+    name: Workflow lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install actionlint 1.7.12
+        env:
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/actionlint.tar.gz" \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "${ACTIONLINT_SHA256}  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+      - name: Lint workflows
+        run: |
+          "$RUNNER_TEMP/actionlint" -no-color
+
+  pr-title:
+    name: Conventional PR title
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Check title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9._/-]+\))?!?: [^ ].*$'
+          if [[ "$PR_TITLE" =~ $pattern ]]; then
+            echo "PR title is a Conventional Commit."
+          else
+            echo "::error title=Invalid PR title::Use a Conventional Commit title, for example 'docs: clarify contributing steps'."
+            exit 1
+          fi
+
+  dependency-review:
+    name: Dependency review
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+
+  pr-gate:
+    name: pr-gate
+    if: ${{ always() }}
+    needs: [workflow-lint, pr-title, dependency-review]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Evaluate checks and report projects
+        env:
+          LINT_RESULT: ${{ needs.workflow-lint.result }}
+          TITLE_RESULT: ${{ needs.pr-title.result }}
+          DEPS_RESULT: ${{ needs.dependency-review.result }}
+        run: |
+          failed=0
+          for pair in "Workflow lint:$LINT_RESULT" "Conventional PR title:$TITLE_RESULT" "Dependency review:$DEPS_RESULT"; do
+            name=${pair%%:*}
+            result=${pair#*:}
+            if [ "$result" != "success" ]; then
+              echo "::error title=$name::$name finished with result: $result"
+              failed=1
+            fi
+          done
+
+          web=$(git ls-files '*package.json' | head -n 1)
+          native=$(git ls-files 'Package.swift' '*.xcodeproj/project.pbxproj' | head -n 1)
+
+          {
+            echo "## simpledocs CI"
+            echo
+            echo "| Check | Result |"
+            echo "| --- | --- |"
+            echo "| Workflow lint | $LINT_RESULT |"
+            echo "| Conventional PR title | $TITLE_RESULT |"
+            echo "| Dependency review | $DEPS_RESULT |"
+            echo
+            echo "### Application projects"
+            echo
+            if [ -n "$web" ]; then
+              echo "- **Web app (\`$web\`): present but no CI job is configured. Not verified.**"
+              echo "::error title=Web app not wired::$web is tracked but no CI job verifies it."
+              failed=1
+            else
+              echo "- **Web app: NOT RUN.** No package.json is tracked yet."
+            fi
+            if [ -n "$native" ]; then
+              echo "- **Native app (\`$native\`): present but no CI job is configured. Not verified.**"
+              echo "::error title=Native app not wired::$native is tracked but no CI job verifies it."
+              failed=1
+            else
+              echo "- **Native app: NOT RUN.** No Package.swift or Xcode project is tracked yet."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -z "$web" ] && [ -z "$native" ]; then
+            echo "::notice title=Application projects not run::Web and native app projects are not scaffolded yet, so their checks are not run."
+          fi
+
+          exit "$failed"
