@@ -52,6 +52,43 @@ function mediaURL(value) {
   return url.toString();
 }
 
+async function archiveMedia(env, eventId, faxId, value, fetcher) {
+  const media = await fetcher(mediaURL(value), { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(15000) });
+  if (!media.ok || !/^application\/pdf(?:\s*;|\s*$)/i.test(media.headers.get('content-type') ?? '')) throw new Error();
+  const pdf = await bounded(media.body, MAX_PDF);
+  if (pdf.length < 5 || new TextDecoder().decode(pdf.subarray(0, 5)) !== '%PDF-') throw new Error();
+  const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', pdf)), byte => byte.toString(16).padStart(2, '0')).join('');
+  const key = `inbound-fax/${faxId.toLowerCase()}/${eventId.toLowerCase()}/${hash}.pdf`;
+  await env.FAX_MEDIA.put(key, pdf, { httpMetadata: { contentType: 'application/pdf' } });
+  return key;
+}
+
+// Internal only: no route or scheduler invokes this until deployment and
+// account-specific refresh behavior have been reviewed and verified.
+export async function recoverInboundFax(env, eventId, { fetcher = fetch, now = Date.now() } = {}) {
+  if (env.TELNYX_FAX_RECOVERY_ENABLED !== 'true' || env.TELNYX_INBOUND_FAX_ENABLED !== 'true' || !env.TELNYX_API_TOKEN || !env.TELNYX_FAX_CONNECTION_ID || !env.TELNYX_FAX_NUMBER || !env.DB || !env.FAX_MEDIA || typeof eventId !== 'string' || !UUID.test(eventId)) return false;
+  try {
+    const receipt = await env.DB.prepare('SELECT event_id, fax_id, occurred_at FROM inbound_fax_unarchived WHERE event_id = ?').bind(eventId).first();
+    if (!receipt || receipt.event_id !== eventId || typeof receipt.fax_id !== 'string' || !UUID.test(receipt.fax_id)) return false;
+    const endpoint = `https://api.telnyx.com/v2/faxes/${receipt.fax_id}`;
+    const options = { headers: { Authorization: `Bearer ${env.TELNYX_API_TOKEN}`, Accept: 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(15000) };
+    const refresh = await fetcher(`${endpoint}/actions/refresh`, { ...options, method: 'POST' });
+    if (!refresh.ok) return false;
+    const refreshBody = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await bounded(refresh.body, MAX_EVENT)));
+    if (refreshBody?.data?.result !== 'ok') return false;
+    const result = await fetcher(endpoint, { ...options, method: 'GET', signal: AbortSignal.timeout(15000) });
+    if (!result.ok) return false;
+    const fax = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await bounded(result.body, MAX_EVENT)))?.data;
+    if (fax?.record_type !== 'fax' || fax.id !== receipt.fax_id || fax.direction !== 'inbound' || fax.connection_id !== env.TELNYX_FAX_CONNECTION_ID || fax.to !== env.TELNYX_FAX_NUMBER || fax.status !== 'received') return false;
+    const objectKey = await archiveMedia(env, eventId, receipt.fax_id, fax.media_url, fetcher);
+    const saved = await env.DB.prepare("INSERT INTO inbound_fax_events (event_id, fax_id, event_type, occurred_at, received_at, object_key) VALUES (?, ?, 'fax.received', ?, ?, ?) ON CONFLICT(event_id) DO NOTHING")
+      .bind(eventId, receipt.fax_id, receipt.occurred_at, new Date(now).toISOString(), objectKey).run();
+    if (!saved.success) return false;
+    const archived = await env.DB.prepare("SELECT event_id FROM inbound_fax_events WHERE event_id = ? AND fax_id = ? AND event_type = 'fax.received' AND object_key IS NOT NULL").bind(eventId, receipt.fax_id).first();
+    return !!archived;
+  } catch { return false; }
+}
+
 export async function handleInboundFax(request, env, { fetcher = fetch, now = Date.now() } = {}) {
   if (request.method !== 'POST') return response(405);
   if (env.TELNYX_INBOUND_FAX_ENABLED !== 'true' || !env.TELNYX_PUBLIC_KEY || !env.TELNYX_FAX_CONNECTION_ID || !env.TELNYX_FAX_NUMBER || !env.DB || !env.FAX_MEDIA) return response(503);
@@ -76,16 +113,7 @@ export async function handleInboundFax(request, env, { fetcher = fetch, now = Da
       if (!pending.success) throw new Error();
       const receipt = await env.DB.prepare('SELECT fax_id, occurred_at FROM inbound_fax_pending WHERE event_id = ?').bind(data.id).first();
       if (!receipt || receipt.fax_id !== payload.fax_id || receipt.occurred_at !== data.occurred_at) throw new Error();
-      const url = mediaURL(payload.media_url);
-      const media = await fetcher(url, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(15000) });
-      if (!media.ok || !/^application\/pdf(?:\s*;|\s*$)/i.test(media.headers.get('content-type') ?? '')) throw new Error();
-      const pdf = await bounded(media.body, MAX_PDF);
-      if (pdf.length < 5 || new TextDecoder().decode(pdf.subarray(0, 5)) !== '%PDF-') throw new Error();
-      // Content addressing prevents simultaneous deliveries with different bytes
-      // from overwriting the object selected by the unique D1 event row.
-      const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', pdf)), byte => byte.toString(16).padStart(2, '0')).join('');
-      objectKey = `inbound-fax/${payload.fax_id.toLowerCase()}/${data.id.toLowerCase()}/${hash}.pdf`;
-      await env.FAX_MEDIA.put(objectKey, pdf, { httpMetadata: { contentType: 'application/pdf' } });
+      objectKey = await archiveMedia(env, data.id, payload.fax_id, payload.media_url, fetcher);
     }
     const result = await env.DB.prepare('INSERT INTO inbound_fax_events (event_id, fax_id, event_type, occurred_at, received_at, object_key) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(event_id) DO NOTHING')
       .bind(data.id, payload.fax_id, data.event_type, data.occurred_at, new Date(now).toISOString(), objectKey).run();
