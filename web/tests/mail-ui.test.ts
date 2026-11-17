@@ -17,7 +17,7 @@ describe('mail review UI', () => {
       if (url === '/api/mail-unresolved') return Response.json({ orders: [] });
       if (url.endsWith('/status')) return new Response('', { status: 404 });
       if (options?.method === 'PUT') return Response.json({ revision: 1 });
-      if (url.endsWith('/review')) return Response.json({ revision: 1, reviewHash: 'a'.repeat(64), payload: { to: { firstName: 'Example' }, html: '<p>safe &amp; sound</p>', color: false } });
+      if (url.includes('/review?mode=')) return Response.json({ revision: 1, mode: 'test', reviewHash: 'a'.repeat(64), payload: { to: { firstName: 'Example' }, html: '<p>safe &amp; sound</p>', color: false } });
       if (url.endsWith('/send')) return Response.json({ status: 'unknown' });
       return new Response('', { status: 404 });
     }));
@@ -33,6 +33,8 @@ describe('mail review UI', () => {
     (form.elements.namedItem('text') as HTMLTextAreaElement).value = 'safe text';
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await tick(); await tick();
     expect(document.querySelector<HTMLElement>('#mail-review')!.hidden).toBe(false);
+    expect(calls.some(x => x.url.endsWith('/review?mode=test'))).toBe(true);
+    expect(document.querySelector('#mail-review-mode')!.textContent).toContain('TEST MODE');
     expect(document.querySelector('#mail-payload')!.textContent).toContain('<p>safe &amp; sound</p>');
     expect(document.querySelector('#mail-payload p')).toBeNull();
     const send = document.querySelector<HTMLButtonElement>('#mail-send')!;
@@ -43,7 +45,7 @@ describe('mail review UI', () => {
     send.click(); await tick();
     const posts = calls.filter(x => x.url.endsWith('/send'));
     expect(posts).toHaveLength(1);
-    expect(JSON.parse(posts[0].options!.body as string)).toEqual({ revision: 1, reviewHash: 'a'.repeat(64), confirmed: true });
+    expect(JSON.parse(posts[0].options!.body as string)).toEqual({ revision: 1, reviewHash: 'a'.repeat(64), mode: 'test', confirmed: true });
     expect(document.querySelector('#mail-message')!.textContent).toContain('Do not send again');
     send.click(); await tick(); expect(calls.filter(x => x.url.endsWith('/send'))).toHaveLength(1);
   });

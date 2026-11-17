@@ -24,7 +24,7 @@ export function letterPayload(content, id) {
 export async function listUnresolvedMail(request, env, actor) {
   if (request.method !== 'GET') return reply({ error: 'Method not allowed' }, 405);
   if (!env.DB) return reply({ error: 'Mail storage unavailable' }, 503);
-  const result = await env.DB.prepare("SELECT draft_id, revision, status, provider_id, confirmed_at, updated_at FROM mail_intents WHERE actor_id = ? AND (status IN ('submitting', 'unknown') OR (status = 'accepted' AND acknowledged_at IS NULL)) ORDER BY confirmed_at DESC LIMIT 100").bind(actor).all();
+  const result = await env.DB.prepare("SELECT draft_id, revision, status, provider_id, provider_mode, confirmed_at, updated_at FROM mail_intents WHERE actor_id = ? AND (status IN ('submitting', 'unknown') OR (status = 'accepted' AND acknowledged_at IS NULL)) ORDER BY confirmed_at DESC LIMIT 100").bind(actor).all();
   return reply({ orders: result.results });
 }
 
@@ -47,7 +47,7 @@ export async function handleMail(request, env, actor, id, action, fetcher = fetc
   if (!UUID.test(id)) return reply({ error: 'Invalid draft ID' }, 400);
   if (!env.DB) return reply({ error: 'Mail storage unavailable' }, 503);
   if (action === 'status' && request.method === 'GET') {
-    const row = await env.DB.prepare('SELECT revision, status, provider_id, confirmed_at, updated_at, acknowledged_at FROM mail_intents WHERE draft_id = ? AND actor_id = ?').bind(id, actor).first();
+    const row = await env.DB.prepare('SELECT revision, status, provider_id, provider_mode, confirmed_at, updated_at, acknowledged_at FROM mail_intents WHERE draft_id = ? AND actor_id = ?').bind(id, actor).first();
     return row ? reply(row) : reply({ error: 'Not found' }, 404);
   }
   if (action === 'acknowledge') {
@@ -62,32 +62,36 @@ export async function handleMail(request, env, actor, id, action, fetcher = fetc
     return existing?.acknowledged_at ? reply({ id, status: 'accepted', acknowledged: true }) : reply({ error: 'Accepted order not found or not eligible for acknowledgement' }, 409);
   }
   if (action === 'review' && request.method === 'GET') {
+    const mode = new URL(request.url).searchParams.get('mode');
+    if (!['test', 'live'].includes(mode)) return reply({ error: 'Select test or live mode' }, 400);
     const row = await env.DB.prepare('SELECT revision, content_json FROM mail_drafts WHERE id = ? AND actor_id = ?').bind(id, actor).first();
     if (!row) return reply({ error: 'Not found' }, 404);
     try {
       const payload = letterPayload(JSON.parse(row.content_json), id);
-      const reviewHash = await digest(JSON.stringify({ id, revision: row.revision, payload }));
-      return reply({ revision: row.revision, reviewHash, payload, notice: 'Local content review only; final PostGrid rendering and postal delivery may differ. Sending creates a paid order.' });
+      const reviewHash = await digest(JSON.stringify({ id, revision: row.revision, mode, payload }));
+      return reply({ revision: row.revision, mode, reviewHash, payload, notice: 'Local content review only; final PostGrid rendering and postal delivery may differ.' });
     } catch { return reply({ error: 'Draft is not a supported letter; remove braces and ampersands from letter text and check required fields' }, 400); }
   }
   if (action !== 'send' || request.method !== 'POST') return reply({ error: 'Method not allowed' }, 405);
-  if (env.MAIL_ENABLED !== 'true' || typeof env.POSTGRID_API_KEY !== 'string' || !env.POSTGRID_API_KEY.trim()) return reply({ error: 'Mail sending unavailable' }, 503);
+  if (env.MAIL_ENABLED !== 'true') return reply({ error: 'Mail sending unavailable' }, 503);
   let body;
   try { body = await readJson(request); } catch { return reply({ error: 'Invalid request' }, 400); }
-  if (!body || Object.keys(body).sort().join(',') !== 'confirmed,reviewHash,revision' || body.confirmed !== true || !Number.isSafeInteger(body.revision) || body.revision < 1 || !/^[a-f0-9]{64}$/.test(body.reviewHash ?? '')) return reply({ error: 'Explicit confirmation of reviewed content required' }, 400);
+  if (!body || Object.keys(body).sort().join(',') !== 'confirmed,mode,reviewHash,revision' || !['test', 'live'].includes(body.mode) || body.confirmed !== true || !Number.isSafeInteger(body.revision) || body.revision < 1 || !/^[a-f0-9]{64}$/.test(body.reviewHash ?? '')) return reply({ error: 'Explicit confirmation of reviewed content required' }, 400);
+  const apiKey = body.mode === 'test' ? env.POSTGRID_TEST_KEY : env.POSTGRID_LIVE_KEY;
+  if (typeof apiKey !== 'string' || !apiKey.trim()) return reply({ error: 'Selected mail mode is unavailable' }, 503);
   const row = await env.DB.prepare('SELECT revision, content_json FROM mail_drafts WHERE id = ? AND actor_id = ?').bind(id, actor).first();
   if (!row || row.revision !== body.revision) return reply({ error: 'Draft changed or not found' }, 409);
   let payload;
   try { payload = letterPayload(JSON.parse(row.content_json), id); } catch { return reply({ error: 'Draft is not a supported letter' }, 400); }
   const payloadJson = JSON.stringify(payload);
-  if (await digest(JSON.stringify({ id, revision: row.revision, payload })) !== body.reviewHash) return reply({ error: 'Review does not match' }, 409);
+  if (await digest(JSON.stringify({ id, revision: row.revision, mode: body.mode, payload })) !== body.reviewHash) return reply({ error: 'Review does not match' }, 409);
   const now = new Date().toISOString();
   // A single atomic insert both checks the exact draft and consumes its only claim.
-  const claim = await env.DB.prepare("INSERT INTO mail_intents (draft_id, actor_id, revision, review_hash, payload_json, status, confirmed_at, updated_at) SELECT id, actor_id, revision, ?, ?, 'submitting', ?, ? FROM mail_drafts WHERE id = ? AND actor_id = ? AND revision = ? AND content_json = ? ON CONFLICT DO NOTHING").bind(body.reviewHash, payloadJson, now, now, id, actor, row.revision, row.content_json).run();
+  const claim = await env.DB.prepare("INSERT INTO mail_intents (draft_id, actor_id, revision, review_hash, payload_json, status, confirmed_at, updated_at, provider_mode) SELECT id, actor_id, revision, ?, ?, 'submitting', ?, ?, ? FROM mail_drafts WHERE id = ? AND actor_id = ? AND revision = ? AND content_json = ? ON CONFLICT DO NOTHING").bind(body.reviewHash, payloadJson, now, now, body.mode, id, actor, row.revision, row.content_json).run();
   if (claim.meta.changes !== 1) return reply({ error: 'Draft changed, already claimed, or an unresolved order exists; check unresolved orders' }, 409);
   let status = 'unknown'; let providerId = null;
   try {
-    const response = await fetcher('https://api.postgrid.com/print-mail/v1/letters', { method: 'POST', headers: { 'X-API-Key': env.POSTGRID_API_KEY, 'Content-Type': 'application/json' }, body: payloadJson, redirect: 'error' });
+    const response = await fetcher('https://api.postgrid.com/print-mail/v1/letters', { method: 'POST', headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' }, body: payloadJson, redirect: 'error' });
     if (response.status === 201) {
       const result = await response.json();
       if (result?.object === 'letter' && typeof result.id === 'string' && /^letter_[a-zA-Z0-9]+$/.test(result.id)) { status = 'accepted'; providerId = result.id; }
