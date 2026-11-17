@@ -16,7 +16,7 @@ async function signed(body, ts = timestamp) {
 }
 function setup() {
   const db = new DatabaseSync(':memory:');
-  db.exec(readFileSync(new URL('../../backend/core/migrations/0006_voice_webhooks.sql', import.meta.url), 'utf8'));
+  db.exec(readFileSync(new URL('../../backend/core/migrations/0007_voice_webhooks.sql', import.meta.url), 'utf8'));
   const DB = { prepare(sql) { return { async all() { return { results: db.prepare(sql).all() }; }, bind(...args) { return { async first() { return db.prepare(sql).get(...args); }, async run() { return db.prepare(sql).run(...args); } }; } }; } };
   const objects = new Map();
   const VOICE_RECORDINGS = { async put(key, value) { objects.set(key, value); }, async get(key) { const value = objects.get(key); return value ? { body: value } : null; } };
@@ -85,6 +85,8 @@ test('voicemail answers only dedicated incoming calls, greets then records and c
   const marker = commands[0].body.client_state;
   await send('call.answered', 'answered', { client_state: marker });
   assert.match(commands[1].url, /\/speak$/);
+  await send('call.speak.ended', 'unmatched-speech', { client_state: btoa('unrelated') });
+  assert.equal(commands.length, 2);
   await send('call.speak.ended', 'spoken', { client_state: marker });
   assert.match(commands[2].url, /\/record_start$/);
   await send('call.recording.saved', 'recorded', { client_state: commands[2].body.client_state });
