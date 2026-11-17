@@ -30,7 +30,11 @@ import PageHeader from "@/components/PageHeader.astro";
               ['city', 'City', true], ['provinceOrState', 'State', true], ['postalOrZip', 'ZIP code', true],
             ].map(([name, label, required]) => (
               <label class="flex flex-col gap-1.5 text-sm font-medium">{label}
-                <input name={`${party}.${name}`} required={required} maxlength="150" class="rounded-md border border-input bg-background px-3 py-2 font-normal" />
+                <input name={`${party}.${name}`} required={required} maxlength={name === 'provinceOrState' ? 2 : name === 'postalOrZip' ? 10 : 150}
+                  pattern={name === 'provinceOrState' ? '[A-Za-z]{2}' : name === 'postalOrZip' ? '\\d{5}(-\\d{4})?' : undefined}
+                  placeholder={name === 'provinceOrState' ? 'MA' : name === 'postalOrZip' ? '02110' : undefined}
+                  autocomplete={`${party === 'to' ? 'shipping' : 'billing'} ${({ firstName: 'given-name', lastName: 'family-name', addressLine1: 'address-line1', addressLine2: 'address-line2', city: 'address-level2', provinceOrState: 'address-level1', postalOrZip: 'postal-code' } as Record<string, string>)[String(name)]}`}
+                  class="rounded-md border border-input bg-background px-3 py-2 font-normal" />
               </label>
             ))}
           </div>
