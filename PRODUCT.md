@@ -3,10 +3,12 @@
 <!-- impeccable:product-schema 1 -->
 
 ## Platform
-web
+web, iOS and macOS
 
 ## Stack
 Astro static frontend on Cloudflare Workers, Starwind UI, D1 and R2; Cloudflare Queues where useful. Telnyx powers fax and voice, PostGrid powers physical mail. Cloudflare Workers Builds deploys from GitHub.
+
+Native iOS and macOS apps use Swift. The owner's app connects to the Cloudflare backend; a separate downloadable macOS edition connects directly to providers with user-supplied credentials, without requiring the owner's Worker API. Native apps follow platform conventions; Starwind UI is for the web.
 
 ## Users
 Internal users authenticated through the existing tenant-restricted Entra connection need to send and receive communications and find their records.
@@ -20,6 +22,7 @@ Provide a simple, minimal communications workspace for fax, phone, voicemail and
 - PostGrid mail classes, tracking and return receipt depend on provider and destination availability. Require a provider-generated proof and explicit approval before sending.
 - Public portfolio repository, permissive license, conventional commits, pull requests instead of direct commits to main. Welcome contributions.
 - Access uses the existing Entra policy; provider webhooks require independent authentication and cannot depend on interactive Access login.
+- Personal iOS and macOS testing uses TestFlight without an App Store release. Distribute two signed downloadable macOS editions: provider-configurable and owner backend-connected.
 
 ## Brand Commitments
 Name: simpledocs. Extremely minimal and simple interface. Use Starwind UI.
