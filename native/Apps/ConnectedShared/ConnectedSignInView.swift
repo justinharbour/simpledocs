@@ -24,7 +24,7 @@ import UIKit
     var instance = "" { didSet { if instance != oldValue { signOut() } } }
     var issuer = "" { didSet { if issuer != oldValue { signOut() } } }
     var preparation: SignInPreparation?
-    var message = "No local session. Workspace records are samples."
+    var message = "No local session."
     var busy = false
     private var owner: SessionCoordinator?
     private var binding: ContextBinding?
@@ -74,7 +74,7 @@ import UIKit
             try await session.signIn(confirmation: confirmation, binding: binding, callback: URL(string: "dev.justinharbour.simpledocs:/oauth/callback")!)
             guard self.session === session else { return }
             busy = false
-            message = "Token acquired in memory. Worker access has not been verified; workspace records are samples."
+            message = "Token acquired in memory. Worker access and record loading have not been verified."
         } catch {
             if let attempt {
                 guard self.session === attempt else { return }
@@ -103,7 +103,7 @@ struct ConnectedSignInView: View {
     var body: some View {
         Form {
             Section("Experimental connected sign-in") {
-                Text("The workspace shows sample data, not records from your instance. Sign-in requires a configured OAuth callback and does not yet connect the workspace.")
+                Text("Sign-in requires a configured OAuth callback and does not yet connect the workspace or load records.")
                 TextField("Instance HTTPS origin", text: $model.instance)
                     .autocorrectionDisabled()
                 TextField("Cloudflare Access issuer", text: $model.issuer)
