@@ -7,6 +7,9 @@
   "routes": [
     { "pattern": "simpledocs.justinharbour.dev", "custom_domain": true }
   ],
+  "d1_databases": [
+    { "binding": "DB", "database_name": "simpledocs-d1-prod", "database_id": "b31882a3-2a9e-45de-bfe2-3021785420db", "migrations_dir": "../backend/core/migrations" }
+  ],
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
