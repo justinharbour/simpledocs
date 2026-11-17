@@ -115,4 +115,21 @@ import SimpleDocsConnected
         #expect(session.state == .failed)
         await #expect(throws: ConnectedFlowError.self) { try await flow.perform(.readFax(UUID())) }
     }
+    @Test func preparationRequiresExactConfirmationAndCurrentInstance() throws {
+        let (owner, _, _, _, binding, other) = try setup()
+        let preparation = try SignInPreparation(registry: owner.registry, binding: binding, configuredIssuer: "https://team.cloudflareaccess.com")
+        #expect(preparation.resource == "https://one.example.com")
+        #expect(preparation.issuer == "https://team.cloudflareaccess.com")
+        #expect(throws: CoordinatorError.confirmationRequired) {
+            try preparation.confirm(resource: "https://two.example.com", issuer: preparation.issuer, registry: owner.registry)
+        }
+        #expect(throws: CoordinatorError.confirmationRequired) {
+            try preparation.confirm(resource: preparation.resource, issuer: "https://evil.cloudflareaccess.com", registry: owner.registry)
+        }
+        _ = try preparation.confirm(resource: preparation.resource, issuer: preparation.issuer, registry: owner.registry)
+        try owner.activate(other.linkID)
+        #expect(throws: (any Error).self) {
+            try preparation.confirm(resource: preparation.resource, issuer: preparation.issuer, registry: owner.registry)
+        }
+    }
 }
