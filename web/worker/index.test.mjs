@@ -14,6 +14,17 @@ describe('owner Worker Access boundary', () => {
     assert.equal((await worker.fetch(request('fake'), { ...env, ACCESS_AUDIENCE: '' })).status, 401);
     assert.equal((await worker.fetch(request('fake'), env)).status, 401);
   });
+  it('rejects unauthenticated draft reads and writes before touching storage', async () => {
+    let touched = false;
+    const privateEnv = { ...env, DB: { prepare() { touched = true; throw new Error('unexpected database access'); } } };
+    const path = '/api/mail-drafts/ed600156-741d-4fcb-a7b2-388d87883151';
+    for (const method of ['GET', 'PUT']) {
+      const response = await worker.fetch(request(undefined, path, { method }), privateEnv);
+      assert.equal(response.status, 401);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+    }
+    assert.equal(touched, false);
+  });
   it('verifies signed identity, audience, issuer and expiry', async () => {
     const { publicKey, privateKey } = await generateKeyPair('RS256', { extractable: true });
     const jwk = await exportJWK(publicKey);

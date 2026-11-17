@@ -2,6 +2,13 @@
 
 A standalone, Worker-compatible TypeScript foundation based on proposed PR #2 contracts. It is not an API, Worker entrypoint, production configuration or a completed security implementation. No live operations are enabled here.
 
+`migrations/0002_mail_drafts.sql` adds storage for owner-scoped drafts. Callers
+must derive the actor from a verified identity and scope every read, update, and
+delete to that actor. Edits must compare the current revision atomically and
+increment it, returning a conflict when no row changes. The schema alone does not
+enforce these access rules, implement retention or encryption, or send mail. It
+has not yet been integrated with a Worker or tested against live D1.
+
 ## Verify
 
 With Node 22.6+ and Python 3 with SQLite, run `npm test` in this directory. Install development dependencies locally and run `npm run typecheck` for TypeScript checking. Tests do not contact Cloudflare or providers. `migrations/0001_core.sql` targets D1's SQLite model; local SQLite tests are not a substitute for D1 integration tests or a deployment migration plan.
