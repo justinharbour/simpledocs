@@ -10,6 +10,7 @@ An open-source communications workspace for fax, voice, voicemail, and physical 
 - Make and receive calls in a browser softphone, with voicemail and call history.
 - Send physical mail through PostGrid, inspect and approve a provider-generated proof before sending, and record available tracking and return-receipt information.
 - Send the same document through multiple selected channels while tracking each delivery separately.
+- Use planned native Swift apps on iOS and macOS. The owner's app connects to the Cloudflare backend; a separate downloadable macOS edition is intended to use the user's own Telnyx and PostGrid credentials directly.
 - Enable or disable capabilities individually, including inbound fax and inbound voice, with an optional shared phone number where supported by the provider.
 - Keep records in Cloudflare D1 and documents and proofs in R2, behind Cloudflare Access.
 
@@ -18,6 +19,8 @@ Mail classes, tracking, return receipts, phone-number routing, and proofs depend
 ## Intended stack
 
 Astro and Starwind UI for the interface; Cloudflare Workers, D1 and R2 for hosting and storage; Telnyx and PostGrid for delivery. Cloudflare Workers Builds will deploy the application. Standard GitHub-hosted runners will run public-repository checks.
+
+The planned native apps use Swift and platform-native UI. Personal beta builds are intended for TestFlight, not App Store release. Two separately signed and notarized macOS downloads are planned: an owner backend-connected edition and a configurable direct-provider edition. Direct-provider mode cannot assume a continuously available webhook receiver; see [the plan](docs/plan.md) for limitations and verification gates.
 
 ## Contributing
 
