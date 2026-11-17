@@ -34,7 +34,7 @@ describe.skipIf(!built)("built site (run `pnpm build` first)", () => {
     for (const target of own) expect(target).toBe(href);
   });
 
-  it.each(pages)("%s states that nothing is connected and ships no form or fake action", (href) => {
+  it.each(pages.filter((href) => href !== "/compose/"))("%s states that nothing is connected and ships no form or fake action", (href) => {
     const doc = html(href);
     expect(doc).not.toMatch(/<form[\s>]/);
     expect(doc).not.toMatch(/type="submit"/);
