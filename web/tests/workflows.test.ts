@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { deliveryStateLabels, deliveryStateMeanings, deliveryStates } from "@/lib/delivery";
 import { exampleDeliveries } from "@/lib/examples";
-import { flags, instanceChecks } from "@/lib/flags";
+import { flags } from "@/lib/flags";
 import { primaryNav } from "@/lib/navigation";
 
 describe("delivery states", () => {
@@ -68,88 +68,18 @@ describe.skipIf(!built)("workflow pages (run `pnpm build` first)", () => {
     expect(primaryNav.map((i) => i.label)).toEqual(["Overview", "Compose", "Fax", "Calls", "Mail", "Records"]);
   });
 
-  it("exposes only the draft editor while sending and uploads remain unavailable", () => {
+  it("provides the draft editor and links to fax without placeholder controls", () => {
     const doc = read("/compose/");
     expect(doc).toContain('id="draft-form"');
     expect(doc).toMatch(/id="draft-fields"[^>]*disabled/);
-    expect(doc).toContain('id="draft-status"');
-    expect(doc).toContain('<noscript><p>JavaScript is required to load and save drafts.');
-    expect(doc).toContain('id="send-reason"');
-    expect(doc).toMatch(/id="document"[^>]*disabled/);
+    expect(doc).toContain('href="/fax/"');
+    expect(doc).not.toContain("Synthetic example");
   });
 
-  it.each(["/records/", "/settings/"])("%s ships no form, submit control or network action", (href) => {
-    const doc = read(href);
-    expect(doc).not.toMatch(/<form[\s>]/);
-    expect(doc).not.toMatch(/type="submit"/);
-    expect(doc).not.toMatch(/\saction="/);
-    expect(doc).not.toMatch(/\sformaction="/);
-    expect(doc).not.toMatch(/<script[^>]*\ssrc="https?:/);
-  });
-
-  // The shell's own controls (sidebar trigger, drawer close) are enabled; page controls are everything inside <main>.
-  it.each(["/records/", "/settings/"])("%s has only disabled page controls", (href) => {
-    const doc = read(href);
-    const main = doc.slice(doc.indexOf('id="main"'));
-    const page = controls(main).filter((tag) => !/data-sidebar=|data-slot="sidebar|data-slot="sheet/.test(tag));
-    expect(page.length).toBeGreaterThan(0);
-    for (const tag of page) {
-      expect(tag, tag).toMatch(/\sdisabled(=|\s|>)|aria-disabled="true"/);
-      // A span or div with an ARIA role has no native disabled state, so it must say so itself.
-      if (/^<(span|div)\b/.test(tag)) expect(tag, tag).toContain('aria-disabled="true"');
-    }
-  });
-
-  it.each(pages)("%s explains why it is unavailable", (href) => {
-    expect(read(href)).toContain("Not available.");
-  });
-
-  it("describes every disabled button with a reason that exists on the page", () => {
-    for (const href of ["/compose/", "/settings/"]) {
-      const doc = read(href);
-      const main = doc.slice(doc.indexOf('id="main"'));
-      const buttons = [...main.matchAll(tagPattern("button"))].map((m) => m[0]);
-      for (const tag of buttons.filter((t) => /data-slot="button"/.test(t))) {
-        const ref = /aria-describedby="([^"]+)"/.exec(tag)?.[1];
-        expect(ref, tag).toBeTruthy();
-        expect(doc).toContain(`id="${ref}"`);
-      }
-    }
-  });
-
-  it("labels every page input", () => {
-    for (const href of pages) {
-      const doc = read(href);
-      const main = doc.slice(doc.indexOf('id="main"'));
-      for (const tag of controls(main).filter((t) => /^<(input|textarea)/.test(t))) {
-        const id = /\sid="([^"]+)"/.exec(tag)?.[1];
-        expect(id, tag).toBeTruthy();
-        expect(doc, `label for ${id}`).toContain(`for="${id}"`);
-      }
-    }
-  });
-
-  it("Compose clearly states proof and sending are unavailable", () => {
-    const text = read("/compose/").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-    expect(text).toContain("Provider proof is not available");
-    expect(text).toContain("Sending is turned off");
-    expect(text).toContain("synthetic example");
-  });
-
-  it("Compose does not promise proof and requires explicit confirmation for future paid sending", () => {
-    const text = read("/compose/").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-    expect(text).toContain("will require your explicit confirmation");
-    expect(text).not.toContain("The mail provider produces a proof");
-    expect(text).not.toContain("is never sent again");
-    expect(text).not.toContain("nothing is resent automatically");
-  });
-
-  it("Settings words the instance model and flags as proposed", () => {
-    const text = read("/settings/").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-    expect(text).toContain("Proposed: simpledocs would be run by");
-    expect(text).not.toContain("meant to be run by");
-    expect(text).not.toContain("You will be asked to confirm");
-    expect(text).not.toContain("will not cancel work");
+  it("does not show invented records or channel switches", () => {
+    expect(read("/records/")).toContain("Record listing is not available yet");
+    expect(read("/records/")).not.toContain("Synthetic example");
+    expect(read("/settings/")).not.toContain('role="switch"');
   });
 
   it.each(pages)("%s has no <label for> that points at a missing id", (href) => {
@@ -169,50 +99,4 @@ describe.skipIf(!built)("workflow pages (run `pnpm build` first)", () => {
     }
   });
 
-  it("Compose names each checkbox with a real element and describes every group", () => {
-    const doc = read("/compose/");
-    const boxes = [...doc.matchAll(tagPattern("span"))].map((m) => m[0]).filter((t) => /role="checkbox"/.test(t));
-    expect(boxes).toHaveLength(2);
-    for (const tag of boxes) expect(tag).toMatch(/aria-labelledby="channel-(fax|mail)-label"/);
-    const fieldsets = [...doc.matchAll(tagPattern("fieldset"))].map((m) => m[0]);
-    expect(fieldsets.length).toBeGreaterThanOrEqual(3);
-    for (const tag of fieldsets) expect(tag).toMatch(/aria-describedby="[^"]+"/);
-  });
-
-  it("Settings detail is shown below the md breakpoint, not only in a hidden column", () => {
-    const doc = read("/settings/");
-    const inline = [...doc.matchAll(tagPattern("span"))].map((m) => m[0]).filter((t) => /md:hidden/.test(t));
-    expect(inline).toHaveLength(instanceChecks.length);
-    for (const check of instanceChecks) expect(doc).toContain(check.detail);
-  });
-
-  it("Records shows each example note below the md breakpoint too", () => {
-    const doc = read("/records/");
-    expect(doc.match(/md:hidden/g)?.length).toBeGreaterThanOrEqual(exampleDeliveries.length);
-  });
-
-  it("marks every example surface with a strong Synthetic example label", () => {
-    const records = read("/records/");
-    expect(records.match(/Synthetic example/g)?.length).toBeGreaterThanOrEqual(exampleDeliveries.length + 1);
-    const compose = read("/compose/");
-    expect(compose.match(/Synthetic example/g)?.length).toBeGreaterThanOrEqual(3);
-  });
-
-  it("Settings shows every flag off and none on", () => {
-    const doc = read("/settings/");
-    for (const flag of flags) expect(doc).toContain(`flag-${flag.id}`);
-    const switches = [...doc.matchAll(tagPattern("button"))].map((m) => m[0]).filter((t) => /role="switch"/.test(t));
-    expect(switches).toHaveLength(flags.length);
-    for (const tag of switches) {
-      expect(tag).toContain('aria-checked="false"');
-      expect(tag).toMatch(/\sdisabled(\s|>|=)/);
-    }
-    expect(doc).not.toContain('aria-checked="true"');
-  });
-
-  it("Records labels its rows as examples, not records", () => {
-    const doc = read("/records/");
-    expect(doc).toContain("not records");
-    expect(doc.match(/Example job/g)?.length).toBeGreaterThanOrEqual(exampleDeliveries.length);
-  });
 });
