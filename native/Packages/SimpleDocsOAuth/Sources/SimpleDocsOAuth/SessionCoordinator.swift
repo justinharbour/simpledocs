@@ -28,7 +28,7 @@ public struct PublicClientRegistration: Encodable, Sendable {
     public let client_name: String
     public let redirect_uris: [String]
     public let resource: String
-    public let grant_types = ["authorization_code"]
+    public let grant_types = ["authorization_code", "refresh_token"]
     public let response_types = ["code"]
     public let token_endpoint_auth_method = "none"
 
