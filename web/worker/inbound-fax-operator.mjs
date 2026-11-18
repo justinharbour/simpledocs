@@ -3,6 +3,7 @@ import { recoverInboundFax } from './inbound-fax.mjs';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const reply = (body, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } });
 function authorized(actor, configured) {
+  if (configured === undefined) return typeof actor === 'string' && actor.length > 0;
   try {
     const subjects = JSON.parse(configured);
     return typeof actor === 'string' && Array.isArray(subjects) && subjects.length > 0 && subjects.every(s => typeof s === 'string' && s.length > 0 && s === s.trim()) && subjects.includes(actor);

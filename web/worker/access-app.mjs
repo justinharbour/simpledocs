@@ -42,6 +42,23 @@ if (app.name !== 'Simpledocs' || app.type !== 'self_hosted' || app.domain !== ho
     typeof app.aud !== 'string' || !/^[a-f0-9]{64}$/i.test(app.aud)) {
   throw new Error('Access application does not match the expected policy; refusing deployment');
 }
+// Telnyx cannot authenticate through Access; these two paths verify Telnyx's
+// Ed25519 signature in the Worker instead. Everything else stays behind Access.
+for (const path of ['/webhooks/telnyx/fax', '/api/webhooks/telnyx/voice']) {
+  const domain = `${hostname}${path}`;
+  const found = [];
+  let p = 1, r;
+  do {
+    r = await api(`${base}?per_page=100&page=${p++}`);
+    found.push(...r.result.filter(a => a.domain === domain));
+  } while (p <= (r.result_info?.total_pages ?? 1));
+  if (!found.length) {
+    await api(base, { method: 'POST', body: JSON.stringify({
+      name: `Simpledocs Telnyx webhook ${path}`, type: 'self_hosted', domain,
+      policies: [{ name: 'Telnyx webhook bypass', decision: 'bypass', include: [{ everyone: {} }], precedence: 1 }],
+    }) });
+  }
+}
 // Audience is public metadata, not a credential. GitHub output passes it to Wrangler.
 const { appendFile } = await import('node:fs/promises');
 await appendFile(process.env.GITHUB_OUTPUT, `audience=${app.aud}\n`);

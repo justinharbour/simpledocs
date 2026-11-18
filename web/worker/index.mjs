@@ -8,6 +8,7 @@ import { handleFaxOperator } from './inbound-fax-operator.mjs';
 import { handleMail, listUnresolvedMail } from './mail-send.mjs';
 import { handleVoiceWebhook, handleVoiceRecording, listVoiceRecordings } from './voice-webhook.mjs';
 import { handleVoiceSession } from './voice-session.mjs';
+import { sendPendingFaxAlert } from './inbound-fax-alert.mjs';
 
 // Static Assets do not propagate ctx.access. Verify the Access assertion against
 // the configured team's keys instead; never trust an unverified identity header.
@@ -22,6 +23,11 @@ export function createWorker(resolveKeys = issuer => {
   return keySets.get(issuer);
 }) {
   return {
+  async scheduled(_event, env) {
+    const result = await sendPendingFaxAlert(env);
+    // Operational status only; never log provider errors or fax data.
+    if (result === 'unavailable') console.error('Pending fax alert unavailable');
+  },
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/webhooks/telnyx/fax') return handleInboundFax(request, env);
@@ -59,7 +65,7 @@ export function createWorker(resolveKeys = issuer => {
     if (mail) return handleMail(request, env, actor, mail[1], mail[2]);
     if (url.pathname === '/api/voice/session') return handleVoiceSession(request, env, actor);
     if (url.pathname === '/api/voice/recordings' || url.pathname.startsWith('/api/voice/recordings/')) {
-      if (!env.VOICE_OWNER_SUBJECT || actor !== env.VOICE_OWNER_SUBJECT) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+      if (env.VOICE_OWNER_SUBJECT && actor !== env.VOICE_OWNER_SUBJECT) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
     }
     if (url.pathname === '/api/voice/recordings') return listVoiceRecordings(request, env);
     const recording = /^\/api\/voice\/recordings\/([^/]+)$/.exec(url.pathname);

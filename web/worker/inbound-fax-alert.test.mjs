@@ -6,9 +6,9 @@ import { sendPendingFaxAlert } from './inbound-fax-alert.mjs';
 
 function fixture() {
   const db = new DatabaseSync(':memory:');
-  for (const file of ['0007_inbound_fax_events.sql', '0010_inbound_fax_pending.sql']) db.exec(readFileSync(new URL(`../../backend/core/migrations/${file}`, import.meta.url), 'utf8'));
+  for (const file of ['0007_inbound_fax_events.sql', '0010_inbound_fax_pending.sql', '0011_fax_alert_pacing.sql']) db.exec(readFileSync(new URL(`../../backend/core/migrations/${file}`, import.meta.url), 'utf8'));
   const sent = [];
-  const env = { FAX_ALERTS_ENABLED: 'true', FAX_ALERT_AFTER_SECONDS: '300', FAX_ALERT_SENDER: 'noreply@example.test', FAX_ALERT_RECIPIENT: 'operator@example.test', FAX_ALERT_EMAIL: { async send(message) { sent.push(message); } }, DB: { prepare(sql) { return { bind(...args) { return { async first() { return db.prepare(sql).get(...args); } }; } }; } } };
+  const env = { FAX_ALERTS_ENABLED: 'true', FAX_ALERT_AFTER_SECONDS: '300', FAX_ALERT_INTERVAL_SECONDS: '3600', FAX_ALERT_SENDER: 'noreply@example.test', FAX_ALERT_RECIPIENT: 'operator@example.test', FAX_ALERT_EMAIL: { async send(message) { sent.push(message); } }, DB: { prepare(sql) { return { bind(...args) { return { async first() { return db.prepare(sql).get(...args) ?? null; } }; } }; } } };
   return { db, sent, env };
 }
 const now = Date.parse('2026-01-01T00:10:00.000Z');
@@ -21,6 +21,7 @@ test('alerts only for aged unarchived receipts and does not leak fax data', asyn
   assert.equal(sent.length, 1);
   assert.equal(sent[0].to, 'operator@example.test');
   assert.ok(!JSON.stringify(sent).includes('fax-identifier'));
+  assert.equal(await sendPendingFaxAlert(env, { now }), 'paced');
   db.prepare("INSERT INTO inbound_fax_events VALUES ('event-identifier', 'fax-identifier', 'fax.received', 'then', 'now', 'object')").run();
   assert.equal(await sendPendingFaxAlert(env, { now }), 'none');
 });
@@ -31,6 +32,7 @@ test('fails closed on missing configuration and delivery failure', async () => {
   for (const override of [{ FAX_ALERT_RECIPIENT: '' }, { FAX_ALERT_AFTER_SECONDS: '0' }, { FAX_ALERT_SENDER: 'bad\r\naddress' }, { FAX_ALERT_EMAIL: null }]) assert.equal(await sendPendingFaxAlert({ ...env, ...override }, { now }), 'unavailable');
   assert.equal(sent.length, 0);
   assert.equal(await sendPendingFaxAlert({ ...env, FAX_ALERT_EMAIL: { async send() { throw Error('synthetic'); } } }, { now }), 'unavailable');
+  assert.equal(await sendPendingFaxAlert(env, { now }), 'paced');
 });
 
 test('database errors and malformed query results never send an alert', async () => {

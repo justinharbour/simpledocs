@@ -8,7 +8,10 @@ function contact(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error('Invalid address');
   const fields = ['firstName', 'lastName', 'addressLine1', 'addressLine2', 'city', 'provinceOrState', 'postalOrZip', 'countryCode'];
   if (Object.keys(value).some(k => !fields.includes(k)) || !['firstName', 'addressLine1', 'city', 'provinceOrState', 'postalOrZip'].every(k => text(value[k], 150)) || value.countryCode !== 'US' || fields.some(k => value[k] !== undefined && !text(value[k], 150))) throw Error('Invalid address');
-  return Object.fromEntries(fields.filter(k => value[k] !== undefined).map(k => [k, value[k]]));
+  if (!/^[A-Za-z]{2}$/.test(value.provinceOrState) || !/^\d{5}(-\d{4})?$/.test(value.postalOrZip.trim())) throw Error('Invalid address');
+  const clean = Object.fromEntries(fields.filter(k => value[k] !== undefined).map(k => [k, value[k].trim()]));
+  clean.provinceOrState = clean.provinceOrState.toUpperCase();
+  return clean;
 }
 
 export function letterPayload(content, id) {

@@ -6,11 +6,34 @@
   "preview_urls": false,
   "vars": {
     "FAX_ENABLED": "true",
+    "MAIL_ENABLED": "true",
     "TELNYX_FAX_CONNECTION_ID": "3095469622875391187",
-    "TELNYX_FAX_FROM": "+12134147728"
+    "TELNYX_FAX_FROM": "+12134147728",
+    "TELNYX_FAX_NUMBER": "+12134147728",
+    "TELNYX_INBOUND_FAX_ENABLED": "true",
+    "TELNYX_FAX_RECOVERY_ENABLED": "true",
+    "VOICE_WEBRTC_ENABLED": "true",
+    "VOICE_INBOUND_ENABLED": "true",
+    "VOICEMAIL_ENABLED": "true",
+    "TELNYX_VOICE_CONNECTION_ID": "3095515372497929715",
+    "TELNYX_WEBRTC_CREDENTIAL_ID": "76d778d0-2352-4186-b1b0-cb97788ba887",
+    "TELNYX_VOICE_FROM": "+12134587846",
+    "VOICEMAIL_NUMBER": "+12134587846",
+    "VOICEMAIL_GREETING": "You have reached Justin. Please leave a message after the tone.",
+    "FAX_ALERTS_ENABLED": "true",
+    "FAX_ALERT_AFTER_SECONDS": "300",
+    "FAX_ALERT_INTERVAL_SECONDS": "3600",
+    "FAX_ALERT_SENDER": "noreply@mail.justinharbour.com",
+    "FAX_ALERT_RECIPIENT": "github@justinharbour.com"
   },
   "routes": [
     { "pattern": "simpledocs.justinharbour.dev", "custom_domain": true }
+  ],
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "send_email": [{ "name": "FAX_ALERT_EMAIL" }],
+  "r2_buckets": [
+    { "binding": "FAX_MEDIA", "bucket_name": "simpledocs-fax-media" },
+    { "binding": "VOICE_RECORDINGS", "bucket_name": "simpledocs-voice-recordings" }
   ],
   "d1_databases": [
     { "binding": "DB", "database_name": "simpledocs-d1-prod", "database_id": "b31882a3-2a9e-45de-bfe2-3021785420db", "migrations_dir": "../backend/core/migrations" }

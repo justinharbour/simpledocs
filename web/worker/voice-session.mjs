@@ -6,7 +6,7 @@ const E164 = /^\+[1-9]\d{1,14}$/;
 export async function handleVoiceSession(request, env, actor, fetcher = fetch) {
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   if (request.headers.get('origin') !== new URL(request.url).origin) return json({ error: 'Invalid origin' }, 403);
-  if (env.VOICE_WEBRTC_ENABLED !== 'true' || !env.VOICE_OWNER_SUBJECT || actor !== env.VOICE_OWNER_SUBJECT ||
+  if (env.VOICE_WEBRTC_ENABLED !== 'true' || (env.VOICE_OWNER_SUBJECT && actor !== env.VOICE_OWNER_SUBJECT) ||
       !/^[a-zA-Z0-9_-]{1,128}$/.test(env.TELNYX_WEBRTC_CREDENTIAL_ID ?? '') ||
       !E164.test(env.TELNYX_VOICE_FROM ?? '') || typeof env.TELNYX_API_TOKEN !== 'string' || !env.TELNYX_API_TOKEN.trim()) {
     return json({ error: 'Softphone unavailable' }, 503);
