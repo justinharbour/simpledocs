@@ -183,6 +183,8 @@ jobs:
             destination: platform=macOS
           - scheme: SimpleDocsiOS
             destination: generic/platform=iOS
+          - scheme: SimpleDocsTV
+            destination: generic/platform=tvOS Simulator
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
