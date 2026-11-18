@@ -76,6 +76,20 @@ async function command(env, id, action, body, fetcher) {
   return outcome;
 }
 
+// Claim the assistant before issuing answer so duplicate/reordered deliveries
+// never attach twice or start a second assistant after answer.
+async function answerVoicemail(env, id, marker, fetcher) {
+  const prior = await env.DB.prepare("SELECT outcome FROM voicemail_commands WHERE call_control_id = ? AND action = 'answer'").bind(id).first();
+  if (prior) return;
+  let assistant;
+  try { assistant = await assistantForCall(env, id); } catch { assistant = null; }
+  if (assistant === false) return;
+  if (assistant) {
+    await env.DB.prepare('INSERT OR IGNORE INTO ai_voicemail_commands (call_control_id, command_id, outcome) VALUES (?, ?, ?)').bind(id, crypto.randomUUID(), 'claimed').run();
+  }
+  await command(env, id, 'answer', { client_state: marker, ...(assistant ? { assistant } : {}) }, fetcher);
+}
+
 // Returns true when the event belongs to the softphone leg, which must not appear in the call log.
 export async function processVoicemail(env, event, payload, fetcher = fetch) {
   if (env.VOICEMAIL_ENABLED !== 'true' || env.VOICE_INBOUND_ENABLED !== 'true' ||
@@ -96,7 +110,7 @@ export async function processVoicemail(env, event, payload, fetcher = fetch) {
     if (answered) return true;
     let config;
     try { config = await voicemailConfig(env); } catch { config = fallbackConfig(env); }
-    if (config.greeting) await command(env, call.call_control_id, 'answer', { client_state: btoa(`simpledocs-voicemail:${legMarker}`) }, fetcher);
+    if (config.greeting) await answerVoicemail(env, call.call_control_id, btoa(`simpledocs-voicemail:${legMarker}`), fetcher);
     return true;
   }
   // Stored settings win; a settings read failure falls back to the environment greeting and default voice.
@@ -115,21 +129,18 @@ export async function processVoicemail(env, event, payload, fetcher = fetch) {
   const marker = btoa(`simpledocs-voicemail:${voicemail.marker}`);
   if (event.event_type === 'call.initiated' && payload.direction === 'incoming' && payload.to === env.VOICEMAIL_NUMBER) {
     if (await ring(env, id, voicemail.marker, payload, fetcher)) return false;
-    await command(env, id, 'answer', { client_state: marker }, fetcher);
+    await answerVoicemail(env, id, marker, fetcher);
   } else if (event.event_type === 'call.answered' && payload.client_state === marker) {
-    // An ambiguous start must not also start recording over a potentially live assistant.
-    // Only a definite provider rejection permits the traditional greeting fallback.
     const prior = await env.DB.prepare('SELECT outcome FROM ai_voicemail_commands WHERE call_control_id = ?').bind(id).first();
-    if (prior && prior.outcome !== 'rejected') return false;
-    if (!prior) {
-      let assistant = null;
-      try { assistant = await assistantForCall(env, id); } catch { /* use ordinary voicemail */ }
-      if (assistant === false) return false;
-      if (assistant) {
-        const result = await command(env, id, 'ai_assistant_start', { assistant, client_state: marker }, fetcher);
-        if (result !== 'rejected') return false;
-      }
-    }
+    if (prior) return false;
+    const body = { client_state: marker, payload: config.greeting, payload_type: 'text', voice: config.voice, language: 'en-US' };
+    if (isLegacyVoice(config.voice)) body.service_level = config.service_level;
+    await command(env, id, 'speak', body, fetcher);
+  } else if (event.event_type === 'call.conversation.start_failed') {
+    // The provider guarantees that this answer-with-assistant attempt created
+    // no conversation and left the call answered. A prior claim binds it to us.
+    const prior = await env.DB.prepare('SELECT outcome FROM ai_voicemail_commands WHERE call_control_id = ?').bind(id).first();
+    if (!prior) return false;
     const body = { client_state: marker, payload: config.greeting, payload_type: 'text', voice: config.voice, language: 'en-US' };
     // Telnyx documents service_level as the basic/premium switch for the legacy female/male voices only.
     if (isLegacyVoice(config.voice)) body.service_level = config.service_level;
