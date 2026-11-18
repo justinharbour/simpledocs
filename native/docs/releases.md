@@ -54,6 +54,15 @@ The prepared-fax contract depends on PR #72's compatible backend; #68 has adopte
 that contract, but #72 was not merged into this branch. Coordinate and verify
 the deployed backend contract before distributing a build; otherwise fax review
 cannot be assumed functional.
+Prepared secure email also depends on #72 and its `0061_email_reviews.sql`
+migration, in addition to the recipient portal configuration and migrations in
+`docs/email-portal-integration.md`. The native app uses only prepared upload
+fields: older instances must reject them rather than send. A pending email is
+reviewable only after the Worker returns a matching recipient, pending status,
+and an exact PDF digest. The current #72 detail contract labels both pending and
+uncertain email as `unknown`; checking the review endpoint cannot itself send.
+An uncertain approval must be investigated in Records, not automatically retried.
+No automatic production release, backend deployment, or invitation is performed.
 
 `native/version.txt` and `.release-please-manifest.json` start at 0.0.0, not a claim
 that a version was shipped. Confirm existing GitHub tags and App Store Connect
