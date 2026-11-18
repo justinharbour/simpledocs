@@ -48,9 +48,12 @@ const oauth = {
   dynamic_client_registration: { enabled: true, allowed_uris: ['dev.justinharbour.simpledocs:/oauth/callback'] },
   grant: { access_token_lifetime: '15m', session_duration: '720h' },
 };
-await api(`${base}/${app.id}`, { method: 'PUT', body: JSON.stringify({
+const updated = await api(`${base}/${app.id}`, { method: 'PUT', body: JSON.stringify({
   ...app, policies: app.policies.map(p => ({ id: p.id, precedence: p.precedence })), oauth_configuration: oauth,
 }) });
+const confirmed = (await api(`${base}/${app.id}`)).result.oauth_configuration;
+console.log('Managed OAuth:', JSON.stringify({ put: updated.result.oauth_configuration, read: confirmed }));
+if (!confirmed?.enabled) throw new Error('Managed OAuth did not enable');
 // Telnyx cannot authenticate through Access; these two paths verify Telnyx's
 // Ed25519 signature in the Worker instead. Everything else stays behind Access.
 for (const path of ['/webhooks/telnyx/fax', '/api/webhooks/telnyx/voice']) {
