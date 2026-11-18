@@ -87,3 +87,15 @@ test('a TV token cannot read another owner’s transmission PDF', async () => {
   objects.set('outbound/x/document.pdf', new Uint8Array([37, 80, 68, 70]));
   assert.equal((await api(e, '/tv/api/documents/t:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/pdf', token)).status, 404);
 });
+
+test('only a recent unended call counts as ringing', async () => {
+  const { env: e, db } = makeEnv({ PORTAL_KEY });
+  const { token } = await paired(e);
+  const now = Date.now(), at = ms => new Date(now - ms).toISOString();
+  const insert = db.prepare("INSERT INTO calls (call_control_id, direction, from_number, to_number, started_at, ended_at, outcome, updated_at) VALUES (?, 'inbound', '+15550000000', '+15550000001', ?, ?, ?, ?)");
+  insert.run('live', at(10000), null, 'ringing', at(0));
+  insert.run('stuck', at(3600000), null, 'ringing', at(0));
+  insert.run('done', at(30000), at(5000), 'voicemail', at(0));
+  const body = await (await api(e, '/tv/api/dashboard', token)).json();
+  assert.deepEqual(body.calls.last24h, { ringing: 1, answered: 0, missed: 0, voicemail: 1 });
+});
