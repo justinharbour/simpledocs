@@ -10,7 +10,7 @@ const MAX_TRANSCRIPT = 20000;
 const applyTranscript = (db, id) => db.prepare("UPDATE voice_recordings SET transcript = (SELECT t.transcript FROM voice_transcripts t WHERE t.recording_id = voice_recordings.recording_id), transcript_at = datetime('now') WHERE recording_id = ? AND transcript IS NULL AND EXISTS (SELECT 1 FROM voice_transcripts t WHERE t.recording_id = voice_recordings.recording_id AND t.call_control_id = voice_recordings.call_control_id)").bind(id).run();
 const reply = (status, message) => new Response(message, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
 
-async function bounded(stream, limit) {
+export async function bounded(stream, limit) {
   if (!stream) throw new Error('missing body');
   const reader = stream.getReader(); const parts = []; let size = 0;
   try {
@@ -32,7 +32,7 @@ function decode64(value) {
   return Uint8Array.from(atob(value), c => c.charCodeAt(0));
 }
 
-async function verify(bytes, request, publicKey, now) {
+export async function verify(bytes, request, publicKey, now) {
   try {
     const timestamp = request.headers.get('telnyx-timestamp');
     const signature = decode64(request.headers.get('telnyx-signature-ed25519'));
@@ -78,9 +78,10 @@ export async function handleVoiceWebhook(request, env, fetcher = fetch, now = Da
       return reply(200, 'Accepted');
     }
     if (data.event_type !== 'call.recording.saved') {
-      await processVoicemail(env, data, payload, fetcher);
-      // The call log is secondary: it must never fail a webhook voicemail depends on.
-      try { await recordCall(env.DB, data, payload); } catch { /* Telnyx retries are not needed for logging. */ }
+      const softphoneLeg = await processVoicemail(env, data, payload, fetcher);
+      // The call log is secondary: it must never fail a webhook voicemail depends on. The leg that
+      // rings the softphone is part of the same inbound call, so it is not logged as a second call.
+      if (!softphoneLeg) try { await recordCall(env.DB, data, payload); } catch { /* Telnyx retries are not needed for logging. */ }
       return reply(200, 'Accepted');
     }
     if (!env.FILES) return reply(503, 'Recording storage unavailable');
