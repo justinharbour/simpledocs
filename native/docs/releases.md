@@ -24,14 +24,12 @@ matrix jobs and App Store Connect. Upload does not submit for App Review or
 automatically add external testers. Follow the repository's branch protection
 and promotion process; do not bypass checks.
 
-Create repository secret `RELEASE_PLEASE_TOKEN`: a fine-grained PAT belonging to
-a dedicated release identity, scoped to this repository with Contents and Pull
-requests read/write and Issues read/write (for release-please labels). Grant
-the identity appropriate branch protection access without bypassing review.
-Unlike `GITHUB_TOKEN`, this identity causes release PRs to trigger ordinary PR
-CI. If organizational policy requires it, allow Actions to create pull requests.
-Rotate and restrict this credential. The token is used only in the release job;
-Apple secrets are used only by the explicitly dispatched main-branch jobs, never PR jobs.
+release-please uses the workflow's built-in `GITHUB_TOKEN` (contents, pull
+requests and issues write, release job only); the repository allows Actions to
+create pull requests. GitHub does not start other workflows from events made
+with that token, so release PRs do not run CI automatically. To run CI on a
+release PR, close and reopen it, or push an empty commit to its branch. Apple
+secrets are used only by the explicitly dispatched main-branch jobs, never PR jobs.
 
 The GitHub API reported no classic branch protection or repository rulesets on
 `main` or `develop` during review. This is a release security risk: configure
