@@ -28,7 +28,8 @@
     "FAX_ALERT_RECIPIENT": "github@justinharbour.com"
   },
   "routes": [
-    { "pattern": "simpledocs.justinharbour.dev", "custom_domain": true }
+    { "pattern": "simpledocs.justinharbour.dev", "custom_domain": true },
+    { "pattern": "simpledocs.justinharbour.com", "custom_domain": true }
   ],
   "triggers": { "crons": ["*/5 * * * *"] },
   "send_email": [{ "name": "FAX_ALERT_EMAIL" }],
