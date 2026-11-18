@@ -125,3 +125,47 @@ test('without a WebRTC credential the phone is never rung', async () => {
   await post(env, t.fetcher, 'call.initiated', 'init', incoming);
   assert.deepEqual(t.actions(), ['answer']);
 });
+
+test('a ring-leg event on the softphone credential connection is accepted only with a marker we issued', async () => {
+  const { env, db } = setup(); goOnline(db); const t = telnyx();
+  await post(env, t.fetcher, 'call.initiated', 'init', incoming);
+  const legState = t.commands.find(c => c.url.endsWith('/transfer')).body.target_leg_client_state;
+  const foreign = { connection_id: 'softphone-connection', call_control_id: 'leg-b' };
+  const events = () => db.prepare('SELECT count(*) AS n FROM voice_events').get().n;
+  const before = events();
+
+  // No marker, an unknown marker, and a marker for a call that was never rung are all rejected.
+  assert.equal((await post(env, t.fetcher, 'call.hangup', 'no-marker', { ...foreign })).status, 400);
+  assert.equal((await post(env, t.fetcher, 'call.hangup', 'unknown', { ...foreign, client_state: btoa('simpledocs-ring-leg:unknown') })).status, 400);
+  assert.equal((await post(env, t.fetcher, 'call.hangup', 'prefix', { ...foreign, client_state: btoa('simpledocs-ring-leg:') })).status, 400);
+  assert.equal((await post(env, t.fetcher, 'call.hangup', 'other-state', { ...foreign, client_state: btoa('simpledocs-voicemail:x') })).status, 400);
+  assert.equal(events(), before);
+  assert.deepEqual(t.actions(), ['transfer']);
+
+  // A genuine ring leg reporting the other connection is processed and starts voicemail.
+  const response = await post(env, t.fetcher, 'call.hangup', 'leg-hangup', { ...foreign, client_state: legState, hangup_cause: 'timeout' });
+  assert.equal(response.status, 200);
+  assert.deepEqual(t.actions(), ['transfer', 'answer']);
+  assert.match(t.commands.find(c => c.url.endsWith('/answer')).url, /leg-a\/actions\/answer$/);
+});
+
+test('plain events and recordings on a foreign connection are still rejected, even with a valid marker', async () => {
+  const { env, db } = setup(); goOnline(db); const t = telnyx();
+  await post(env, t.fetcher, 'call.initiated', 'init', incoming);
+  const legState = t.commands.find(c => c.url.endsWith('/transfer')).body.target_leg_client_state;
+  assert.equal((await post(env, t.fetcher, 'call.initiated', 'foreign', { ...incoming, connection_id: 'other', call_control_id: 'leg-z' })).status, 400);
+  assert.equal((await post(env, t.fetcher, 'call.hangup', 'foreign-hangup', { connection_id: 'other', call_control_id: 'leg-a' })).status, 400);
+  const saved = await post(env, t.fetcher, 'call.recording.saved', 'rec', { connection_id: 'other', call_control_id: 'leg-b', client_state: legState, recording_id: '11111111-1111-4111-8111-111111111111' });
+  assert.equal(saved.status, 400);
+  assert.deepEqual(t.actions(), ['transfer']);
+});
+
+test('signature verification still comes first for foreign-connection ring-leg events', async () => {
+  const { env, db } = setup(); goOnline(db); const t = telnyx();
+  await post(env, t.fetcher, 'call.initiated', 'init', incoming);
+  const legState = t.commands.find(c => c.url.endsWith('/transfer')).body.target_leg_client_state;
+  const body = JSON.stringify({ data: { id: 'forged', event_type: 'call.hangup', occurred_at: '2026-01-01T00:00:00Z', payload: { connection_id: 'softphone-connection', call_control_id: 'leg-b', client_state: legState } } });
+  const request = new Request('https://example.test/api/webhooks/telnyx/voice', { method: 'POST', body, headers: { 'telnyx-timestamp': timestamp, 'telnyx-signature-ed25519': btoa('x'.repeat(64)) } });
+  assert.equal((await handleVoiceWebhook(request, env, t.fetcher, now)).status, 401);
+  assert.deepEqual(t.actions(), ['transfer']);
+});

@@ -16,6 +16,14 @@ export function ringLegMarker(clientState) {
   } catch { return null; }
 }
 
+// True only when the marker belongs to a call we actually rang the softphone for.
+export async function isRingLeg(db, clientState) {
+  const marker = ringLegMarker(clientState);
+  if (!marker) return false;
+  const row = await db.prepare('SELECT r.call_control_id FROM voicemail_calls c JOIN voicemail_rings r ON r.call_control_id = c.call_control_id WHERE c.marker = ?').bind(marker).first();
+  return !!row;
+}
+
 const auth = env => ({ Authorization: `Bearer ${env.TELNYX_API_TOKEN}`, 'Content-Type': 'application/json' });
 
 // Returns true when the softphone is being rung (or already was), so voicemail must wait for the outcome.

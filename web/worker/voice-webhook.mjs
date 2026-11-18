@@ -1,4 +1,4 @@
-import { processVoicemail, isVoicemailRecording } from './voicemail.mjs';
+import { processVoicemail, isVoicemailRecording, isRingLeg } from './voicemail.mjs';
 import { recordCall, recordingMeta } from './voice-calls.mjs';
 const MAX_BODY = 128 * 1024;
 const MAX_AUDIO = 25 * 1024 * 1024;
@@ -64,8 +64,12 @@ export async function handleVoiceWebhook(request, env, fetcher = fetch, now = Da
   try { data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)).data; payload = data.payload; } catch { return reply(400, 'Invalid event'); }
   const validString = value => typeof value === 'string' && value.length > 0 && value.length <= 256 && value.trim() === value;
   if (!data || !payload || !validString(data.id) || !TYPES.has(data.event_type) || !validString(payload.call_control_id) ||
-      !validString(data.occurred_at) || !Number.isFinite(Date.parse(data.occurred_at)) || payload.connection_id !== env.TELNYX_VOICE_CONNECTION_ID) return reply(400, 'Invalid event');
+      !validString(data.occurred_at) || !Number.isFinite(Date.parse(data.occurred_at))) return reply(400, 'Invalid event');
   try {
+    // The softphone credential lives on another Telnyx connection, so the transferred leg may report that
+    // connection. It is accepted only when it carries the marker of a ring we started.
+    if (payload.connection_id !== env.TELNYX_VOICE_CONNECTION_ID &&
+        (data.event_type.startsWith('call.recording') || !await isRingLeg(env.DB, payload.client_state))) return reply(400, 'Invalid event');
     await env.DB.prepare('INSERT OR IGNORE INTO voice_events (event_id, event_type, call_control_id, occurred_at) VALUES (?, ?, ?, ?)').bind(data.id, data.event_type, payload.call_control_id, data.occurred_at).run();
     const event = await env.DB.prepare('SELECT event_type, call_control_id, occurred_at FROM voice_events WHERE event_id = ?').bind(data.id).first();
     if (!event || event.event_type !== data.event_type || event.call_control_id !== payload.call_control_id || event.occurred_at !== data.occurred_at) return reply(409, 'Event conflict');
