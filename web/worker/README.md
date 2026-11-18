@@ -1,5 +1,56 @@
 # Owner Worker draft
 
+## Send, calls and records (current)
+
+All routes need a verified Cloudflare Access JWT. Telnyx webhooks are verified by
+their Ed25519 signature instead.
+
+| Route | Purpose |
+| --- | --- |
+| `POST /api/transmissions` | Multipart `document` (PDF, up to 5 MB) and `spec` JSON. Writes the envelope and one `dispatches` row per channel and recipient, queues fax rows, and returns 202 immediately. |
+| `GET /api/transmissions`, `GET /api/transmissions/:id` | List, and detail with per-channel status and timeline. The UI polls the detail. |
+| `GET /api/transmissions/:id/document` | The stored PDF. |
+| `GET .../mail/:deliveryId/review?mode=test\|live`, `POST .../approve` | Paper mail is queued only after approval, bound to the review hash and the test or live PostGrid key. |
+| `POST /api/cover-preview` | Fax cover page (pdf-lib) for the preview. The same generator is prepended to the document before Telnyx. |
+| `GET /api/records` | Envelopes, inbound faxes and recordings, newest first. |
+| `GET /api/voice/calls`, `GET /api/voice/recordings`, `POST /api/voice/recordings/:id/heard` | Call log and voicemail. |
+| `GET`/`PUT /api/settings` | Sender name and mail return address. |
+
+Status is honest: `delivered` is only set from a provider-reported terminal
+status. PostGrid `completed` is shown as "Completed by PostGrid". Provider
+acceptance is `accepted`. An ambiguous provider outcome is `unknown` and is never
+retried automatically.
+
+### Queues and cron
+
+- Producer binding `DELIVERIES` sends `{transmissionId, channel, deliveryId}`.
+- Consumer `queue(batch, env)` in `index.mjs`: max batch 5, 5 retries with a 30 s
+  delay, then the dead-letter queue. It is idempotent, retries transient errors,
+  and marks permanent failures `failed` with a safe reason.
+- Queue names: `simpledocs-deliveries-queue-prod`, dead-letter `simpledocs-dlq-queue-prod`.
+- The `*/5 * * * *` cron re-polls open rows older than 3 minutes, re-enqueues
+  stale queued rows, and fails rows older than 24 hours.
+
+### Bindings and storage
+
+- D1 `DB` (`simpledocs-d1-prod`). Apply migrations 0012 (transmissions, dispatches,
+  calls, settings, timeline) and 0013 (voicemail transcripts).
+- One R2 bucket, `FILES` (`simpledocs-r2-prod`). Key prefixes: `inbound-fax/`,
+  `voice/`, `outbound/<transmissionId>/`, `covers/<transmissionId>/`.
+- `POSTGRID_TEST_KEY` and `POSTGRID_LIVE_KEY` select the test or live PostGrid key.
+  The test key never mails anything.
+
+### Voicemail transcription
+
+The voicemail `record_start` command asks Telnyx to transcribe (`transcription: true`,
+engine `A`, `en-US`). The `call.recording.transcription.saved` webhook stores the
+text in `voice_transcripts` and copies it to `voice_recordings.transcript` once the
+recording exists, in either event order. Duplicates are ignored. Telnyx sends no
+confidence score on this event, so none is stored. There is no voicemail alert
+email in this repository, so the transcript is not emailed.
+
+## Earlier foundation notes
+
 Build the deployable files with `pnpm install --frozen-lockfile`, `pnpm build`,
 and `pnpm build:worker` from `web/`. The resulting static directory is `dist/`
 and the single Worker module is `build/worker/index.js`. These outputs are not
@@ -7,8 +58,7 @@ an authorization to deploy; record and verify their digests against the reviewed
 source and keep them unchanged between infrastructure plan and apply.
 
 This is a protected draft, not a production-ready application. The repository
-contains D1 binding and provider-action foundations, but does not provision R2 or
-implement provider webhooks. Access configuration and infrastructure ownership
+contains D1, R2 and queue bindings and provider-action code; it does not provision them. Access configuration and infrastructure ownership
 must be reviewed and verified. Every request runs through the Worker; missing or
 invalid Access assertions fail closed. Configure `ACCESS_TEAM_DOMAIN` as the
 exact HTTPS Cloudflare Access team origin and `ACCESS_AUDIENCE` as the Access

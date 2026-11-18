@@ -2,9 +2,7 @@
 
 The static front end for simpledocs, built with [Astro](https://astro.build) 7 and [Starwind UI](https://starwind.dev) 3.
 
-> **Status: workflow previews.** Compose, Records and Settings show how the flows are proposed to look. Every control on them is disabled and says why. No provider, API, authentication or storage is connected, nothing can be sent, saved or changed, and no page submits anything. All names, numbers and addresses are synthetic examples. Do not enter real phone numbers, addresses or documents.
-
-The proposed API, states and flags are in [`../docs/contracts.md`](../docs/contracts.md) and [`../docs/architecture.md`](../docs/architecture.md) (pull request #2, still a proposal). This UI follows them but does not implement them.
+Pages: **Send** (one PDF, fax and/or paper mail, four steps ending on a confirmation page), **Calls** (softphone, call log, voicemail with transcript), **Records** (everything sent and received, with per-channel status) and **Settings** (sender name and return address). The Worker in `worker/` serves the API; see [`worker/README.md`](worker/README.md).
 
 ## Requirements
 
@@ -23,7 +21,7 @@ Run these from this `web/` directory.
 | `pnpm build`   | Build the static site into `dist/`                               |
 | `pnpm test`    | Run unit tests, plus checks on `dist/` when it has been built    |
 | `pnpm preview` | Serve the built `dist/` locally                                  |
-| `pnpm verify`  | `check`, `build`, then `test`: the full pre-PR check             |
+| `pnpm verify`  | `check`, `build`, `build:worker`, `test`, then the Worker tests: the full pre-PR check             |
 
 The tests against `dist/` are skipped when `dist/` does not exist, so run `pnpm build` before `pnpm test` to include them. `pnpm verify` does this for you.
 
@@ -33,7 +31,7 @@ The tests against `dist/` are skipped when `dist/` does not exist, so run `pnpm 
 src/
   components/        App components; starwind/ holds Starwind source added by its CLI
   layouts/           AppLayout.astro: sidebar shell, skip link, mobile drawer
-  lib/               navigation, channels, delivery states, flags and synthetic examples
+  lib/               navigation, phone parsing, `ui.ts` (badges, toasts, skeletons, fetch helpers) and `detail.ts` (live delivery status)
   pages/             One static route per destination, plus 404
   styles/starwind.css  Theme tokens (Starwind variables, tuned for simpledocs)
 tests/               Vitest unit tests and built-HTML checks
@@ -52,7 +50,7 @@ Update can overwrite local edits, so review the diff first. Theme changes belong
 
 ## Conventions
 
-- Pages are static; do not add an adapter or server code here. Hosting and the Worker API are separate work.
-- Use synthetic content only. Anything that looks like real data must be labelled as an example.
-- Do not add a control that appears to work but does not. A control for a feature that does not exist must be disabled, stay focusable where it is a button, point at a visible "Not available" reason with `aria-describedby`, and carry no `<form>`, `action` or submit type. Tests enforce this.
+- Pages are static; do not add an adapter or server code here. Server code lives in `worker/`.
+- Show real data only. Empty states say what to do next. Never claim "delivered" unless a provider reported it; "accepted" and "completed" are worded as what the provider said.
+- Do not add a control that does not work. If a feature is not built, leave it out.
 - Keep pages accessible: one `h1`, landmarks, visible focus, no information carried by colour alone. Check the layout at 390 px and 1440 px wide.
