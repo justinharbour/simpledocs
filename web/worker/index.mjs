@@ -17,7 +17,7 @@ import { handleInbox } from './inbox.mjs';
 import { handleVoicemailSettings } from './voicemail-config.mjs';
 import { sendPendingFaxAlert } from './inbound-fax-alert.mjs';
 import { handlePushDevices, notifyPush, withPush } from './push.mjs';
-import { cleanupPortal, createEmailDelivery, portal, revokeEmailDelivery } from './email-portal.mjs';
+import { cleanupPortal, createEmailDelivery, portal, portalAvailable, revokeEmailDelivery } from './email-portal.mjs';
 
 // Static Assets do not propagate ctx.access. Verify the Access assertion against
 // the configured team's keys instead; never trust an unverified identity header.
@@ -49,7 +49,7 @@ export function createWorker(resolveKeys = issuer => {
     if (url.pathname === '/api/webhooks/telnyx/voice') return handleVoiceWebhook(request, env);
     if (url.pathname === '/api/webhooks/telnyx/messaging') return handleSmsWebhook(request, env);
     // These exact paths use recipient sessions rather than owner Access identity.
-    if (['/portal', '/portal/exchange', '/portal/status', '/portal/pin/start', '/portal/pin/check', '/portal/document'].includes(url.pathname)) return portal(request, env);
+    if (env.PORTAL_ENABLED === 'true' && ['/portal', '/portal/exchange', '/portal/status', '/portal/pin/start', '/portal/pin/check', '/portal/document'].includes(url.pathname)) return portal(request, env);
     const expected = env.ACCESS_AUDIENCE;
     const issuer = env.ACCESS_TEAM_DOMAIN;
     const token = request.headers.get('cf-access-jwt-assertion');
@@ -103,6 +103,7 @@ export function createWorker(resolveKeys = issuer => {
     if (url.pathname === '/api/settings/voicemail') return voiceOwner ? handleVoicemailSettings(request, env) : new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
     if (url.pathname === '/api/settings') return handleSettings(request, env, actor);
     if (url.pathname === '/api/cover-preview') return handleCoverPreview(request, env);
+    if (url.pathname === '/api/portal-capability' && request.method === 'GET') return Response.json({ email: portalAvailable(env), phoneVerification: env.PORTAL_VERIFY_ENABLED === 'true' }, { headers: { 'Cache-Control': 'no-store' } });
     if (url.pathname === '/api/transmissions') return request.method === 'POST' ? createTransmission(request, env, actor) : request.method === 'GET' ? listTransmissions(env, actor) : new Response('Method not allowed', { status: 405 });
     if (url.pathname === '/api/records') {
       if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });

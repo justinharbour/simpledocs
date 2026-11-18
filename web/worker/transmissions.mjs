@@ -4,7 +4,7 @@ import { enqueue, isTerminal, mailReviewHash, mark, refreshDelivery, sha256Hex, 
 import { assembleEnvelope } from './envelope-pdf.mjs';
 import { contact, mailApiKey } from './mail-send.mjs';
 import { normalizePhone } from './phone.mjs';
-import { createEmailDelivery } from './email-portal.mjs';
+import { createEmailDelivery, portalAvailable, portalMutationOriginOK } from './email-portal.mjs';
 
 const MAX_FAX_RECIPIENTS = 10;
 const headers = { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' };
@@ -97,14 +97,20 @@ export async function createTransmission(request, env, actor) {
   // The plural field is intentionally distinct so old Workers reject a new
   // multi-file request rather than silently sending only its first file.
   const legacy = form.getAll('document'), ordered = form.getAll('documents'), numbered = form.getAll('numberedDocuments');
-  if (legacy.length > 1 || [legacy, ordered, numbered].filter(parts => parts.length).length > 1) return reply({ error: 'Use only one document upload field' }, 400);
+  const email = form.getAll('emailDocuments'), numberedEmail = form.getAll('numberedEmailDocuments');
+  if (legacy.length > 1 || [legacy, ordered, numbered, email, numberedEmail].filter(parts => parts.length).length > 1) return reply({ error: 'Use only one document upload field' }, 400);
   // Opt-in uses its own field so a Worker without header support fails closed.
-  const files = numbered.length ? numbered : ordered.length ? ordered : legacy;
+  const files = [numberedEmail, email, numbered, ordered, legacy].find(parts => parts.length) ?? [];
   if (!files.length || files.length > MAX_DOCUMENTS || files.some(file => !(file instanceof File) || !file.size) || files.reduce((size, file) => size + file.size, 0) > MAX_DOCUMENT_BYTES) {
     return reply({ error: `Upload 1 to ${MAX_DOCUMENTS} nonempty PDFs totaling up to 5 MB` }, 400);
   }
   let spec;
   try { spec = parseSpec(form); } catch { return reply({ error: 'Invalid request' }, 400); }
+  if (!!spec.email !== !!(email.length || numberedEmail.length)) return reply({ error: 'Use the email document field only with email delivery' }, 400);
+  if (spec.email) {
+    if (!portalMutationOriginOK(request, env)) return reply({ error: 'Email requires a same-origin request' }, 403);
+    if (!portalAvailable(env)) return reply({ error: 'Email portal is not enabled on this instance' }, 503);
+  }
 
   const faxNumbers = [];
   if (spec.fax) {
@@ -129,7 +135,7 @@ export async function createTransmission(request, env, actor) {
   if (!faxNumbers.length && !mail && !spec.email) return reply({ error: 'Choose at least one way to send' }, 400);
 
   let assembled;
-  try { assembled = await assembleEnvelope(files, faxNumbers.length > 0 && spec.fax.cover?.enabled !== false, numbered.length > 0); }
+  try { assembled = await assembleEnvelope(files, faxNumbers.length > 0 && spec.fax.cover?.enabled !== false, numbered.length > 0 || numberedEmail.length > 0); }
   catch (error) { return reply({ error: error instanceof Error ? error.message : 'The PDFs could not be read' }, 400); }
   const { pages, documents } = assembled;
   const title = str(spec.title, 200) || documents[0].name.replace(/\.pdf$/i, '') || 'Untitled document';
@@ -182,7 +188,7 @@ export async function createTransmission(request, env, actor) {
   if (spec.email) {
     try {
       const origin = new URL(request.url).origin;
-      const emailRequest = new Request(`${origin}/api/transmissions/${id}/email`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify(spec.email) });
+      const emailRequest = new Request(`${origin}/api/transmissions/${id}/email`, { method: 'POST', headers: { origin: request.headers.get('origin'), 'content-type': 'application/json' }, body: JSON.stringify(spec.email) });
       const response = await createEmailDelivery(emailRequest, env, actor, id, true);
       const result = await response.json();
       if (!response.ok) created.push({ channel: 'email', status: 'failed', error: result.error || 'Email could not be sent.' });
@@ -234,7 +240,8 @@ export async function getTransmission(env, actor, id, fetcher = fetch) {
   }
   const emails = await env.DB.prepare('SELECT a.delivery_id, a.recipient, a.status, a.error, a.created_at, p.revoked_at FROM email_attempts a LEFT JOIN portal_deliveries p ON p.id = a.delivery_id WHERE a.transmission_id = ? AND a.actor_id = ?').bind(id, actor).all();
   for (const email of emails.results ?? []) deliveries.push({ id: email.delivery_id ?? id, channel: 'email', recipient: email.recipient, status: email.revoked_at ? 'revoked' : ['preparing', 'pending'].includes(email.status) ? 'unknown' : email.status, providerStatus: null, error: email.error, createdAt: new Date(email.created_at).toISOString(), updatedAt: new Date(email.created_at).toISOString(), submittedAt: null, finishedAt: null, needsApproval: false, coverUrl: null, timeline: [] });
-  const settled = deliveries.every(d => isTerminal(d.status));
+  // Email exposes submission acceptance, not a provider delivery status feed.
+  const settled = deliveries.every(d => d.channel === 'email' || isTerminal(d.status));
   const refreshed = await env.DB.prepare('SELECT updated_at FROM transmissions WHERE id = ?').bind(id).first();
   return reply({ id, envelopeNumber, documents, title: tx.title, pageCount: tx.page_count, createdAt: tx.created_at, updatedAt: refreshed?.updated_at ?? tx.updated_at, documentUrl: `/api/transmissions/${id}/document`, settled, deliveries });
 }

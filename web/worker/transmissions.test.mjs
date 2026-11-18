@@ -10,6 +10,9 @@ import { newPortalToken } from './portal-crypto.mjs';
 
 const actor = 'owner';
 const faxSpec = { title: 'Lease', fax: { recipients: ['(512) 555-0100', '512.555.0101'], cover: { enabled: true, to: 'Ada', message: 'Hello' } } };
+const portalEnv = (messages = []) => makeEnv({ PORTAL_ENABLED: 'true', PORTAL_ORIGIN: 'https://example.test', PORTAL_KEY: newPortalToken(), PORTAL_SENDER: 'test@example.test', PORTAL_EMAIL: { send: async m => messages.push(m) } });
+const emailSpec = { email: { email: 'recipient@example.test', pinChannel: 'none' } };
+const emailRequest = async (spec = emailSpec) => sendRequest(spec, [await pdfFile('lease.pdf', [612])], undefined, 'emailDocuments');
 
 async function pdfFile(name, widths, populated = false) {
   const pdf = await PDFDocument.create();
@@ -27,8 +30,8 @@ async function pdfFile(name, widths, populated = false) {
 
 for (const stamped of [false, true]) test(`recipient receives ordered packet ${stamped ? 'with' : 'without'} headers, isolated and revocable`, async () => {
   const messages = [];
-  const { env, objects } = makeEnv({ PORTAL_ORIGIN: 'https://example.test', PORTAL_KEY: newPortalToken(), PORTAL_SENDER: 'test@example.test', PORTAL_EMAIL: { send: async m => messages.push(m) } });
-  const response = await createTransmission(await sendRequest({ email: { email: 'a@example.test', pinChannel: 'none' } }, [await pdfFile('z.pdf', [612, 600]), await pdfFile('a.pdf', [601])], undefined, stamped ? 'numberedDocuments' : 'documents'), env, actor);
+  const { env, objects } = portalEnv(messages);
+  const response = await createTransmission(await sendRequest(emailSpec, [await pdfFile('z.pdf', [612, 600]), await pdfFile('a.pdf', [601])], undefined, stamped ? 'numberedEmailDocuments' : 'emailDocuments'), env, actor);
   const result = await response.json();
   assert.equal(result.deliveries[0].status, 'accepted');
   assert.deepEqual(result.documents.map(d => d.number), ['00000101', '00000102']);
@@ -52,17 +55,17 @@ for (const stamped of [false, true]) test(`recipient receives ordered packet ${s
 });
 
 test('email intent commits atomically with transmission and remains visible if invocation fails', async () => {
-  const { env, db } = makeEnv();
+  const { env, db } = portalEnv();
   db.exec("CREATE TRIGGER fail_claim BEFORE UPDATE OF status ON email_attempts BEGIN SELECT RAISE(ABORT, 'injected'); END");
-  await createTransmission(await sendRequest({ email: { email: 'a@example.test', pinChannel: 'none' } }, await samplePdf(1)), env, actor);
+  await createTransmission(await emailRequest(), env, actor);
   const row = db.prepare('SELECT t.id, a.status FROM transmissions t JOIN email_attempts a ON a.transmission_id = t.id').get();
   assert.equal(row.status, 'pending');
   assert.equal((await (await getTransmission(env, actor, row.id)).json()).deliveries.find(d => d.channel === 'email').status, 'unknown');
 });
 test('failure inserting email intent rolls back the transmission batch', async () => {
-  const { env, db } = makeEnv();
+  const { env, db } = portalEnv();
   db.exec("CREATE TRIGGER fail_intent BEFORE INSERT ON email_attempts BEGIN SELECT RAISE(ABORT, 'injected'); END");
-  await assert.rejects(createTransmission(await sendRequest({ email: { email: 'a@example.test', pinChannel: 'none' } }, await samplePdf(1)), env, actor));
+  await assert.rejects(createTransmission(await emailRequest(), env, actor));
   assert.equal(db.prepare('SELECT count(*) AS n FROM transmissions').get().n, 0);
   assert.equal(db.prepare('SELECT count(*) AS n FROM email_attempts').get().n, 0);
   assert.equal(db.prepare('SELECT count(*) AS n FROM envelope_documents').get().n, 0);
@@ -359,22 +362,38 @@ test('every new route requires a verified Access identity', async () => {
 
 test('email-only transmission uses the portal and appears in records without claiming delivery', async () => {
   const messages = [];
-  const { env } = makeEnv({ PORTAL_ORIGIN: 'https://example.test', PORTAL_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', PORTAL_SENDER: 'sender@example.test', PORTAL_EMAIL: { send: async message => messages.push(message) } });
-  const response = await createTransmission(await sendRequest({ email: { email: 'recipient@example.test', pinChannel: 'none' } }, await samplePdf(1)), env, actor);
+  const { env } = portalEnv(messages);
+  const response = await createTransmission(await emailRequest(), env, actor);
   const result = await response.json();
   assert.equal(response.status, 202); assert.equal(result.deliveries[0].status, 'accepted'); assert.equal(messages.length, 1);
   const detail = await (await getTransmission(env, actor, result.id)).json();
   assert.equal(detail.deliveries[0].channel, 'email'); assert.equal(detail.deliveries[0].status, 'accepted');
+  assert.equal(detail.settled, true);
   assert.equal((await (await listTransmissions(env, actor)).json()).transmissions[0].channels[0].channel, 'email');
   assert.equal((await getTransmission(env, 'someone-else', result.id)).status, 404);
 });
 
-test('email configuration failure is reported without a provider call', async () => {
-  const { env } = makeEnv();
-  const r = await createTransmission(await sendRequest({ email: { email: 'recipient@example.test', pinChannel: 'none' } }, await samplePdf(1)), env, actor);
-  const result = await r.json();
-  assert.equal(result.deliveries[0].status, 'failed'); assert.match(result.deliveries[0].error, /not configured/);
-  const detail = await (await getTransmission(env, actor, result.id)).json();
-  assert.equal(detail.deliveries[0].status, 'failed'); assert.match(detail.deliveries[0].error, /not configured/);
-  assert.equal((await (await listTransmissions(env, actor)).json()).transmissions[0].channels[0].status, 'failed');
+test('disabled, cross-origin, and legacy-field email submission cannot write or enqueue any channel', async () => {
+  const messages = [];
+  const { env, objects, db, queue } = portalEnv(messages);
+  const mixed = { ...emailSpec, ...faxSpec };
+  const foreign = await emailRequest(mixed);
+  foreign.headers.set('origin', 'https://elsewhere.test');
+  assert.equal((await createTransmission(foreign, env, actor)).status, 403);
+  assert.equal((await createTransmission(await sendRequest(mixed, await samplePdf(1)), env, actor)).status, 400);
+  env.PORTAL_ENABLED = 'false';
+  assert.equal((await createTransmission(await emailRequest(mixed), env, actor)).status, 503);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM transmissions').get().n, 0);
+  assert.equal(objects.size, 0);
+  assert.equal(queue.sent.length + messages.length, 0);
+});
+
+test('Worker recipient routes never authorize adjacent paths or owner APIs', async () => {
+  const { env } = portalEnv();
+  const worker = createWorker();
+  for (const path of ['/portal/', '/portal%2fstatus', '/portal/status/extra', '/portal/../api/records', '/api/portal-capability', '/api/transmissions', `/api/transmissions/${crypto.randomUUID()}/email`]) {
+    assert.equal((await worker.fetch(new Request(`https://example.test${path}`), env)).status, 401, path);
+  }
+  assert.equal((await worker.fetch(new Request('https://example.test/portal'), env)).status, 200);
+  assert.equal((await worker.fetch(new Request('https://example.test/portal/status'), env)).status, 404);
 });

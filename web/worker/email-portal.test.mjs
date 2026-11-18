@@ -5,7 +5,7 @@ import { cleanupPortal, createEmailDelivery, portal, revokeEmailDelivery } from 
 import { newPortalToken } from './portal-crypto.mjs';
 const tx = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', verifyId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 function setup() {
-  const messages = []; const result = makeEnv({ PORTAL_ENABLED: 'true', PORTAL_ORIGIN: 'https://example.test', PORTAL_KEY: newPortalToken(), PORTAL_SENDER: 'test@example.test', PORTAL_EMAIL: { send: async m => messages.push(m) }, TELNYX_VERIFY_PROFILE_ID: 'profile' });
+  const messages = []; const result = makeEnv({ PORTAL_ENABLED: 'true', PORTAL_VERIFY_ENABLED: 'true', PORTAL_ORIGIN: 'https://example.test', PORTAL_KEY: newPortalToken(), PORTAL_SENDER: 'test@example.test', PORTAL_EMAIL: { send: async m => messages.push(m) }, TELNYX_VERIFY_PROFILE_ID: verifyId });
   result.db.prepare('INSERT INTO transmissions (id, actor_id, title, source_key, page_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(tx, 'owner', 'title', 'source', 1, 'now', 'now');
   result.objects.set('source', new TextEncoder().encode('%PDF-private')); return { ...result, messages };
 }
@@ -95,11 +95,25 @@ test('five failed PIN checks exhaust the durable limit without further provider 
   assert.equal(checks, 5); assert.equal((await portal(req('/portal/document', undefined, cookie), env)).status, 403);
 });
 
-test('GET of the portal never consumes a link and owner API remains access protected', async () => {
+test('GET of the portal does not consume a link and scripts require a nonce', async () => {
   const { env, messages, db } = setup(), d = await create(env, messages);
-  assert.equal((await portal(req('/portal'), env)).status, 200);
+  const page = await portal(req('/portal'), env);
+  assert.equal(page.status, 200);
+  const nonce = page.headers.get('content-security-policy').match(/'nonce-([\w-]+)'/)[1];
+  assert.match(await page.text(), new RegExp(`<script nonce="${nonce}">`));
   assert.equal(db.prepare('SELECT consumed_at FROM portal_deliveries').get().consumed_at, null);
   const { r } = await exchange(env, d.token); assert.equal(r.status, 200);
+});
+
+test('recipient cookies are host-bound; invalid origin, duplicate cookie and disabled feature fail closed', async () => {
+  const { env, messages } = setup(), d = await create(env, messages);
+  const { r, cookie } = await exchange(env, d.token);
+  assert.match(r.headers.get('set-cookie'), /^__Host-sdportal=[\w-]+; Path=\/; Secure; HttpOnly; SameSite=Strict/);
+  assert.equal((await portal(req('/portal/document', undefined, `${cookie}; ${cookie}`), env)).status, 404);
+  assert.equal((await portal(new Request('https://other.test/portal/document', { headers: { cookie } }), env)).status, 404);
+  env.PORTAL_ENABLED = 'false';
+  assert.equal((await portal(req('/portal/document', undefined, cookie), env)).status, 404);
+  assert.equal((await revokeEmailDelivery(req('/x', {}), env, 'owner', tx, d.id)).status, 200);
 });
 
 test('provider ambiguity is persisted and repeat attempts cannot send', async () => {

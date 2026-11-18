@@ -1,6 +1,6 @@
 # Email portal draft: integration and rollout
 
-This is an incomplete draft and has not been deployed or independently security reviewed.
+This draft remains disabled and has not been deployed or verified end to end.
 The owner API can create an email delivery for an existing owner-authorized
 transmission (`POST /api/transmissions/:id/email`, JSON `{email, pinChannel:
 "none"|"sms"|"voice", phone?}`) and revoke it (`POST
@@ -28,7 +28,9 @@ documents arbitrary recipients on Workers Paid and a sender from an onboarded
 Email Sending domain; verified destination addresses have a separate free path.
 This does not establish current account onboarding, plan, quota, sender domain,
 or deliverability. A new `PORTAL_EMAIL` binding and `PORTAL_SENDER` are needed;
-acceptance is not delivery. The Wrangler configuration declares the binding; live account setup remains unverified.
+acceptance is not delivery. The Wrangler configuration declares the binding. A read-only
+production check found arbitrary-recipient mode and an enabled sender subdomain;
+it did not establish mailbox delivery, and the deployed Worker had no portal key or binding.
 
 Telnyx endpoint discovery and schemas identify `POST /v2/verifications/sms`,
 `/v2/verifications/call` with `phone_number`, `verify_profile_id`, and optional
@@ -55,12 +57,13 @@ uncertainty is not retried automatically. Fixed-window D1 client, destination, g
 and owner limits are basic controls, not comprehensive bot or SMS-pumping
 protection; IP availability and upstream trust must be verified.
 
-Remaining release work includes recipient-specific consent
-and legal wording, stronger abuse protection and cost monitoring, retention policy for audit metadata and transactional orphan recovery, reliable atomic one-time exchange plus
-session creation, token/session failure recovery, key rotation and backup,
-security review, accessibility testing, and end-to-end deployment verification.
+Remaining release work includes recipient-specific consent and legal wording (a link
+holder is not necessarily the subscriber for the supplied phone number), stronger
+abuse protection and cost monitoring, retention policy for audit metadata, recovery
+after session loss or scanners that actively submit forms, key rotation and backup,
+accessibility testing, and end-to-end deployment verification.
 Provider timeouts are deliberately reported as unknown, not failures or delivery.
-Current inline-script CSP needs hardening before launch. Rate limits do not yet
+The portal page uses a per-response CSP nonce. Rate limits do not yet
 cover IPv6 aggregation or global attack traffic; configure edge rate limiting.
 Do not log raw URLs, cookies, provider payloads, codes, or document contents.
 
@@ -79,11 +82,17 @@ Apply the migration through the normal reviewed deployment process, provision
 path bypasses as above, verify the `PORTAL_EMAIL` Workers email binding, provision the
 onboarded `PORTAL_SENDER`, set exact HTTPS `PORTAL_ORIGIN`, and keep a dedicated
 random 32-byte base64url `PORTAL_KEY` secret backed up and retained for the
-lifetime of all copies. Configure `TELNYX_VERIFY_PROFILE_ID` and the existing
-`TELNYX_API_TOKEN` only if PIN is used. No feature flag is required. This branch makes no live configuration changes.
+lifetime of all copies. `PORTAL_ENABLED` defaults off; only enable after verifying
+the exact Access path behavior and complete email setup. The routine deploy workflow
+does not create any public Access exceptions, pass the portal secret or enable this feature.
+Phone verification is separately disabled unless `PORTAL_VERIFY_ENABLED=true`,
+`TELNYX_VERIFY_PROFILE_ID` and `TELNYX_API_TOKEN` are configured, and the operator
+has approved consent and abuse controls. This branch makes no live configuration changes.
 
 Email attempts are durably claimed once per transmission before provider submission.
-Configuration failures are retained in Records. A crash or timeout at the
+Disabled or cross-origin requests are rejected before any transmission is created,
+and email-specific multipart fields prevent older Workers from silently submitting
+only the fax or mail channels. A crash or timeout at the
 provider boundary remains unknown; do not retry without checking. Scheduled
 cleanup removes expired sessions, old rate buckets, and up to 50 expired or
 revoked encrypted copies per run while retaining delivery and consent metadata.
