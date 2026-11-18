@@ -219,7 +219,23 @@ extension StubbedSuites { @MainActor @Suite struct ScreenModelsTests {
         await model.send()
         #expect(model.step == .sent(.init(transmissionID: "t1", envelopeNumber: nil, faxCount: 1, letterApproved: false, letterProblem: nil)))
         #expect(StubProtocol.requests.map(\.url.path) == ["/api/transmissions"])
-        #expect(String(decoding: StubProtocol.requests[0].body, as: UTF8.self).contains("+12134147728"))
+        let body = String(decoding: StubProtocol.requests[0].body, as: UTF8.self)
+        #expect(body.contains("+12134147728"))
+        #expect(body.contains(#"name="document"; filename="Lease.pdf""#))
+    }
+
+    @Test func singleDocumentWithFaxCoverNumbersRequiresEnvelopeSupport() async throws {
+        StubProtocol.reset(["POST /api/transmissions": [ok(#"{"id":"t1","deliveries":[{"id":"d1","channel":"fax","status":"queued"}]}"#, status: 202)]])
+        let model = SendModel(session: try signedIn())
+        model.choose(data: pdf, name: "Lease.pdf", pageCount: 2)
+        model.draft.faxList = "512.555.0100"
+        model.draft.cover.enabled = true
+        model.draft.cover.includeNumbers = true
+        model.review()
+        await model.send()
+        let body = String(decoding: StubProtocol.requests[0].body, as: UTF8.self)
+        #expect(body.contains(#"name="documents"; filename="Lease.pdf""#))
+        #expect(body.contains(#""includeNumbers":true"#))
     }
 
     @Test func uploadsMultipleDocumentsInReviewedOrder() async throws {

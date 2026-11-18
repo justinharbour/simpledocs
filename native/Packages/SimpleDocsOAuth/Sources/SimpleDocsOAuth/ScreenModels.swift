@@ -395,7 +395,8 @@ public struct PickedDocument: Equatable, Sendable {
             let spec = try draft.spec(fallbackTitle: document.title)
             let files = documents.map { (data: $0.data, name: $0.name) }
             let numberDocumentPages = draft.numberDocumentPages
-            let created = try await session.call { try await $0.createTransmission(documents: files, spec: spec, numberDocumentPages: numberDocumentPages) }
+            let numberFaxCover = draft.channels.hasFax && draft.cover.enabled && draft.cover.includeNumbers
+            let created = try await session.call { try await $0.createTransmission(documents: files, spec: spec, numberDocumentPages: numberDocumentPages, numberFaxCover: numberFaxCover) }
             var approved = false
             var problem: String?
             if draft.channels.hasMail, let letter = created.deliveries.first(where: { $0.channel == "mail" }) {
