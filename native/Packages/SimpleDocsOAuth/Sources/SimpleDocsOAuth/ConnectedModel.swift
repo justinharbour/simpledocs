@@ -26,9 +26,9 @@ import SimpleDocsConnected
         public var isError: Bool { self != .canceled }
     }
 
-    public static let defaultInstance = "https://simpledocs.justinharbour.dev"
+    public static let defaultInstance = "https://simpledocs.justinharbour.com"
     public static let defaultIssuer = "https://justinharbour.cloudflareaccess.com"
-    public static let callback = URL(string: "dev.justinharbour.simpledocs:/oauth/callback")!
+    public static let callback = URL(string: "com.justinharbour.simpledocs:/oauth/callback")!
     static let instanceKey = "simpledocs.lastInstance"
     static let issuerKey = "simpledocs.accessTeam"
 

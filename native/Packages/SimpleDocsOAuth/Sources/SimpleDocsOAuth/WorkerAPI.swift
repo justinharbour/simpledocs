@@ -66,6 +66,28 @@ public actor WorkerAPI {
         try await get("/api/records", as: RecordsResponse.self).records
     }
 
+    public func recentRecipients() async throws -> RecentRecipients {
+        try await get("/api/recipients", as: RecentRecipients.self)
+    }
+
+    public func faxReview(transmissionID: String, deliveryID: String) async throws -> FaxReview {
+        try await get("/api/transmissions/\(transmissionID)/fax/\(deliveryID)/review", as: FaxReview.self)
+    }
+
+    public func approveFax(transmissionID: String, deliveryID: String, reviewHash: String) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["confirmed": true, "reviewHash": reviewHash])
+        _ = try await send("POST", "/api/transmissions/\(transmissionID)/fax/\(deliveryID)/approve", body: body, contentType: "application/json")
+    }
+
+    public func emailReview(transmissionID: String) async throws -> EmailReview {
+        try await get("/api/transmissions/\(transmissionID)/email/review", as: EmailReview.self)
+    }
+
+    public func approveEmail(transmissionID: String, reviewHash: String) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["confirmed": true, "reviewHash": reviewHash])
+        _ = try await send("POST", "/api/transmissions/\(transmissionID)/email/approve", body: body, contentType: "application/json")
+    }
+
     public func transmission(id: String) async throws -> TransmissionDetail {
         try await get("/api/transmissions/\(id)", as: TransmissionDetail.self)
     }
@@ -74,13 +96,13 @@ public actor WorkerAPI {
         try await createTransmission(documents: [(data: pdf, name: filename)], spec: spec)
     }
 
-    public func createTransmission(documents: [(data: Data, name: String)], spec: Data, numberDocumentPages: Bool = false, numberFaxCover: Bool = false) async throws -> CreatedTransmission {
+    public func createTransmission(documents: [(data: Data, name: String)], spec: Data, numberDocumentPages: Bool = false, numberFaxCover: Bool = false, requirePreparedReview: Bool = false) async throws -> CreatedTransmission {
         let boundary = "simpledocs-" + UUID().uuidString
         var body = Data()
         func add(_ text: String) { body.append(Data(text.utf8)) }
         // Older Workers must reject unsupported requests, not silently send
         // a subset or omit requested page or fax cover numbers.
-        let field = numberDocumentPages ? "numberedDocuments" : documents.count == 1 && !numberFaxCover ? "document" : "documents"
+        let field = requirePreparedReview ? (numberDocumentPages ? "preparedNumberedDocuments" : "preparedDocuments") : (numberDocumentPages ? "numberedDocuments" : documents.count == 1 && !numberFaxCover ? "document" : "documents")
         for document in documents {
             let safeName = document.name.filter { $0 != "\"" && $0 != "\\" && !$0.isNewline && ($0.asciiValue.map { $0 >= 32 && $0 < 127 } ?? true) }
             add("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(field)\"; filename=\"\(safeName.isEmpty ? "document.pdf" : safeName)\"\r\nContent-Type: application/pdf\r\n\r\n")
@@ -124,8 +146,10 @@ public actor WorkerAPI {
     }
 
     /// Hands the device's APNs token to the Worker. `platform` is ios or macos; `environment` is sandbox or production.
-    public func registerPushDevice(token: String, platform: String, environment: String) async throws {
-        let body = try JSONSerialization.data(withJSONObject: ["token": token, "platform": platform, "environment": environment], options: [.sortedKeys])
+    public func registerPushDevice(token: String, platform: String, environment: String, bundleId: String? = nil) async throws {
+        var device = ["token": token, "platform": platform, "environment": environment]
+        device["bundleId"] = bundleId
+        let body = try JSONSerialization.data(withJSONObject: device, options: [.sortedKeys])
         _ = try await send("POST", "/api/push/devices", body: body, contentType: "application/json")
     }
 

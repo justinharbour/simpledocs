@@ -34,10 +34,11 @@ public enum DeliveryStatus {
 
     /// Plain-language explanation of what a status does and does not mean.
     public static func note(channel: String, status: String, needsApproval: Bool = false) -> String? {
-        if needsApproval || status == "awaiting_approval" { return "This letter was not confirmed, so nothing was mailed." }
+        if needsApproval || status == "awaiting_approval" { return "This delivery awaits separate review and approval." }
         switch (status, channel) {
         case ("queued", _): return "Waiting its turn. It has not been sent yet."
         case ("accepted", "fax"): return "Telnyx has the fax. It is not delivered until the receiving machine confirms."
+        case ("accepted", "email"): return "The invitation was accepted for sending. Delivery is not confirmed."
         case ("accepted", _): return "PostGrid has the letter. It is not printed or mailed yet."
         case ("completed", _): return "PostGrid reports the letter as completed. That is not a delivery confirmation."
         default: return nil
@@ -86,11 +87,11 @@ public enum PhoneNumber {
 private extension Character { var isASCIIDigit: Bool { ("0"..."9").contains(self) } }
 
 public enum SendChannels: String, CaseIterable, Sendable, Identifiable {
-    case fax, mail, both
+    case fax, mail, both, email
     public var id: String { rawValue }
-    public var label: String { switch self { case .fax: "Fax"; case .mail: "Paper mail"; case .both: "Fax and mail" } }
-    public var hasFax: Bool { self != .mail }
-    public var hasMail: Bool { self != .fax }
+    public var label: String { switch self { case .fax: "Fax"; case .mail: "Paper mail"; case .both: "Fax and mail"; case .email: "Secure email" } }
+    public var hasFax: Bool { self == .fax || self == .both }
+    public var hasMail: Bool { self == .mail || self == .both }
 }
 
 public enum MailMode: String, CaseIterable, Sendable, Identifiable {
@@ -125,6 +126,9 @@ public struct SendDraft: Sendable, Equatable {
     public var doubleSided = false
     public var firstClass = true
     public var mode = MailMode.test
+    public var emailAddress = ""
+    public var emailVerification = "none"
+    public var emailPhone = ""
 
     public init() {}
 
@@ -144,6 +148,11 @@ public struct SendDraft: Sendable, Equatable {
             if let issue = mailTo.problem("Mailing address") { found.append(issue) }
             if let issue = mailFrom.problem("Return address") { found.append(issue) }
         }
+        if channels == .email {
+            let address = emailAddress.trimmed
+            if address.isEmpty || !address.contains("@") || address.contains(where: \.isWhitespace) { found.append("Enter the recipient's email address.") }
+            if emailVerification != "none" && PhoneNumber.normalize(emailPhone) == nil { found.append("Enter a valid verification phone number.") }
+        }
         return found
     }
 
@@ -152,7 +161,8 @@ public struct SendDraft: Sendable, Equatable {
         struct Cover: Encodable { let enabled: Bool; let includeNumbers: Bool; let to: String; let from: String; let subject: String; let message: String; let date: String }
         struct Fax: Encodable { let recipients: [String]; let cover: Cover }
         struct Mail: Encodable { let to: MailContact; let from: MailContact; let color: Bool; let doubleSided: Bool; let mailingClass: String }
-        struct Spec: Encodable { let title: String; let fax: Fax?; let mail: Mail? }
+        struct Email: Encodable { let email: String; let pinChannel: String; let phone: String? }
+        struct Spec: Encodable { let title: String; let fax: Fax?; let mail: Mail?; let email: Email? }
         let day = DateFormatter()
         day.locale = Locale(identifier: "en_US_POSIX")
         day.dateFormat = "yyyy-MM-dd"
@@ -164,6 +174,7 @@ public struct SendDraft: Sendable, Equatable {
                                           mailingClass: firstClass ? "first_class" : "standard_class") : nil
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        return try encoder.encode(Spec(title: name, fax: fax, mail: mail))
+        let email = channels == .email ? Email(email: emailAddress.trimmed, pinChannel: emailVerification, phone: emailVerification == "none" ? nil : PhoneNumber.normalize(emailPhone)) : nil
+        return try encoder.encode(Spec(title: name, fax: fax, mail: mail, email: email))
     }
 }

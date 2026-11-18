@@ -9,9 +9,16 @@ import SwiftUI
 
 struct ConnectedRoot: View {
     let environment: ConnectedEnvironment
+    @AppStorage("connectionMode") private var mode = "instance"
 
     var body: some View {
-        RootView(model: environment.model, actions: environment.actions)
+        Group {
+            if mode == "direct" {
+                DirectWorkspace()
+            } else {
+                RootView(model: environment.model, actions: environment.actions)
+            }
+        }
     }
 }
 
@@ -24,12 +31,12 @@ struct ConnectedCommands: Commands {
         CommandGroup(replacing: .newItem) {
             Button("New Send") { environment.actions.newSend() }
                 .keyboardShortcut("n")
-                .disabled(environment.model.state != .ready)
+                .disabled(environment.model.state != .ready || UserDefaults.standard.string(forKey: "connectionMode") == "direct")
         }
         CommandGroup(after: .toolbar) {
             Button("Refresh") { environment.actions.refresh() }
                 .keyboardShortcut("r")
-                .disabled(environment.model.state != .ready)
+                .disabled(environment.model.state != .ready || UserDefaults.standard.string(forKey: "connectionMode") == "direct")
         }
     }
 }

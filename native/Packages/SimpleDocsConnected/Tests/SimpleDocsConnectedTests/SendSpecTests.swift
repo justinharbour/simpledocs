@@ -3,6 +3,20 @@ import Testing
 @testable import SimpleDocsConnected
 
 @Suite struct SendSpecTests {
+    @Test func secureEmailSpecAndValidation() throws {
+        var draft = SendDraft()
+        draft.channels = .email
+        #expect(!draft.problems(hasDocument: true).isEmpty)
+        draft.emailAddress = "recipient@example.test"
+        draft.emailVerification = "sms"
+        #expect(!draft.problems(hasDocument: true).isEmpty)
+        draft.emailPhone = "+12125550100"
+        #expect(draft.problems(hasDocument: true).isEmpty)
+        let spec = try #require(JSONSerialization.jsonObject(with: draft.spec(fallbackTitle: "scan")) as? [String: Any])
+        let email = try #require(spec["email"] as? [String: String])
+        #expect(email == ["email": "recipient@example.test", "pinChannel": "sms", "phone": "+12125550100"])
+        #expect(spec["fax"] == nil && spec["mail"] == nil)
+    }
     @Test(arguments: [
         ("(213) 414-7728", "+12134147728"),
         ("213.414.7728", "+12134147728"),

@@ -1,6 +1,8 @@
+import { requiredCallbacks, supportsNativeCallbacks } from './access-oauth.mjs';
 // Configure Access before Wrangler exposes either hostname. Never adopt an
 // unexpected application, policy, destination, or OAuth configuration.
 import { appendFile } from 'node:fs/promises';
+import { isDeepStrictEqual } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { PORTAL_PATHS } from './portal-paths.mjs';
 
@@ -8,9 +10,8 @@ const hosts = ['simpledocs.justinharbour.dev', 'simpledocs.justinharbour.com'];
 const paths = ['/webhooks/telnyx/fax', '/api/webhooks/telnyx/voice', '/api/webhooks/telnyx/messaging'];
 const policy = '36ee1f67-a91a-494c-b503-94bf48820ffa';
 const idp = 'bc4cede3-4ee0-4bd6-9393-34c10ca6a6d8';
-const callback = 'dev.justinharbour.simpledocs:/oauth/callback';
 
-const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const same = (a, b) => isDeepStrictEqual(a, b);
 const portalOverrides = PORTAL_PATHS.map(path_pattern => ({ path_pattern, behavior: 'public' }));
 const exactPortalOverrides = overrides => overrides?.length === PORTAL_PATHS.length && PORTAL_PATHS.every(path => overrides.some(rule => rule.path_pattern === path && rule.behavior === 'public'));
 function destinations(app, allowed, required, ownerApp = false) {
@@ -18,12 +19,18 @@ function destinations(app, allowed, required, ownerApp = false) {
   if (!Array.isArray(ds) || ds.some(d => d.type !== 'public' || !allowed.includes(d.uri) || ((d.overrides?.length ?? 0) !== 0 && !(ownerApp && d.uri === hosts[1] && exactPortalOverrides(d.overrides)))) ||
       new Set(ds.map(d => d.uri)).size !== ds.length || !required.every(uri => ds.some(d => d.uri === uri))) throw Error('Unexpected Access destinations');
 }
-function owner(app, policies, required) {
+function owner(app, policies, required, allowLegacyOnly = false) {
   destinations(app, hosts, required, true);
+  const oauth = app.oauth_configuration;
+  const registration = oauth?.dynamic_client_registration;
+  const callbacks = registration?.allowed_uris;
+  const validCallbacks = allowLegacyOnly
+    ? oauth?.enabled === true && registration?.enabled === true && Array.isArray(callbacks) && callbacks.every(uri => typeof uri === 'string') && callbacks.includes(requiredCallbacks[1]) && new Set(callbacks).size === callbacks.length
+    : supportsNativeCallbacks(oauth);
   if (app.name !== 'Simpledocs' || app.type !== 'self_hosted' || app.domain !== hosts[0] ||
       !same(app.allowed_idps, [idp]) || policies.length !== 1 || policies[0].id !== policy || policies[0].decision !== 'allow' ||
       typeof app.aud !== 'string' || !/^[a-f0-9]{64}$/i.test(app.aud) || !app.oauth_configuration?.enabled ||
-      !app.oauth_configuration.dynamic_client_registration?.enabled || !app.oauth_configuration.dynamic_client_registration.allowed_uris?.includes(callback)) throw Error('Unexpected owner Access configuration');
+      !validCallbacks) throw Error('Unexpected owner Access configuration');
 }
 function bypass(app, policies, path, required) {
   const allowed = hosts.map(host => host + path);
@@ -49,24 +56,36 @@ export async function configureAccess(api, publishPortal = false) {
     const app = (await api(`${base}/${found[0].id}`)).result;
     const response = await api(`${base}/${app.id}/policies?per_page=100`);
     if ((response.result_info?.total_pages ?? 1) > 1) throw Error('Unexpected policy pagination');
-    const validate = required => spec.path ? spec.check(app, response.result, spec.path, required) : spec.check(app, response.result, required);
+    const validate = required => spec.path ? spec.check(app, response.result, spec.path, required) : spec.check(app, response.result, required, true);
     validate([expected[0]]);
-    selected.push({ ...spec, app, expected });
+    selected.push({ ...spec, app, expected, policies: response.result });
   }
   // Add webhook destinations first; no hostname is routed to the Worker yet.
   for (const item of [...selected.slice(1), selected[0]]) {
-    const { app, expected, path, check } = item;
+    const { app, expected, path, check, policies } = item;
     const publish = !path && (publishPortal || app.destinations.some(d => d.uri === hosts[1] && exactPortalOverrides(d.overrides)));
     if (publishPortal && path) continue;
-    const updated = { ...app, destinations: expected.map(uri => ({ type: 'public', uri, ...(publish && uri === hosts[1] ? { overrides: portalOverrides } : {}) })), policies: app.policies.map(p => ({ id: p.id, precedence: p.precedence })) };
-    if (!path) updated.eager_redirect_cookie_setting = false;
+    const latest = (await api(`${base}/${app.id}`)).result;
+    const latestPolicies = await api(`${base}/${app.id}/policies?per_page=100`);
+    if ((latestPolicies.result_info?.total_pages ?? 1) > 1 || !same(latest, app) || !same(latestPolicies.result, policies)) throw Error('Access configuration changed before update');
+    const updated = { ...app, destinations: expected.map(uri => ({ ...(app.destinations.find(d => d.uri === uri) ?? { type: 'public', uri }), ...(publish && uri === hosts[1] ? { overrides: portalOverrides } : {}) })), policies: app.policies.map(p => ({ id: p.id, precedence: p.precedence })) };
+    if (!path) {
+      updated.eager_redirect_cookie_setting = false;
+      const registration = app.oauth_configuration.dynamic_client_registration;
+      updated.oauth_configuration = { ...app.oauth_configuration, dynamic_client_registration: { ...registration, allowed_uris: registration.allowed_uris.includes(requiredCallbacks[0]) ? [...registration.allowed_uris] : [...registration.allowed_uris, requiredCallbacks[0]] } };
+    }
     await api(`${base}/${app.id}`, { method: 'PUT', body: JSON.stringify(updated) });
     const confirmed = (await api(`${base}/${app.id}`)).result;
     const ps = await api(`${base}/${app.id}/policies?per_page=100`);
     if ((ps.result_info?.total_pages ?? 1) > 1) throw Error('Unexpected policy pagination');
+    if (!same(ps.result, policies)) throw Error('Access policies changed');
     if (path) check(confirmed, ps.result, path, expected); else {
       check(confirmed, ps.result, expected);
-      if (confirmed.aud !== app.aud || !same(confirmed.oauth_configuration, app.oauth_configuration) || confirmed.eager_redirect_cookie_setting !== false) throw Error('Access audience or OAuth changed');
+      if (confirmed.aud !== app.aud || !same(confirmed.oauth_configuration, updated.oauth_configuration) || confirmed.eager_redirect_cookie_setting !== false) throw Error('Access audience or OAuth changed');
+      for (const key of Object.keys(app)) {
+        if (!['destinations', 'oauth_configuration', 'eager_redirect_cookie_setting', 'policies'].includes(key) && !same(confirmed[key], app[key])) throw Error(`Access field changed: ${key}`);
+      }
+      if (!same(confirmed.destinations, updated.destinations) || !same(confirmed.policies, app.policies)) throw Error('Access destinations or policy references changed');
       if (publish && !exactPortalOverrides(confirmed.destinations.find(d => d.uri === hosts[1])?.overrides)) throw Error('Exact recipient Access overrides were not retained');
     }
   }

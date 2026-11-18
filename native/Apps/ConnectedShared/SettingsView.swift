@@ -9,6 +9,9 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section("Connection") {
+                ConnectionModePicker()
+            }
             Section("Instance") {
                 LabeledContent("Address", value: session.instanceHost)
                 LabeledContent("Sign-in", value: session.issuerHost)

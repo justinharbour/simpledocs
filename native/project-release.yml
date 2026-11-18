@@ -1,0 +1,25 @@
+# Overlay the unified project's per-target signing settings; never applied to PR builds.
+include: [project.yml]
+targets:
+  SimpleDocsiOS:
+    settings:
+      base:
+        CODE_SIGN_STYLE: Manual
+        PROVISIONING_PROFILE_SPECIFIER: $(SIMPLEDOCS_IOS_PROFILE)
+        CODE_SIGN_ENTITLEMENTS: $(SIMPLEDOCS_IOS_ENTITLEMENTS)
+  SimpleDocsShareiOS:
+    settings:
+      base:
+        CODE_SIGN_STYLE: Manual
+        PROVISIONING_PROFILE_SPECIFIER: $(SIMPLEDOCS_IOS_SHARE_PROFILE)
+  SimpleDocsMacConnected:
+    settings:
+      base:
+        CODE_SIGN_STYLE: Manual
+        PROVISIONING_PROFILE_SPECIFIER: $(SIMPLEDOCS_MAC_PROFILE)
+        CODE_SIGN_ENTITLEMENTS: $(SIMPLEDOCS_MAC_ENTITLEMENTS)
+  SimpleDocsShareMac:
+    settings:
+      base:
+        CODE_SIGN_STYLE: Manual
+        PROVISIONING_PROFILE_SPECIFIER: $(SIMPLEDOCS_MAC_SHARE_PROFILE)

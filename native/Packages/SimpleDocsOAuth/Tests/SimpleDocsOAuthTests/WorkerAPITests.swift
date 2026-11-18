@@ -125,6 +125,23 @@ extension StubbedSuites { @Suite struct WorkerAPITests {
         #expect(text.contains("%PDF-1.4 fake"))
     }
 
+    @Test func preparedEmailUsesExplicitApprovalAndInstanceOrigin() async throws {
+        let hash = String(repeating: "a", count: 64)
+        StubProtocol.reset([
+            "GET /api/transmissions/t1/email/review": [json("{\"email\":\"recipient@example.test\",\"pinChannel\":\"none\",\"phone\":null,\"status\":\"pending\",\"reviewHash\":\"\(hash)\",\"pdfSha256\":\"\(hash)\",\"packetUrl\":\"/api/transmissions/t1/document\"}")],
+            "POST /api/transmissions/t1/email/approve": [Stub(status: 202, body: Data("{}".utf8))]
+        ])
+        let client = try api(session())
+        let review = try await client.emailReview(transmissionID: "t1")
+        #expect(review.email == "recipient@example.test" && review.status == "pending")
+        try await client.approveEmail(transmissionID: "t1", reviewHash: review.reviewHash)
+        let request = try #require(StubProtocol.requests.last)
+        let body = try #require(JSONSerialization.jsonObject(with: request.body) as? [String: Any])
+        #expect(Set(body.keys) == ["confirmed", "reviewHash"])
+        #expect(body["confirmed"] as? Bool == true && body["reviewHash"] as? String == hash)
+        #expect(request.origin == "https://one.example.com")
+    }
+
     @Test func approvalBodyHasExactlyTheThreeKeys() async throws {
         StubProtocol.reset(["POST /api/transmissions/t1/mail/d1/approve": [Stub(status: 202, body: Data(#"{"id":"d1","status":"queued"}"#.utf8))]])
         try await api(session()).approveMail(transmissionID: "t1", deliveryID: "d1", mode: .live, reviewHash: String(repeating: "a", count: 64))
