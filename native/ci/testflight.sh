@@ -39,6 +39,11 @@ case "$PLATFORM" in
     scheme=SimpleDocsMacConnected; destination='generic/platform=macOS'; ext=pkg
     app_profile="$APPLE_MAC_PROFILE_BASE64"; share_profile="$APPLE_MAC_SHARE_PROFILE_BASE64"
     ;;
+  tvos)
+    : "${APPLE_TV_PROFILE_BASE64:?}"
+    scheme=SimpleDocsTV; destination='generic/platform=tvOS'; ext=ipa
+    app_profile="$APPLE_TV_PROFILE_BASE64"; share_profile=''
+    ;;
   *) exit 1 ;;
 esac
 
@@ -63,9 +68,14 @@ install_profile() {
   printf '%s' "$uuid" > "$work/$label.uuid"
 }
 install_profile "$app_profile" app
-install_profile "$share_profile" share
 app_uuid=$(cat "$work/app.uuid")
-share_uuid=$(cat "$work/share.uuid")
+share_uuid=''
+share_entry=''
+if [[ -n "$share_profile" ]]; then
+  install_profile "$share_profile" share
+  share_uuid=$(cat "$work/share.uuid")
+  share_entry="<key>com.justinharbour.simpledocs.share</key><string>$share_uuid</string>"
+fi
 
 # Distribution APNs must be production, not the development entitlement in the source tree.
 cp native/Config/iOS.entitlements "$work/ios.entitlements"
@@ -79,7 +89,7 @@ xcodebuild -project SimpleDocs.xcodeproj -scheme "$scheme" -configuration Releas
   DEVELOPMENT_TEAM="$APPLE_TEAM_ID" SIMPLEDOCS_MARKETING_VERSION="$RELEASE_VERSION" \
   SIMPLEDOCS_BUILD_NUMBER="$BUILD_NUMBER" SIMPLEDOCS_IOS_PROFILE="$app_uuid" \
   SIMPLEDOCS_IOS_SHARE_PROFILE="$share_uuid" SIMPLEDOCS_MAC_PROFILE="$app_uuid" \
-  SIMPLEDOCS_MAC_SHARE_PROFILE="$share_uuid" SIMPLEDOCS_IOS_ENTITLEMENTS="$work/ios.entitlements" \
+  SIMPLEDOCS_MAC_SHARE_PROFILE="$share_uuid" SIMPLEDOCS_TV_PROFILE="$app_uuid" SIMPLEDOCS_IOS_ENTITLEMENTS="$work/ios.entitlements" \
   SIMPLEDOCS_MAC_ENTITLEMENTS="$work/mac.entitlements" OTHER_CODE_SIGN_FLAGS="--keychain $keychain"
 
 cat > "$work/export.plist" <<EOF
@@ -92,7 +102,7 @@ cat > "$work/export.plist" <<EOF
 <key>teamID</key><string>$APPLE_TEAM_ID</string>
 <key>provisioningProfiles</key><dict>
 <key>com.justinharbour.simpledocs</key><string>$app_uuid</string>
-<key>com.justinharbour.simpledocs.share</key><string>$share_uuid</string>
+$share_entry
 </dict></dict></plist>
 EOF
 xcodebuild -exportArchive -archivePath "$work/SimpleDocs.xcarchive" -exportPath "$work/export" -exportOptionsPlist "$work/export.plist"
@@ -102,4 +112,4 @@ packages=("$work/export/"*."$ext")
 mkdir -p "$work/private_keys"
 printf '%s\n' "$ASC_PRIVATE_KEY" > "$work/private_keys/AuthKey_${ASC_KEY_ID}.p8"
 API_PRIVATE_KEYS_DIR="$work/private_keys" xcrun altool --upload-app -f "${packages[0]}" \
-  --type "$([ "$PLATFORM" = ios ] && printf ios || printf macos)" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+  --type "$(case "$PLATFORM" in ios) printf ios ;; tvos) printf appletvos ;; *) printf macos ;; esac)" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
