@@ -71,7 +71,7 @@ The ordered envelope is assembled into one server-owned PDF at
 under an independently generated delivery ID. It neither accepts recipient object
 keys nor changes the UUID or display numbers. Document numbers and ordered
 manifest are available in the owner's records; the recipient downloads the
-combined PDF, which is not stamped with those numbers.
+combined PDF, including document-number page headers if the sender selected them.
 
 ## Configuration, after review only
 

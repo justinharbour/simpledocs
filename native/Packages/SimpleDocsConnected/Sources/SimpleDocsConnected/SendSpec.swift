@@ -118,6 +118,7 @@ public struct SendDraft: Sendable, Equatable {
     public var channels = SendChannels.fax
     public var faxList = ""
     public var cover = CoverOptions()
+    public var numberDocumentPages = false
     public var mailTo = MailContact()
     public var mailFrom = MailContact()
     public var color = false

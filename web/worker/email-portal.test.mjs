@@ -47,6 +47,20 @@ test('failed delivery registration leaves a retryable orphan cleanup intent', as
   assert.equal(objects.has(intent.object_key), false);
   assert.equal(db.prepare('SELECT count(*) AS n FROM portal_object_intents').get().n, 0);
 });
+test('failed or ambiguous R2 writes retain cleanup intent and failed deletes retry', async () => {
+  const { env, db, objects } = setup();
+  env.FILES.put = async (key, value) => { objects.set(key, value); throw Error('ambiguous write'); };
+  await assert.rejects(createEmailDelivery(req('/x', { email: 'a@example.test', pinChannel: 'none' }), env, 'owner', tx));
+  const intent = db.prepare('SELECT * FROM portal_object_intents').get();
+  env.FILES.delete = async () => { throw Error('temporary'); };
+  await cleanupPortal(env, intent.cleanup_after);
+  assert.ok(objects.has(intent.object_key));
+  assert.equal(db.prepare('SELECT count(*) AS n FROM portal_object_intents').get().n, 1);
+  env.FILES.delete = async key => { objects.delete(key); };
+  await cleanupPortal(env, intent.cleanup_after);
+  assert.equal(objects.has(intent.object_key), false);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM portal_object_intents').get().n, 0);
+});
 test('encrypted copy, single-use link, session and revocation', async () => {
   const { env, db, objects, messages } = setup(); const d = await create(env, messages); const stored = db.prepare('SELECT * FROM portal_deliveries').get();
   assert.notEqual(stored.token_hash, d.token); assert.equal(new TextDecoder().decode(objects.get(stored.object_key)).includes('private'), false);

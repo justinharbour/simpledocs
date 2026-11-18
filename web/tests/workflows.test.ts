@@ -22,6 +22,8 @@ describe.skipIf(!built)("workflow pages (run `pnpm build` first)", () => {
     for (const step of [1, 2, 3, 4, 5]) expect(doc).toContain(`data-step="${step}"`);
     expect(doc).toContain('id="document-order"');
     expect(doc).toContain('id="cover-numbers"');
+    expect(doc).toMatch(/<input\b[^>]*id="page-numbers"[^>]*>/);
+    expect(doc.match(/<input\b[^>]*id="page-numbers"[^>]*>/)?.[0]).not.toMatch(/\bchecked\b/);
     expect(doc).toContain("Review and confirm");
     expect(doc).toContain("Nothing is sent until you press Send");
     expect(doc).toContain('id="dropzone"');

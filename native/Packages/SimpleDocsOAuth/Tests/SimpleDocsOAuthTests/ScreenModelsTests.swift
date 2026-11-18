@@ -231,6 +231,7 @@ extension StubbedSuites { @MainActor @Suite struct ScreenModelsTests {
         #expect(model.documentError?.contains("100 pages") == true)
         model.draft.faxList = "(512) 555-0100"
         model.draft.cover.includeNumbers = true
+        model.draft.numberDocumentPages = true
         model.review()
         #expect(model.step == .order)
         model.moveDocument(from: 1, to: 0)
@@ -242,8 +243,8 @@ extension StubbedSuites { @MainActor @Suite struct ScreenModelsTests {
         guard case .sent(let summary) = model.step else { Issue.record("Expected send result"); return }
         #expect(summary.envelopeNumber == "000001")
         let text = String(decoding: StubProtocol.requests[0].body, as: UTF8.self)
-        let first = try #require(text.range(of: #"name="documents"; filename="two.pdf""#))
-        let second = try #require(text.range(of: #"name="documents"; filename="one.pdf""#))
+        let first = try #require(text.range(of: #"name="numberedDocuments"; filename="two.pdf""#))
+        let second = try #require(text.range(of: #"name="numberedDocuments"; filename="one.pdf""#))
         #expect(first.lowerBound < second.lowerBound)
         #expect(text.contains(#""includeNumbers":true"#))
     }

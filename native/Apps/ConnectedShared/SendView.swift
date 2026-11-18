@@ -68,7 +68,12 @@ struct SendView: View {
 
     private var compose: some View {
         Form {
-            Section("Documents") { documentRows }
+            Section("Documents") {
+                documentRows
+                Toggle("Put the document number at the top of each page", isOn: $model.draft.numberDocumentPages)
+                Text("Recipients will see the number on every document page sent by fax or paper mail. The original page is scaled slightly to make room. This does not change the fax cover.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
 
             Section {
                 Picker("Send by", selection: $model.draft.channels) {
@@ -204,6 +209,7 @@ struct SendView: View {
                     Text("\(index + 1). \(document.name) (\(document.pageCount) \(document.pageCount == 1 ? "page" : "pages"))")
                 }
                 LabeledContent("Total pages", value: "\(model.pageCount)")
+                LabeledContent("Page headers", value: model.draft.numberDocumentPages ? "Document number on every page" : "None")
             }
             if model.draft.channels.hasFax {
                 Section("Fax") {
