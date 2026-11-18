@@ -217,11 +217,11 @@ extension StubbedSuites { @MainActor @Suite struct ScreenModelsTests {
         model.draft.faxList = "213.414.7728"
         model.review()
         await model.send()
-        #expect(model.step == .sent(.init(transmissionID: "t1", envelopeNumber: nil, faxCount: 1, letterApproved: false, letterProblem: nil)))
+        #expect(model.step == .sent(.init(transmissionID: "t1", envelopeNumber: nil, faxCount: 1, faxAwaitingReview: 0, letterApproved: false, letterProblem: nil)))
         #expect(StubProtocol.requests.map(\.url.path) == ["/api/transmissions"])
         let body = String(decoding: StubProtocol.requests[0].body, as: UTF8.self)
         #expect(body.contains("+12134147728"))
-        #expect(body.contains(#"name="document"; filename="Lease.pdf""#))
+        #expect(body.contains(#"name="preparedDocuments"; filename="Lease.pdf""#))
     }
 
     @Test func singleDocumentWithFaxCoverNumbersRequiresEnvelopeSupport() async throws {
@@ -234,7 +234,7 @@ extension StubbedSuites { @MainActor @Suite struct ScreenModelsTests {
         model.review()
         await model.send()
         let body = String(decoding: StubProtocol.requests[0].body, as: UTF8.self)
-        #expect(body.contains(#"name="documents"; filename="Lease.pdf""#))
+        #expect(body.contains(#"name="preparedDocuments"; filename="Lease.pdf""#))
         #expect(body.contains(#""includeNumbers":true"#))
     }
 
@@ -259,8 +259,8 @@ extension StubbedSuites { @MainActor @Suite struct ScreenModelsTests {
         guard case .sent(let summary) = model.step else { Issue.record("Expected send result"); return }
         #expect(summary.envelopeNumber == "000001")
         let text = String(decoding: StubProtocol.requests[0].body, as: UTF8.self)
-        let first = try #require(text.range(of: #"name="numberedDocuments"; filename="two.pdf""#))
-        let second = try #require(text.range(of: #"name="numberedDocuments"; filename="one.pdf""#))
+        let first = try #require(text.range(of: #"name="preparedNumberedDocuments"; filename="two.pdf""#))
+        let second = try #require(text.range(of: #"name="preparedNumberedDocuments"; filename="one.pdf""#))
         #expect(first.lowerBound < second.lowerBound)
         #expect(text.contains(#""includeNumbers":true"#))
     }
@@ -279,23 +279,20 @@ extension StubbedSuites { @MainActor @Suite struct ScreenModelsTests {
             model.draft[keyPath: path].firstName = "Ada"; model.draft[keyPath: path].addressLine1 = "1 Main St"
             model.draft[keyPath: path].city = "Austin"; model.draft[keyPath: path].provinceOrState = "TX"; model.draft[keyPath: path].postalOrZip = "78701"
         }
-        #expect(!model.needsLiveConfirmation && model.sendButtonTitle == "Send test letter")
+        #expect(!model.needsLiveConfirmation && model.sendButtonTitle == "Create transmission")
         model.review()
         await model.send()
-        #expect(model.step == .sent(.init(transmissionID: "t1", envelopeNumber: nil, faxCount: 0, letterApproved: true, letterProblem: nil)))
-        #expect(StubProtocol.requests.map(\.url.path) == ["/api/transmissions", "/api/transmissions/t1/mail/d2/review", "/api/transmissions/t1/mail/d2/approve"])
-        #expect(StubProtocol.requests[1].url.query == "mode=test")
-        let approval = try #require(JSONSerialization.jsonObject(with: StubProtocol.requests[2].body) as? [String: Any])
-        #expect(approval["reviewHash"] as? String == hash && approval["mode"] as? String == "test")
+        #expect(model.step == .sent(.init(transmissionID: "t1", envelopeNumber: nil, faxCount: 0, faxAwaitingReview: 0, letterApproved: false, letterProblem: "Open the record to review and confirm the letter separately.")))
+        #expect(StubProtocol.requests.map(\.url.path) == ["/api/transmissions"])
     }
 
     @Test func liveModeNeedsExplicitConfirmationAndSaysSo() throws {
         let model = SendModel(session: try signedIn())
         model.draft.channels = .both
         model.draft.mode = .live
-        #expect(model.needsLiveConfirmation && model.sendButtonTitle == "Send a real letter")
+        #expect(model.needsLiveConfirmation && model.sendButtonTitle == "Create transmission")
         model.draft.channels = .fax
-        #expect(!model.needsLiveConfirmation && model.sendButtonTitle == "Send fax")
+        #expect(model.needsLiveConfirmation && model.sendButtonTitle == "Create transmission")
     }
 
     @Test func unavailableMailModeLeavesTheLetterUnapprovedAndSaysNothingWasMailed() async throws {
@@ -314,7 +311,7 @@ extension StubbedSuites { @MainActor @Suite struct ScreenModelsTests {
         model.review()
         await model.send()
         guard case .sent(let summary) = model.step else { Issue.record("expected sent"); return }
-        #expect(!summary.letterApproved && summary.letterProblem?.contains("not mailed") == true)
+        #expect(!summary.letterApproved && summary.letterProblem?.contains("review and confirm") == true)
         #expect(!StubProtocol.requests.contains { $0.url.path.hasSuffix("/approve") })
     }
 

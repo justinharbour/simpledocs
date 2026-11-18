@@ -248,10 +248,16 @@ struct SendView: View {
         let sending = model.step == .sending
         return Form {
             Section("Cost and preparation") {
-                Text("No reliable estimate is available from this instance. Provider charges may apply.")
-                if model.draft.channels.hasFax {
-                    Text("Older instances queue faxes immediately when you continue. Newer instances prepare packets for separate review and approval. Confirm your instance version before proceeding.")
+                if model.draft.channels.hasFax, let estimate = model.faxEstimate, estimate.rate >= 0, estimate.rate.isFinite {
+                    let pages = model.pageCount + (model.draft.cover.enabled ? 1 : 0)
+                    let count = model.draft.fax.numbers.count
+                    Text("Fax estimate: \(estimate.rate * Double(pages * count), format: .currency(code: "USD").precision(.fractionLength(2...4)))")
+                    Text("\(pages) page(s) × \(count) recipient(s) × $\(estimate.rate, specifier: "%.6f") per page. \(estimate.source). Actual charges can differ; verify rates and fees with your provider.").font(.footnote)
+                } else if model.draft.channels.hasFax {
+                    Text("A fax estimate is unavailable from this instance. Provider charges may apply.")
                 }
+                if model.draft.channels.hasMail { Text("Mail pricing is unavailable; provider charges may apply.") }
+                Text("This app requests review-only preparation. Older instances that do not support it will reject the request.")
             }
             Section("Document order") {
                 ForEach(Array(model.documents.enumerated()), id: \.offset) { index, document in
@@ -300,7 +306,7 @@ struct SendView: View {
             Button("Create transmission", role: .destructive) { Task { await model.send() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(model.draft.channels.hasMail ? "Older instances queue faxes immediately; newer instances prepare them for separate review. The letter to \(model.draft.mailTo.oneLine) requires separate confirmation. Pricing is unavailable." : "Older instances queue this fax immediately; newer instances prepare it for separate review. Pricing is unavailable.")
+            Text(model.draft.channels.hasMail ? "Deliveries are prepared for separate review. The letter to \(model.draft.mailTo.oneLine) requires its own confirmation. Older instances may reject this request." : "Fax packets are prepared for separate review. Older instances may reject this request.")
         }
     }
 
