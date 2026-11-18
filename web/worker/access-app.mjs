@@ -83,7 +83,7 @@ export async function configureAccess(api, publishPortal = false) {
       check(confirmed, ps.result, expected);
       if (confirmed.aud !== app.aud || !same(confirmed.oauth_configuration, updated.oauth_configuration) || confirmed.eager_redirect_cookie_setting !== false) throw Error('Access audience or OAuth changed');
       for (const key of Object.keys(app)) {
-        if (!['destinations', 'oauth_configuration', 'eager_redirect_cookie_setting', 'policies'].includes(key) && !same(confirmed[key], app[key])) throw Error(`Access field changed: ${key}`);
+        if (!['destinations', 'oauth_configuration', 'eager_redirect_cookie_setting', 'policies', 'updated_at'].includes(key) && !same(confirmed[key], app[key])) throw Error(`Access field changed: ${key}`);
       }
       if (!same(confirmed.destinations, updated.destinations) || !same(confirmed.policies, app.policies)) throw Error('Access destinations or policy references changed');
       if (publish && !exactPortalOverrides(confirmed.destinations.find(d => d.uri === hosts[1])?.overrides)) throw Error('Exact recipient Access overrides were not retained');
