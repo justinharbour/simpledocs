@@ -11,6 +11,7 @@ import { handleFaxOperator } from './inbound-fax-operator.mjs';
 import { handleMail, listUnresolvedMail } from './mail-send.mjs';
 import { handleVoiceWebhook, handleVoiceRecording, listVoiceRecordings } from './voice-webhook.mjs';
 import { handleVoiceSession } from './voice-session.mjs';
+import { handleVoicemailSettings } from './voicemail-config.mjs';
 import { sendPendingFaxAlert } from './inbound-fax-alert.mjs';
 
 // Static Assets do not propagate ctx.access. Verify the Access assertion against
@@ -79,6 +80,7 @@ export function createWorker(resolveKeys = issuer => {
     if (heard) return markHeard(request, env, heard[1]);
     const recording = /^\/api\/voice\/recordings\/([^/]+)$/.exec(url.pathname);
     if (recording) return handleVoiceRecording(request, env, recording[1]);
+    if (url.pathname === '/api/settings/voicemail') return voiceOwner ? handleVoicemailSettings(request, env) : new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
     if (url.pathname === '/api/settings') return handleSettings(request, env, actor);
     if (url.pathname === '/api/cover-preview') return handleCoverPreview(request, env);
     if (url.pathname === '/api/transmissions') return request.method === 'POST' ? createTransmission(request, env, actor) : request.method === 'GET' ? listTransmissions(env, actor) : new Response('Method not allowed', { status: 405 });
