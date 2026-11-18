@@ -42,8 +42,13 @@ for (const app of apps) {
   if (uri(app).some(d => [legacyHost, recipientHost].some(host => d.startsWith(`${host}/portal`)))) throw Error('Unexpected separate recipient Access application; use exact destination overrides');
 }
 if (process.argv.includes('--check-edge')) {
+  // Zone bot protection can challenge datacenter runners before Access or the
+  // Worker sees the request. That proves neither exposure nor protection, so
+  // record it as unverified instead of treating it as a pass or an Access fault.
+  const challenged = [];
   const probe = async (host, path, accepted) => {
     const response = await fetch(`https://${host}${path}`, { redirect: 'manual', signal: AbortSignal.timeout(10000) });
+    if (response.headers.get('cf-mitigated') === 'challenge') { challenged.push(`${host}${path}`); return; }
     if (!(await accepted(response))) throw Error(`Unexpected no-auth edge response for ${host}${path}: ${response.status}`);
   };
   const protectedRoute = r => [302, 401, 403].includes(r.status);
@@ -53,9 +58,13 @@ if (process.argv.includes('--check-edge')) {
     for (const path of ['/', '/api/transmissions', '/portal/adjacent', '/portal/document/']) await probe(host, path, protectedRoute);
   }
   for (const path of PORTAL_PATHS) await probe(legacyHost, path, protectedRoute);
+  const edge = challenged.length
+    ? `not verified from this runner; bot protection challenged ${challenged.map(x => `\`${x}\``).join(', ')}. Verify these routes from a non-datacenter client`
+    : 'canonical landing reachable; recipient session required; both owner hosts and non-recipient paths protected';
+  if (challenged.length) console.warn(`Edge checks challenged by bot protection: ${challenged.join(', ')}`);
   if (process.env.GITHUB_STEP_SUMMARY) {
     const { appendFile } = await import('node:fs/promises');
-    await appendFile(process.env.GITHUB_STEP_SUMMARY, `## Recipient portal release proof\n\n- Commit: \`${process.env.GITHUB_SHA}\`\n- Provider configuration: verified with production workflow credentials; no sends\n- Edge: canonical landing reachable; recipient session required; both owner hosts and non-recipient paths protected\n- Live email, SMS, and voice delivery: not run (separate authorization required)\n`);
+    await appendFile(process.env.GITHUB_STEP_SUMMARY, `## Recipient portal release proof\n\n- Commit: \`${process.env.GITHUB_SHA}\`\n- Provider configuration: verified with production workflow credentials; no sends\n- Edge: ${edge}\n- Live email, SMS, and voice delivery: not run (separate authorization required)\n`);
   }
 }
 console.log('Portal production prerequisites verified without sending communications.');
