@@ -11,6 +11,10 @@ struct SendView: View {
     @State private var dropTargeted = false
     @State private var reorderToken = UUID().uuidString
     @State private var confirmLive = false
+    #if os(iOS)
+    @State private var sharedFiles: [URL] = []
+    @Environment(\.scenePhase) private var scenePhase
+    #endif
 
     var body: some View {
         Group {
@@ -23,6 +27,10 @@ struct SendView: View {
         }
         .navigationTitle("Send")
         .task { await model.prefill() }
+        #if os(iOS)
+        .onAppear { refreshSharedFiles() }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { refreshSharedFiles() } }
+        #endif
         .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf], allowsMultipleSelection: true) { result in
             switch result {
             case .success(let urls): load(urls)
@@ -69,6 +77,22 @@ struct SendView: View {
     private var compose: some View {
         Form {
             Section("Documents") {
+                #if os(iOS)
+                if !sharedFiles.isEmpty {
+                    Text("Shared PDFs are kept on this device until removed. Add one to review; nothing sends automatically.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    ForEach(sharedFiles, id: \.self) { url in
+                        HStack {
+                            Button("Add shared PDF \(url.deletingPathExtension().lastPathComponent.prefix(8))") { loadOne(url) }
+                            Spacer()
+                            Button("Remove", role: .destructive) {
+                                do { try FileManager.default.removeItem(at: url); refreshSharedFiles() }
+                                catch { model.rejectDocument("The shared PDF couldn't be removed.") }
+                            }
+                        }
+                    }
+                }
+                #endif
                 documentRows
                 Toggle("Put the document number at the top of each page", isOn: $model.draft.numberDocumentPages)
                 Text("Recipients will see the number on every document page sent by fax or paper mail. The original page is scaled slightly to make room. This does not change the fax cover.")
@@ -135,6 +159,15 @@ struct SendView: View {
         .formStyle(.grouped)
         .overlay { if dropTargeted { DropHint() } }
     }
+
+    #if os(iOS)
+    private func refreshSharedFiles() {
+        guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.justinharbour.simpledocs") else { sharedFiles = []; return }
+        let folder = container.appendingPathComponent("ShareInbox", isDirectory: true)
+        sharedFiles = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]))?
+            .filter { $0.pathExtension.lowercased() == "pdf" }.sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
+    }
+    #endif
 
     @ViewBuilder private var documentRows: some View {
         Text("Up to 10 PDFs, 5 MB and 100 pages total.").font(.footnote).foregroundStyle(.secondary)

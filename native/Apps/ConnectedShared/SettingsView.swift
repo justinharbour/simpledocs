@@ -10,9 +10,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Connection") {
-                LabeledContent("Mode", value: "Self-hosted instance")
-                Text("Direct provider connections are not available yet. No provider API keys are collected.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                ConnectionModePicker()
             }
             Section("Instance") {
                 LabeledContent("Address", value: session.instanceHost)

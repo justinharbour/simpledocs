@@ -16,6 +16,8 @@ struct SignInView: View {
                     Text("Send faxes and letters, and read what comes back, from your own instance.")
                         .foregroundStyle(.secondary)
                 }
+                ConnectionModePicker()
+                    .disabled(signingIn)
 
                 if let notice = model.notice {
                     if notice.isError { ErrorBanner(message: notice.text) }

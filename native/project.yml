@@ -23,6 +23,8 @@ packages:
     path: Packages/SimpleDocsConnected
   SimpleDocsOAuth:
     path: Packages/SimpleDocsOAuth
+  SimpleDocsDirect:
+    path: Packages/SimpleDocsDirect
 targets:
   SimpleDocsMacConnected:
     type: application
@@ -42,6 +44,8 @@ targets:
         product: SimpleDocsConnected
       - package: SimpleDocsOAuth
         product: SimpleDocsOAuth
+      - package: SimpleDocsDirect
+        product: SimpleDocsDirect
     settings:
       base:
         # Confirm App IDs and provisioning with the Apple Developer account before signing.
@@ -70,6 +74,9 @@ targets:
         product: SimpleDocsConnected
       - package: SimpleDocsOAuth
         product: SimpleDocsOAuth
+      - package: SimpleDocsDirect
+        product: SimpleDocsDirect
+      - target: SimpleDocsShareiOS
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.justinharbour.simpledocs
@@ -81,6 +88,26 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+  SimpleDocsShareiOS:
+    type: app-extension
+    platform: iOS
+    sources: [Apps/ShareiOS]
+    info:
+      path: Config/Share-iOS-Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).ShareViewController"
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsFileWithMaxCount: 1
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.justinharbour.simpledocs.share
+        PRODUCT_NAME: simpledocs Share
+        CODE_SIGN_ENTITLEMENTS: Config/Share-iOS.entitlements
+        GENERATE_INFOPLIST_FILE: "YES"
+        APPLICATION_EXTENSION_API_ONLY: "YES"
   SimpleDocsSignInTests:
     type: bundle.unit-test
     platform: macOS
