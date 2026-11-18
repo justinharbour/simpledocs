@@ -56,8 +56,8 @@ const voices = [
           <Textarea id="greeting" rows={4} maxlength={1000} aria-describedby="greeting-count" />
           <p id="greeting-count" class="text-muted-foreground text-sm" aria-live="polite"></p>
         </div>
-        <fieldset class="flex flex-col gap-2">
-          <legend class="mb-1 text-sm font-medium">Voice</legend>
+        <fieldset class="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+          <legend class="mb-2 text-sm font-medium">Voice</legend>
           {voices.map((voice, i) => (
             <div class="flex items-start gap-3">
               <input type="radio" name="voice" id={`voice-${i}`} value={voice.value} class="accent-primary mt-1 size-4" />
@@ -74,7 +74,7 @@ const voices = [
               <span class="text-muted-foreground">Any other voice, written as Provider.Model.VoiceId.</span>
             </label>
           </div>
-          <div id="custom-voice-box" class="flex flex-col gap-1.5 pl-7" hidden>
+          <div id="custom-voice-box" class="flex flex-col gap-1.5 pl-7 sm:col-span-2" hidden>
             <Label for="custom-voice">Voice ID</Label>
             <Input id="custom-voice" placeholder="Telnyx.NaturalHD.astra" autocomplete="off" spellcheck="false" />
           </div>
