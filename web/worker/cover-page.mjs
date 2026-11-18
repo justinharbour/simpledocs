@@ -27,7 +27,7 @@ function wrap(text, font, size, width) {
   return lines;
 }
 
-export async function buildCoverPage({ to, toNumber, from, fromNumber, subject, message, date, pages }) {
+export async function buildCoverPage({ to, toNumber, from, fromNumber, subject, message, date, pages, numbering }) {
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([612, 792]);
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
@@ -41,6 +41,8 @@ export async function buildCoverPage({ to, toNumber, from, fromNumber, subject, 
     ['Date', clean(date, 60)],
     ['Pages', pages ? `${Number(pages) + 1} including cover` : ''],
     ['Subject', clean(subject, 200)],
+    ['Envelope', numbering?.envelopeNumber],
+    ['Documents', numbering?.documentNumbers.join('  ')],
   ];
   let y = 652;
   for (const [label, value] of rows) {
@@ -55,9 +57,10 @@ export async function buildCoverPage({ to, toNumber, from, fromNumber, subject, 
     y -= 8;
     page.drawLine({ start: { x: left, y: y + 12 }, end: { x: left + width, y: y + 12 }, thickness: 0.5, color: muted });
     y -= 12;
-    for (const line of wrap(body, regular, 12, width).slice(0, 28)) {
-      page.drawText(line, { x: left, y, size: 12, font: regular, color: ink });
-      y -= 16;
+    const lines = wrap(body, regular, 12, width);
+    const slots = Math.max(0, Math.min(28, 1 + Math.floor((y - 48) / 16)));
+    for (const [i, line] of lines.slice(0, slots).entries()) {
+      page.drawText(i === slots - 1 && lines.length > slots ? '...' : line, { x: left, y: y - i * 16, size: 12, font: regular, color: ink });
     }
   }
   return pdf.save();
