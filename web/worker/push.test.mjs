@@ -19,8 +19,10 @@ async function makeP8() {
 async function database() {
   const mf = new Miniflare({ modules: true, script: 'export default { fetch() { return new Response("ok") } }', compatibilityDate: '2026-07-01', d1Databases: ['DB'] });
   const db = await mf.getD1Database('DB');
-  const sql = await readFile(new URL('../../backend/core/migrations/0030_push_devices.sql', import.meta.url), 'utf8');
-  for (const statement of sql.replace(/^--.*$/gm, '').split(';').map(s => s.trim()).filter(Boolean)) await db.prepare(statement).run();
+  for (const migration of ['0030_push_devices.sql', '0044_push_device_bundle.sql']) {
+    const sql = await readFile(new URL(`../../backend/core/migrations/${migration}`, import.meta.url), 'utf8');
+    for (const statement of sql.replace(/^--.*$/gm, '').split(';').map(s => s.trim()).filter(Boolean)) await db.prepare(statement).run();
+  }
   return { mf, db };
 }
 const insert = (db, token, platform, environment) => db.prepare('INSERT INTO push_devices (token, platform, environment) VALUES (?, ?, ?)').bind(token, platform, environment).run();
@@ -49,26 +51,31 @@ describe('APNs sender', () => {
       const { pem } = await makeP8();
       await insert(db, hex('a'), 'ios', 'sandbox');
       await insert(db, hex('b'), 'macos', 'production');
+      const registration = new Request('https://example.test/api/push/devices', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: hex('c'), platform: 'ios', environment: 'production', bundleId: 'com.justinharbour.simpledocs.ios' }) });
+      assert.equal((await handlePushDevices(registration, { DB: db }, 'owner')).status, 200);
+      const mismatched = new Request('https://example.test/api/push/devices', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: hex('d'), platform: 'ios', environment: 'production', bundleId: 'com.justinharbour.simpledocs.mac.connected' }) });
+      assert.equal((await handlePushDevices(mismatched, { DB: db }, 'owner')).status, 400);
       const calls = [];
       const fetcher = async (url, init) => { calls.push({ url, init }); return new Response(null, { status: 200 }); };
       const env = { DB: db, APNS_KEY_P8: pem, APNS_KEY_ID: 'KEYID', APNS_TEAM_ID: 'TEAMID' };
       assert.equal(await notifyPush(env, { kind: 'voicemail', id: 'rec-1' }, { fetcher }), 'sent');
       const urls = calls.map(c => c.url).sort();
-      assert.deepEqual(urls, [`https://api.push.apple.com/3/device/${hex('b')}`, `https://api.sandbox.push.apple.com/3/device/${hex('a')}`]);
+      assert.deepEqual(urls, [`https://api.push.apple.com/3/device/${hex('b')}`, `https://api.push.apple.com/3/device/${hex('c')}`, `https://api.sandbox.push.apple.com/3/device/${hex('a')}`]);
       const sandbox = calls.find(c => c.url.includes('sandbox'));
-      assert.equal(sandbox.init.headers['apns-topic'], 'com.justinharbour.simpledocs.ios');
-      assert.equal(calls.find(c => !c.url.includes('sandbox')).init.headers['apns-topic'], 'com.justinharbour.simpledocs.mac.connected');
+      assert.equal(sandbox.init.headers['apns-topic'], 'dev.justinharbour.simpledocs.ios');
+      assert.equal(calls.find(c => c.url.endsWith(hex('b'))).init.headers['apns-topic'], 'dev.justinharbour.simpledocs.mac.connected');
+      assert.equal(calls.find(c => c.url.endsWith(hex('c'))).init.headers['apns-topic'], 'com.justinharbour.simpledocs.ios');
       assert.equal(sandbox.init.headers['apns-push-type'], 'alert');
       assert.equal(sandbox.init.headers['apns-priority'], '10');
       assert.match(sandbox.init.headers.authorization, /^bearer [\w-]+\.[\w-]+\.[\w-]+$/);
       const payload = JSON.parse(sandbox.init.body);
       assert.deepEqual(payload, { aps: { alert: { title: 'New voicemail', body: 'A voicemail was saved.' }, sound: 'default', 'thread-id': 'voicemail' }, kind: 'voicemail', id: 'rec-1' });
-      const overridden = await notifyPush({ ...env, APNS_TOPIC: 'custom.topic' }, { kind: 'fax', id: 'x' }, { fetcher: async (_u, init) => { assert.ok(['custom.topic', 'com.justinharbour.simpledocs.mac.connected'].includes(init.headers['apns-topic'])); return new Response(null); } });
+      const overridden = await notifyPush({ ...env, APNS_TOPIC: 'custom.topic' }, { kind: 'fax', id: 'x' }, { fetcher: async (url, init) => { if (url.endsWith(hex('a'))) assert.equal(init.headers['apns-topic'], 'custom.topic'); if (url.endsWith(hex('c'))) assert.equal(init.headers['apns-topic'], 'com.justinharbour.simpledocs.ios'); return new Response(null); } });
       assert.equal(overridden, 'sent');
     } finally { await mf.dispose(); }
   });
 
-  it('retains devices on APNs failures because the stored topic is unknown', async () => {
+  it('retains devices on APNs failures during signing or topic cutover', async () => {
     const { mf, db } = await database();
     try {
       const { pem } = await makeP8();

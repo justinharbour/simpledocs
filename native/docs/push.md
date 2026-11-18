@@ -5,11 +5,11 @@ The Worker sends a push to every registered iPhone and Mac when an inbound fax i
 ## How it works
 
 1. After sign-in, the app asks for notification permission and registers with APNs.
-2. The device token is POSTed to `/api/push/devices` with the app's own OAuth session. Debug builds send `sandbox`, release builds send `production`.
-3. The Worker (`web/worker/push.mjs`) signs an ES256 provider token with the `.p8` key, caches it for 50 minutes, and POSTs to `api.push.apple.com` or `api.sandbox.push.apple.com` depending on the device row. Rejections do not delete device rows: existing registrations do not record their bundle ID, so a rejection for the new topic cannot invalidate a legacy registration.
+2. The device token is POSTed to `/api/push/devices` with the app's own OAuth session and its bundle identifier. Debug builds send `sandbox`, release builds send `production`.
+3. The Worker (`web/worker/push.mjs`) signs an ES256 provider token with the `.p8` key, caches it for 50 minutes, and POSTs to `api.push.apple.com` or `api.sandbox.push.apple.com` depending on the device row. Rejections do not delete device rows; a signing or environment configuration error is not proof that a token should be removed.
 4. Tapping a notification opens the app and refreshes the screen you are on. It does not navigate to the specific record.
 
-Sending does nothing until the four secrets below exist. Registered devices are kept in the D1 table `push_devices` (migration `0030_push_devices.sql`).
+Sending does nothing until the three required secrets below exist. Registered devices are kept in the D1 table `push_devices`.
 
 ## Owner steps
 
@@ -26,10 +26,10 @@ Worker secrets. They are never in `wrangler.jsonc` or the deploy workflow. Set t
 | `APNS_KEY_P8` | Full contents of the `.p8` file, including the BEGIN and END lines |
 | `APNS_KEY_ID` | The 10 character key ID |
 | `APNS_TEAM_ID` | The 10 character team ID |
-| `APNS_TOPIC` | Optional. The iOS bundle ID. Defaults to `com.justinharbour.simpledocs.ios`. |
-| `APNS_TOPIC_MACOS` | Optional. Defaults to `com.justinharbour.simpledocs.mac.connected`. |
+| `APNS_TOPIC` | Optional override for legacy iOS registrations. Defaults to `dev.justinharbour.simpledocs.ios`. |
+| `APNS_TOPIC_MACOS` | Optional override for legacy macOS registrations. Defaults to `dev.justinharbour.simpledocs.mac.connected`. |
 
-Apply migration `0030_push_devices.sql` to D1 before deploying.
+Apply `0030_push_devices.sql` and the additive `0044_push_device_bundle.sql` migration to D1 before deploying.
 
 ## Entitlements
 
@@ -41,4 +41,4 @@ Apply migration `0030_push_devices.sql` to D1 before deploying.
 - A debug build never receives pushes: its token is `sandbox`. APNs rejects it if sent to the production host, and the Worker uses the environment stored with the token.
 - Cloudflare Workers `fetch` is used for the HTTP/2 request. Cloudflare does not document HTTP/2 to arbitrary origins, so the first live push is the real test.
 
-Existing registrations do not record their bundle ID; a single topic override per platform cannot deliver to both old and new app IDs simultaneously. The new default will not deliver to legacy tokens. Plan a coordinated cutover and re-registration; overrides can temporarily target the legacy ID instead, but not both. Rejected tokens are retained until an explicit device deletion or a future topic-aware cleanup.
+Existing registrations and old clients that omit the bundle identifier continue to use the legacy topic. New registrations carry the `com` bundle identifier and use that topic, independent of legacy overrides. For both generations to receive push, the APNs key must be authorized for both topics. Register the new app normally after installing it; legacy preferences and app-scoped Keychain items do not migrate automatically.

@@ -124,8 +124,10 @@ public actor WorkerAPI {
     }
 
     /// Hands the device's APNs token to the Worker. `platform` is ios or macos; `environment` is sandbox or production.
-    public func registerPushDevice(token: String, platform: String, environment: String) async throws {
-        let body = try JSONSerialization.data(withJSONObject: ["token": token, "platform": platform, "environment": environment], options: [.sortedKeys])
+    public func registerPushDevice(token: String, platform: String, environment: String, bundleId: String? = nil) async throws {
+        var device = ["token": token, "platform": platform, "environment": environment]
+        device["bundleId"] = bundleId
+        let body = try JSONSerialization.data(withJSONObject: device, options: [.sortedKeys])
         _ = try await send("POST", "/api/push/devices", body: body, contentType: "application/json")
     }
 

@@ -62,7 +62,10 @@ struct Workspace: View {
         PushCoordinator.shared.onOpen = { actions.refresh() }
         await PushCoordinator.shared.start { token in
             let (platform, environment) = (PushCoordinator.platform.rawValue, PushCoordinator.environment.rawValue)
-            try? await session.call { try await $0.registerPushDevice(token: token, platform: platform, environment: environment) }
+            // Custom/self-hosted builds can continue using the instance's legacy topic override.
+            let currentBundle = platform == "ios" ? "com.justinharbour.simpledocs.ios" : "com.justinharbour.simpledocs.mac.connected"
+            let bundleId = Bundle.main.bundleIdentifier == currentBundle ? currentBundle : nil
+            try? await session.call { try await $0.registerPushDevice(token: token, platform: platform, environment: environment, bundleId: bundleId) }
         }
     }
 
