@@ -98,6 +98,8 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
             <div class="flex flex-col gap-1.5">
               <Label for="fax-recipients">Fax numbers</Label>
               <Textarea id="fax-recipients" rows={3} placeholder="(512) 555-0100" inputmode="tel" />
+              <label for="previous-fax" class="text-sm">Add a previous fax recipient</label>
+              <select id="previous-fax" class="border-input rounded-md border p-2"><option value="">Choose a previous recipient</option></select>
             </div>
             <div class="flex items-center justify-between gap-4">
               <div>
@@ -135,6 +137,7 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
           </CardHeader>
           <CardContent class="flex flex-col gap-6">
             <AddressFields prefix="to" legend="Mail to" />
+            <div class="flex flex-col gap-1.5"><label for="previous-mail" class="text-sm">Use a previous mailing recipient</label><select id="previous-mail" class="border-input rounded-md border p-2"><option value="">Choose a previous recipient</option></select></div>
             <AddressFields prefix="from" legend="Return address" />
             <div class="grid gap-4 sm:grid-cols-3">
               <div class="flex items-center justify-between gap-3 sm:flex-col sm:items-start">
@@ -167,6 +170,8 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
       <Card>
         <CardContent class="flex flex-col gap-4">
           <dl id="summary" class="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[8rem_1fr]"></dl>
+          <p class="text-muted-foreground text-sm">Cost estimate unavailable. Provider charges may apply; this is not a provider quote.</p>
+          <p class="text-muted-foreground text-sm">The cover preview is preliminary, not a proof of the final numbered packet. Paper mail is rendered by PostGrid.</p>
           <div id="mode-box" class="border-border flex flex-col gap-1.5 rounded-lg border p-4" data-select="mode">
             <span class="text-sm font-medium" id="mode-label">Paper mail mode</span>
             <Select defaultValue="test">
@@ -445,6 +450,23 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
     document.addEventListener("click", () => setTimeout(sync, 0));
 
     api<typeof settings>("/api/settings").then((s) => { settings = s; }).catch(() => { /* defaults are fine */ });
+    api<{ fax: string[]; mail: Address[] }>("/api/recipients").then(({ fax, mail }) => {
+      const faxSelect = $<HTMLSelectElement>("previous-fax"), mailSelect = $<HTMLSelectElement>("previous-mail");
+      fax.forEach((number) => faxSelect.add(new Option(number, number)));
+      mail.forEach((address, index) => mailSelect.add(new Option([address.firstName, address.lastName, address.addressLine1, address.city, address.provinceOrState].filter(Boolean).join(", "), String(index))));
+      faxSelect.addEventListener("change", () => {
+        if (!faxSelect.value) return;
+        const numbers = faxNumbers();
+        if (!numbers.some((number) => normalizePhone(number) === faxSelect.value)) $<HTMLTextAreaElement>("fax-recipients").value = [...numbers, faxSelect.value].join("\n");
+        faxSelect.value = ""; queueCover();
+      });
+      mailSelect.addEventListener("change", () => {
+        if (!mailSelect.value) return;
+        const address = mail[Number(mailSelect.value)];
+        for (const el of document.querySelectorAll<HTMLInputElement>('[data-address="to"] [data-field]')) el.value = address[el.dataset.field!] ?? "";
+        mailSelect.value = "";
+      });
+    }).catch(() => { /* Sending remains available if history cannot be loaded. */ });
     goto(1);
   </script>
 </AppLayout>

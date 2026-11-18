@@ -12,6 +12,28 @@ const sameOrigin = request => request.headers.get('origin') === new URL(request.
 const str = (value, max) => (typeof value === 'string' ? value.trim().slice(0, max) : '');
 const isoTime = value => (typeof value === 'string' && /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/.test(value) ? `${value.replace(' ', 'T')}Z` : value ?? null);
 
+// Recipient history is derived from the actor's existing sends, not a shared
+// address book. Never expose return addresses or another actor's dispatches.
+export async function listRecipients(request, env, actor) {
+  if (request.method !== 'GET') return reply({ error: 'Method not allowed' }, 405);
+  if (!env.DB) return reply({ error: 'Storage unavailable' }, 503);
+  const rows = await env.DB.prepare("SELECT d.channel, d.recipient, d.options_json FROM dispatches d JOIN transmissions t ON t.id = d.transmission_id WHERE t.actor_id = ? AND d.channel IN ('fax', 'mail') ORDER BY d.created_at DESC LIMIT 200").bind(actor).all();
+  const fax = [], mail = [], seenFax = new Set(), seenMail = new Set();
+  for (const row of rows.results ?? []) {
+    if (row.channel === 'fax') {
+      const number = normalizePhone(row.recipient);
+      if (number && !seenFax.has(number)) { seenFax.add(number); fax.push(number); }
+    } else {
+      try {
+        const address = contact(JSON.parse(row.options_json).to);
+        const key = JSON.stringify(address).toLowerCase();
+        if (!seenMail.has(key)) { seenMail.add(key); mail.push(address); }
+      } catch { /* Ignore malformed or older dispatches. */ }
+    }
+  }
+  return reply({ fax, mail });
+}
+
 async function readBounded(request) {
   const reader = request.body?.getReader();
   if (!reader) throw new Error('missing');

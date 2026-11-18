@@ -5,7 +5,7 @@ import { handleFaxSend } from './fax-send.mjs';
 import { handleInboundFax } from './inbound-fax.mjs';
 import { handleInboundFaxRead, inboundFaxAllowed } from './inbound-fax-read.mjs';
 import { handleQueue, reconcileDeliveries } from './queue-consumer.mjs';
-import { approveMail, createTransmission, getTransmission, getTransmissionFile, handleCoverPreview, handleSettings, listRecords, listTransmissions, reviewMail } from './transmissions.mjs';
+import { approveMail, createTransmission, getTransmission, getTransmissionFile, handleCoverPreview, handleSettings, listRecipients, listRecords, listTransmissions, reviewMail } from './transmissions.mjs';
 import { listCalls, markHeard } from './voice-calls.mjs';
 import { handleFaxOperator } from './inbound-fax-operator.mjs';
 import { handleMail, listUnresolvedMail } from './mail-send.mjs';
@@ -99,6 +99,7 @@ export function createWorker(resolveKeys = issuer => {
     if (url.pathname === '/api/settings/voicemail') return voiceOwner ? handleVoicemailSettings(request, env) : new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
     if (url.pathname === '/api/settings') return handleSettings(request, env, actor);
     if (url.pathname === '/api/cover-preview') return handleCoverPreview(request, env);
+    if (url.pathname === '/api/recipients') return listRecipients(request, env, actor);
     if (url.pathname === '/api/transmissions') return request.method === 'POST' ? createTransmission(request, env, actor) : request.method === 'GET' ? listTransmissions(env, actor) : new Response('Method not allowed', { status: 405 });
     if (url.pathname === '/api/records') {
       if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });

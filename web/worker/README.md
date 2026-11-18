@@ -8,6 +8,7 @@ their Ed25519 signature instead.
 | Route | Purpose |
 | --- | --- |
 | `POST /api/transmissions` | Multipart `document` (PDF, up to 5 MB) and `spec` JSON. Writes the envelope and one `dispatches` row per channel and recipient, queues fax rows, and returns 202 immediately. |
+| `GET /api/recipients` | Recent fax and mailing recipients derived from the authenticated actor's last 200 dispatches. No separate address book or migration is required; deleting the underlying records removes them from this history. |
 | `GET /api/transmissions`, `GET /api/transmissions/:id` | List, and detail with per-channel status and timeline. The UI polls the detail. |
 | `GET /api/transmissions/:id/document` | The stored PDF. |
 | `GET .../mail/:deliveryId/review?mode=test\|live`, `POST .../approve` | Paper mail is queued only after approval, bound to the review hash and the test or live PostGrid key. |
