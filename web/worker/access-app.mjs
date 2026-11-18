@@ -5,18 +5,23 @@ import { appendFile } from 'node:fs/promises';
 import { isDeepStrictEqual } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { PORTAL_PATHS } from './portal-paths.mjs';
+import { TV_PATHS } from './tv-paths.mjs';
 
+export const PUBLIC_PATHS = Object.freeze([...PORTAL_PATHS, ...TV_PATHS]);
 const hosts = ['simpledocs.justinharbour.dev', 'simpledocs.justinharbour.com'];
 const paths = ['/webhooks/telnyx/fax', '/api/webhooks/telnyx/voice', '/api/webhooks/telnyx/messaging'];
 const policy = '36ee1f67-a91a-494c-b503-94bf48820ffa';
 const idp = 'bc4cede3-4ee0-4bd6-9393-34c10ca6a6d8';
 
 const same = (a, b) => isDeepStrictEqual(a, b);
-const portalOverrides = PORTAL_PATHS.map(path_pattern => ({ path_pattern, behavior: 'public' }));
-const exactPortalOverrides = overrides => overrides?.length === PORTAL_PATHS.length && PORTAL_PATHS.every(path => overrides.some(rule => rule.path_pattern === path && rule.behavior === 'public'));
+const portalOverrides = PUBLIC_PATHS.map(path_pattern => ({ path_pattern, behavior: 'public' }));
+const exactOverrides = (overrides, list) => overrides?.length === list.length && list.every(path => overrides.some(rule => rule.path_pattern === path && rule.behavior === 'public'));
+const exactPortalOverrides = overrides => exactOverrides(overrides, PUBLIC_PATHS);
+// The previously published portal-only set is accepted so a deploy can upgrade it.
+const knownOverrides = overrides => exactPortalOverrides(overrides) || exactOverrides(overrides, PORTAL_PATHS);
 function destinations(app, allowed, required, ownerApp = false) {
   const ds = app.destinations;
-  if (!Array.isArray(ds) || ds.some(d => d.type !== 'public' || !allowed.includes(d.uri) || ((d.overrides?.length ?? 0) !== 0 && !(ownerApp && d.uri === hosts[1] && exactPortalOverrides(d.overrides)))) ||
+  if (!Array.isArray(ds) || ds.some(d => d.type !== 'public' || !allowed.includes(d.uri) || ((d.overrides?.length ?? 0) !== 0 && !(ownerApp && d.uri === hosts[1] && knownOverrides(d.overrides)))) ||
       new Set(ds.map(d => d.uri)).size !== ds.length || !required.every(uri => ds.some(d => d.uri === uri))) throw Error('Unexpected Access destinations');
 }
 function owner(app, policies, required, allowLegacyOnly = false) {
@@ -63,7 +68,7 @@ export async function configureAccess(api, publishPortal = false) {
   // Add webhook destinations first; no hostname is routed to the Worker yet.
   for (const item of [...selected.slice(1), selected[0]]) {
     const { app, expected, path, check, policies } = item;
-    const publish = !path && (publishPortal || app.destinations.some(d => d.uri === hosts[1] && exactPortalOverrides(d.overrides)));
+    const publish = !path && (publishPortal || app.destinations.some(d => d.uri === hosts[1] && knownOverrides(d.overrides)));
     if (publishPortal && path) continue;
     const latest = (await api(`${base}/${app.id}`)).result;
     const latestPolicies = await api(`${base}/${app.id}/policies?per_page=100`);
