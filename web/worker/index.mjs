@@ -12,6 +12,7 @@ import { handleMail, listUnresolvedMail } from './mail-send.mjs';
 import { handleVoiceWebhook, handleVoiceRecording, listVoiceRecordings } from './voice-webhook.mjs';
 import { handleVoiceSession } from './voice-session.mjs';
 import { handlePresence } from './voice-presence.mjs';
+import { handleAvailability } from './availability-policy.mjs';
 import { handleSms, handleSmsWebhook } from './sms.mjs';
 import { handleInbox } from './inbox.mjs';
 import { handleVoicemailSettings } from './voicemail-config.mjs';
@@ -83,9 +84,10 @@ export function createWorker(resolveKeys = issuer => {
     if ((url.pathname === '/api/voice/recordings' || url.pathname.startsWith('/api/voice/recordings/') || url.pathname === '/api/voice/calls') && !voiceOwner) {
       return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
     }
-    const ownerOnly = url.pathname === '/api/voice/presence' || url.pathname.startsWith('/api/sms/');
+    const ownerOnly = url.pathname === '/api/voice/presence' || url.pathname === '/api/voice/availability' || url.pathname.startsWith('/api/sms/');
     if (ownerOnly && !voiceOwner) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
     if (url.pathname === '/api/voice/presence') return handlePresence(request, env);
+    if (url.pathname === '/api/voice/availability') return handleAvailability(request, env);
     if (url.pathname.startsWith('/api/sms/')) return handleSms(request, env);
     if (url.pathname === '/api/inbox' || url.pathname.startsWith('/api/inbox/')) {
       return handleInbox(request, env, { fax: inboundFaxAllowed(actor, env.INBOUND_FAX_ALLOWED_SUBJECTS), voice: voiceOwner });
