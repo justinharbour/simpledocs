@@ -9,52 +9,71 @@ struct SendView: View {
     let open: (String) -> Void
     @State private var importing = false
     @State private var dropTargeted = false
-    @State private var thumbnail: PlatformImage?
+    @State private var reorderToken = UUID().uuidString
     @State private var confirmLive = false
 
     var body: some View {
         Group {
             switch model.step {
             case .compose: compose
+            case .order: order
             case .review, .sending: review
             case .sent(let summary): sent(summary)
             }
         }
         .navigationTitle("Send")
         .task { await model.prefill() }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf]) { result in
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf], allowsMultipleSelection: true) { result in
             switch result {
-            case .success(let url): load(url)
+            case .success(let urls): load(urls)
             case .failure: model.rejectDocument("That file couldn't be opened.")
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
-            guard let url = urls.first(where: { $0.pathExtension.lowercased() == "pdf" }) else {
-                model.rejectDocument("Drop a PDF file.")
+            guard model.step == .compose, !urls.isEmpty else { return false }
+            guard urls.allSatisfy({ $0.pathExtension.lowercased() == "pdf" }) else {
+                model.rejectDocument("Drop PDF files only.")
                 return false
             }
-            load(url)
+            load(urls)
             return true
-        } isTargeted: { dropTargeted = $0 }
+        } isTargeted: { dropTargeted = $0 && model.step == .compose }
     }
 
-    private func load(_ url: URL) {
+    private func load(_ urls: [URL]) {
+        for url in urls where model.step == .compose {
+            loadOne(url)
+            if model.documentError != nil { break }
+        }
+    }
+
+    private func loadOne(_ url: URL) {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+        guard let handle = try? FileHandle(forReadingFrom: url) else {
             model.rejectDocument("That file couldn't be opened.")
             return
         }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: PickedDocument.limit + 1) else {
+            model.rejectDocument("That file couldn't be opened.")
+            return
+        }
+        if let problem = PickedDocument.problem(for: data) { model.rejectDocument(problem); return }
         let pdf = PDFDocument(data: data)
-        model.choose(data: data, name: url.lastPathComponent, pageCount: pdf?.pageCount)
-        thumbnail = model.document == nil ? nil : firstPage(of: pdf)
+        model.choose(data: data, name: url.lastPathComponent, pageCount: pdf?.isEncrypted == false ? pdf?.pageCount : nil)
     }
 
     // MARK: Compose
 
     private var compose: some View {
         Form {
-            Section("Document") { documentRow }
+            Section("Documents") {
+                documentRows
+                Toggle("Put the document number at the top of each page", isOn: $model.draft.numberDocumentPages)
+                Text("Recipients will see the number on every document page sent by fax or paper mail. The original page is scaled slightly to make room. This does not change the fax cover.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
 
             Section {
                 Picker("Send by", selection: $model.draft.channels) {
@@ -79,6 +98,7 @@ struct SendView: View {
                 Section("Cover page") {
                     Toggle("Include a cover page", isOn: $model.draft.cover.enabled)
                     if model.draft.cover.enabled {
+                        Toggle("List envelope and document numbers on the cover", isOn: $model.draft.cover.includeNumbers)
                         TextField("To", text: $model.draft.cover.to)
                         TextField("From", text: $model.draft.cover.from)
                         TextField("Subject", text: $model.draft.cover.subject)
@@ -106,7 +126,7 @@ struct SendView: View {
                 ForEach(model.problems, id: \.self) { problem in
                     Label(problem, systemImage: "exclamationmark.circle").font(.callout).foregroundStyle(.secondary)
                 }
-                Button("Review") { model.review() }
+                Button(model.documents.count > 1 ? "Set document order" : "Review") { model.review() }
                     .buttonStyle(.borderedProminent)
                     .disabled(!model.canReview)
                     .frame(maxWidth: .infinity, alignment: .trailing)
@@ -116,38 +136,56 @@ struct SendView: View {
         .overlay { if dropTargeted { DropHint() } }
     }
 
-    @ViewBuilder private var documentRow: some View {
-        if let document = model.document {
-            HStack(spacing: 14) {
-                PDFThumbnail(image: thumbnail, height: 110).frame(width: 86)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(document.name).font(.headline).lineLimit(2)
-                    Text("\(document.pageCount) \(document.pageCount == 1 ? "page" : "pages") · \(ByteCountFormatter.string(fromByteCount: Int64(document.byteCount), countStyle: .file))")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                    HStack {
-                        Button("Choose another") { importing = true }
-                        Button("Remove", role: .destructive) { model.clearDocument(); thumbnail = nil }
-                    }
+    @ViewBuilder private var documentRows: some View {
+        Text("Up to 10 PDFs, 5 MB and 100 pages total.").font(.footnote).foregroundStyle(.secondary)
+        ForEach(Array(model.documents.enumerated()), id: \.offset) { index, document in
+            HStack {
+                Text(document.name).lineLimit(2)
+                Spacer()
+                Button("Remove", role: .destructive) { model.removeDocument(at: index) }
                     .buttonStyle(.borderless)
-                    .font(.callout)
+                    .accessibilityLabel("Remove \(document.name), document \(index + 1)")
+            }
+        }
+        Button("Add PDFs…") { importing = true }.buttonStyle(.borderless)
+        if let error = model.documentError { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.callout) }
+    }
+
+    private var order: some View {
+        Form {
+            Section("Set the document order") {
+                Text("Drag a document or use Move up and Move down. Fax and paper mail follow this order.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                ForEach(Array(model.documents.enumerated()), id: \.offset) { index, document in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("\(index + 1). \(document.name)")
+                            .draggable("\(reorderToken):\(index)")
+                        HStack {
+                            Button("Move up") { model.moveDocument(from: index, to: index - 1) }
+                                .disabled(index == 0).accessibilityLabel("Move up: \(document.name), document \(index + 1)")
+                            Button("Move down") { model.moveDocument(from: index, to: index + 1) }
+                                .disabled(index == model.documents.count - 1).accessibilityLabel("Move down: \(document.name), document \(index + 1)")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    .dropDestination(for: String.self) { items, _ in
+                        let prefix = "\(reorderToken):"
+                        guard items.count == 1, let item = items.first, item.hasPrefix(prefix),
+                              let from = Int(item.dropFirst(prefix.count)), model.documents.indices.contains(from), from != index else { return false }
+                        model.moveDocument(from: from, to: index)
+                        return true
+                    }
                 }
             }
-            .accessibilityElement(children: .combine)
-        } else {
-            VStack(spacing: 10) {
-                Image(systemName: "arrow.down.doc").font(.title).foregroundStyle(.secondary).accessibilityHidden(true)
-                Text("Choose a PDF to send").font(.headline)
-                #if os(iOS)
-                Text("Up to 5 MB. You can also drop a PDF here on iPad.").font(.footnote).foregroundStyle(.secondary)
-                #else
-                Text("Up to 5 MB. You can also drop a PDF here.").font(.footnote).foregroundStyle(.secondary)
-                #endif
-                Button("Choose PDF…") { importing = true }.buttonStyle(.borderedProminent)
+            Section {
+                HStack {
+                    Button("Back") { model.backToCompose() }.buttonStyle(.borderless)
+                    Spacer()
+                    Button("Review") { model.review() }.buttonStyle(.borderedProminent)
+                }
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
         }
-        if let error = model.documentError { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.callout) }
+        .formStyle(.grouped)
     }
 
     @ViewBuilder private var faxFeedback: some View {
@@ -166,14 +204,20 @@ struct SendView: View {
     private var review: some View {
         let sending = model.step == .sending
         return Form {
-            Section("Document") {
-                LabeledContent("File", value: model.document?.name ?? "")
-                LabeledContent("Pages", value: "\(model.document?.pageCount ?? 0)")
+            Section("Document order") {
+                ForEach(Array(model.documents.enumerated()), id: \.offset) { index, document in
+                    Text("\(index + 1). \(document.name) (\(document.pageCount) \(document.pageCount == 1 ? "page" : "pages"))")
+                }
+                LabeledContent("Total pages", value: "\(model.pageCount)")
+                LabeledContent("Page headers", value: model.draft.numberDocumentPages ? "Document number on every page" : "None")
             }
             if model.draft.channels.hasFax {
                 Section("Fax") {
                     ForEach(model.draft.fax.numbers, id: \.self) { Text(PhoneNumber.display($0)) }
                     LabeledContent("Cover page", value: model.draft.cover.enabled ? "Included" : "None")
+                    if model.draft.cover.enabled && model.draft.cover.includeNumbers {
+                        Text("Envelope and document numbers will be listed on the cover.").font(.footnote)
+                    }
                 }
             }
             if model.draft.channels.hasMail {
@@ -191,7 +235,7 @@ struct SendView: View {
             }
             Section {
                 HStack {
-                    Button("Back") { model.backToCompose() }.disabled(sending)
+                    Button("Back") { model.backFromReview() }.disabled(sending)
                     Spacer()
                     if sending { ProgressView().controlSize(.small) }
                     Button(model.sendButtonTitle) {
@@ -218,6 +262,7 @@ struct SendView: View {
             Image(systemName: summary.letterProblem == nil ? "checkmark.circle" : "exclamationmark.triangle")
                 .font(.system(size: 44)).foregroundStyle(summary.letterProblem == nil ? Color.green : Color.orange).accessibilityHidden(true)
             Text(summary.letterProblem == nil ? "Handed off" : "Partly handed off").font(.title2.bold())
+            if let number = summary.envelopeNumber { Text("Envelope \(number)").foregroundStyle(.secondary) }
             VStack(alignment: .leading, spacing: 6) {
                 if summary.faxCount > 0 {
                     Label("\(summary.faxCount) \(summary.faxCount == 1 ? "fax" : "faxes") queued. Delivery isn't confirmed until the receiving machine answers.", systemImage: "clock")
@@ -234,7 +279,7 @@ struct SendView: View {
             .frame(maxWidth: 460, alignment: .leading)
             HStack {
                 Button("View record") { open(summary.transmissionID) }.buttonStyle(.borderedProminent)
-                Button("Send another") { model.reset(); thumbnail = nil }
+                Button("Send another") { model.reset() }
             }
         }
         .padding(32)
@@ -249,7 +294,7 @@ struct DropHint: View {
             .background(Color.accentColor.opacity(0.08))
             .padding(8)
             .allowsHitTesting(false)
-            .overlay { Label("Drop the PDF here", systemImage: "arrow.down.doc").font(.title3) }
+            .overlay { Label("Drop PDFs here", systemImage: "arrow.down.doc").font(.title3) }
     }
 }
 
