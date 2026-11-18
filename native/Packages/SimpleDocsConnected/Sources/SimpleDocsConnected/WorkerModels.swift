@@ -195,6 +195,13 @@ public struct WorkerSettings: Codable, Sendable, Equatable {
     public let senderName: String
     public let mailFrom: MailContact?
     public let faxFrom: String?
+    public let faxEstimate: FaxEstimate?
+}
+
+public struct FaxEstimate: Codable, Sendable, Equatable {
+    public let rate: Double
+    public let source: String
+    public let url: String?
 }
 
 public struct SettingsUpdate: Encodable, Sendable {

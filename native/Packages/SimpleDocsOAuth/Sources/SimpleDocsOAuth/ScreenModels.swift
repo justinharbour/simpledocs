@@ -367,6 +367,7 @@ public struct PickedDocument: Equatable, Sendable {
     public private(set) var documentError: String?
     public private(set) var recentRecipients: RecentRecipients?
     public private(set) var recipientsNotice: String?
+    public private(set) var faxEstimate: FaxEstimate?
     private let session: ConnectedModel
     private var prefilled = false
 
@@ -407,6 +408,7 @@ public struct PickedDocument: Equatable, Sendable {
         guard !prefilled else { return }
         prefilled = true
         guard let settings = try? await session.call({ try await $0.settings() }) else { prefilled = false; return }
+        faxEstimate = settings.faxEstimate
         if draft.cover.from.trimmed.isEmpty { draft.cover.from = settings.senderName }
         if draft.mailFrom.isBlank, let from = settings.mailFrom { draft.mailFrom = from }
     }
@@ -442,7 +444,7 @@ public struct PickedDocument: Equatable, Sendable {
             let files = documents.map { (data: $0.data, name: $0.name) }
             let numberDocumentPages = draft.numberDocumentPages
             let numberFaxCover = draft.channels.hasFax && draft.cover.enabled && draft.cover.includeNumbers
-            let created = try await session.call { try await $0.createTransmission(documents: files, spec: spec, numberDocumentPages: numberDocumentPages, numberFaxCover: numberFaxCover) }
+            let created = try await session.call { try await $0.createTransmission(documents: files, spec: spec, numberDocumentPages: numberDocumentPages, numberFaxCover: numberFaxCover, requirePreparedReview: true) }
             let problem: String? = draft.channels.hasMail
                 ? "Open the record to review and confirm the letter separately." : nil
             step = .sent(SentSummary(transmissionID: created.id, envelopeNumber: created.envelopeNumber, faxCount: created.deliveries.filter { $0.channel == "fax" }.count,

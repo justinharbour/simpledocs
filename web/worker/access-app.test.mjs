@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { configureAccess } from './access-app.mjs';
+import { PORTAL_PATHS } from './portal-paths.mjs';
 
 const old = 'simpledocs.justinharbour.dev', next = 'simpledocs.justinharbour.com';
 const paths = ['/webhooks/telnyx/fax', '/api/webhooks/telnyx/voice', '/api/webhooks/telnyx/messaging'];
@@ -42,4 +43,20 @@ test('fails closed if readback changes audience', async () => {
   const f = fixture();
   const api = async (path, options) => { const r = await f.api(path, options); if (path === '/access/apps/owner' && !options && f.writes.includes('owner')) r.result.aud = 'b'.repeat(64); return r; };
   await assert.rejects(configureAccess(api), /audience/);
+});
+
+test('publishes exact portal paths on the production destination only and preserves them on redeploy', async () => {
+  const f = fixture();
+  await configureAccess(f.api);
+  f.writes.length = 0;
+  await configureAccess(f.api, true);
+  assert.deepEqual(f.writes, ['owner']);
+  const overrides = PORTAL_PATHS.map(path_pattern => ({ path_pattern, behavior: 'public' }));
+  assert.deepEqual(f.apps[0].destinations, [{ type: 'public', uri: old }, { type: 'public', uri: next, overrides }]);
+  await configureAccess(f.api);
+  assert.deepEqual(f.apps[0].destinations[1].overrides, overrides);
+  f.apps[0].destinations[1].overrides = [{ path_pattern: '/portal/*', behavior: 'public' }];
+  f.writes.length = 0;
+  await assert.rejects(configureAccess(f.api, true), /Unexpected Access destinations/);
+  assert.deepEqual(f.writes, []);
 });
