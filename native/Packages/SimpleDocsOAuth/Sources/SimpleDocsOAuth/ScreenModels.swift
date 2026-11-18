@@ -92,12 +92,56 @@ import SimpleDocsConnected
         }
     }
 
+    /// Local review of the exact letter for one mode. Nothing is mailed until `approve` runs.
+    public private(set) var mailReview: (deliveryID: String, review: MailReview)?
+
+    public func reviewMail(_ delivery: DeliveryDetail, mode: MailMode) async {
+        approvalError = nil
+        approvingID = delivery.id
+        defer { approvingID = nil }
+        do {
+            let (id, deliveryID) = (self.id, delivery.id)
+            let review = try await session.call { try await $0.mailReview(transmissionID: id, deliveryID: deliveryID, mode: mode) }
+            mailReview = (delivery.id, review)
+            if !review.available { approvalError = "Paper mail in \(mode.rawValue) mode isn't set up on this instance, so the letter can't be mailed." }
+        } catch is CancellationError {
+        } catch { approvalError = describe(error) }
+    }
+
+    public func cancelReview() { mailReview = nil; approvalError = nil }
+
+    /// Approves exactly what was reviewed. The Worker rejects it if the letter changed since.
+    public func approveMail(_ delivery: DeliveryDetail) async {
+        guard let shown = mailReview, shown.deliveryID == delivery.id, shown.review.available,
+              let mode = MailMode(rawValue: shown.review.mode) else { return }
+        approvalError = nil
+        approvingID = delivery.id
+        defer { approvingID = nil }
+        do {
+            let (id, deliveryID, hash) = (self.id, delivery.id, shown.review.reviewHash)
+            try await session.call { try await $0.approveMail(transmissionID: id, deliveryID: deliveryID, mode: mode, reviewHash: hash) }
+            mailReview = nil
+            await load(quiet: true)
+        } catch is CancellationError {
+        } catch { approvalError = describe(error) }
+    }
+
+    // Cached so a re-rendered screen keeps the file it already downloaded.
+    @ObservationIgnored private var files: [String: RemoteFile] = [:]
+
+    private func cached(_ path: String, name: String) -> RemoteFile {
+        if let file = files[path] { return file }
+        let file = RemoteFile(session: session, path: path, name: name)
+        files[path] = file
+        return file
+    }
+
     public func document() -> RemoteFile? {
-        detail.map { RemoteFile(session: session, path: $0.documentUrl, name: "\($0.title).pdf") }
+        detail.map { cached($0.documentUrl, name: "\($0.title).pdf") }
     }
 
     public func cover(_ delivery: DeliveryDetail) -> RemoteFile? {
-        delivery.coverUrl.map { RemoteFile(session: session, path: $0, name: "Cover page.pdf") }
+        delivery.coverUrl.map { cached($0, name: "Cover page.pdf") }
     }
 }
 
@@ -125,8 +169,13 @@ import SimpleDocsConnected
         } catch { phase = .failed(describe(error)) }
     }
 
+    @ObservationIgnored private var files: [String: RemoteFile] = [:]
+
     public func file(for recording: Recording) -> RemoteFile {
-        RemoteFile(session: session, path: recording.path, name: recording.kind == "voicemail" ? "Voicemail" : "Call recording")
+        if let file = files[recording.id] { return file }
+        let file = RemoteFile(session: session, path: recording.path, name: recording.kind == "voicemail" ? "Voicemail" : "Call recording")
+        files[recording.id] = file
+        return file
     }
 
     /// Marks it heard on screen right away and puts it back if the Worker refuses.
