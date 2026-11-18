@@ -75,7 +75,7 @@ export async function handleVoiceWebhook(request, env, fetcher = fetch, now = Da
     if (existing) return existing.event_id === data.id && existing.call_control_id === payload.call_control_id ? reply(200, 'Accepted') : reply(409, 'Recording conflict');
     const format = recordingUrl(payload.recording_urls?.mp3) ? 'mp3' : recordingUrl(payload.recording_urls?.wav) ? 'wav' : null;
     if (!format) return reply(503, 'Unsupported recording location');
-    const response = await fetcher(recordingUrl(payload.recording_urls[format]), { redirect: 'error' });
+    const response = await fetcher(recordingUrl(payload.recording_urls[format]), { redirect: 'manual' });
     if (!response.ok) return reply(503, 'Recording unavailable');
     const audio = await bounded(response.body, MAX_AUDIO);
     if (!audio.length) return reply(503, 'Recording unavailable');

@@ -10,7 +10,7 @@ describe('Telnyx fax single-attempt boundary', () => {
     const result = await submitFax(input, async (url, options) => {
       calls++;
       assert.equal(url, 'https://api.telnyx.com/v2/faxes');
-      assert.equal(options.redirect, 'error');
+      assert.equal(options.redirect, 'manual');
       assert.deepEqual(JSON.parse(options.body), { connection_id: input.connectionId, from: input.from, to: input.to, media_name: input.mediaName, client_state: btoa(input.intentId) });
       return Response.json({ data: { id: 'fax-id' } }, { status: 202 });
     });

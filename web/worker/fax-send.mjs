@@ -43,7 +43,7 @@ export async function handleFaxSend(request, env, actor, id, fetcher = fetch) {
   upload.set('media_name', mediaName);
   upload.set('ttl_secs', '172800');
   try {
-    const response = await fetcher('https://api.telnyx.com/v2/media', { method: 'POST', headers: { Authorization: `Bearer ${config.token}` }, body: upload, redirect: 'error' });
+    const response = await fetcher('https://api.telnyx.com/v2/media', { method: 'POST', headers: { Authorization: `Bearer ${config.token}` }, body: upload, redirect: 'manual' });
     if (!response.ok || (await response.json())?.data?.media_name !== mediaName) return reply({ error: 'Document upload failed; no fax was sent' }, 502);
   } catch { return reply({ error: 'Document upload failed; no fax was sent' }, 502); }
   if (!await prepareFax(env.DB, { id, actor, destination, mediaName })) return reply({ error: 'Fax ID already used' }, 409);
