@@ -55,16 +55,21 @@ describe('APNs sender', () => {
       assert.equal((await handlePushDevices(registration, { DB: db }, 'owner')).status, 200);
       const mismatched = new Request('https://example.test/api/push/devices', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: hex('d'), platform: 'ios', environment: 'production', bundleId: 'com.justinharbour.simpledocs.mac.connected' }) });
       assert.equal((await handlePushDevices(mismatched, { DB: db }, 'owner')).status, 400);
+      for (const [token, platform] of [[hex('e'), 'ios'], [hex('f'), 'macos']]) {
+        const request = new Request('https://example.test/api/push/devices', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token, platform, environment: 'production', bundleId: 'com.justinharbour.simpledocs' }) });
+        assert.equal((await handlePushDevices(request, { DB: db }, 'owner')).status, 200);
+      }
       const calls = [];
       const fetcher = async (url, init) => { calls.push({ url, init }); return new Response(null, { status: 200 }); };
       const env = { DB: db, APNS_KEY_P8: pem, APNS_KEY_ID: 'KEYID', APNS_TEAM_ID: 'TEAMID' };
       assert.equal(await notifyPush(env, { kind: 'voicemail', id: 'rec-1' }, { fetcher }), 'sent');
       const urls = calls.map(c => c.url).sort();
-      assert.deepEqual(urls, [`https://api.push.apple.com/3/device/${hex('b')}`, `https://api.push.apple.com/3/device/${hex('c')}`, `https://api.sandbox.push.apple.com/3/device/${hex('a')}`]);
+      assert.deepEqual(urls, [`https://api.push.apple.com/3/device/${hex('b')}`, `https://api.push.apple.com/3/device/${hex('c')}`, `https://api.push.apple.com/3/device/${hex('e')}`, `https://api.push.apple.com/3/device/${hex('f')}`, `https://api.sandbox.push.apple.com/3/device/${hex('a')}`]);
       const sandbox = calls.find(c => c.url.includes('sandbox'));
       assert.equal(sandbox.init.headers['apns-topic'], 'dev.justinharbour.simpledocs.ios');
       assert.equal(calls.find(c => c.url.endsWith(hex('b'))).init.headers['apns-topic'], 'dev.justinharbour.simpledocs.mac.connected');
       assert.equal(calls.find(c => c.url.endsWith(hex('c'))).init.headers['apns-topic'], 'com.justinharbour.simpledocs.ios');
+      for (const token of [hex('e'), hex('f')]) assert.equal(calls.find(c => c.url.endsWith(token)).init.headers['apns-topic'], 'com.justinharbour.simpledocs');
       assert.equal(sandbox.init.headers['apns-push-type'], 'alert');
       assert.equal(sandbox.init.headers['apns-priority'], '10');
       assert.match(sandbox.init.headers.authorization, /^bearer [\w-]+\.[\w-]+\.[\w-]+$/);

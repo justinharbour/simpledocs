@@ -15,9 +15,9 @@ Sending does nothing until the three required secrets below exist. Registered de
 
 Apple Developer portal:
 
-1. Identifiers: enable the **Push Notifications** capability on `com.justinharbour.simpledocs.ios` and `com.justinharbour.simpledocs.mac.connected`.
+1. Identifiers: verify ownership and enable the **Push Notifications** capability on `com.justinharbour.simpledocs`. Retain any capabilities needed by older installed apps during migration.
 2. Keys: create an **Apple Push Notifications service (APNs)** key and download the `.p8`. It can be downloaded only once. Note its Key ID and your Team ID.
-3. Regenerate the provisioning profiles for both apps so they carry the push entitlement.
+3. Prepare platform-appropriate provisioning profiles so they carry the push entitlement.
 
 Worker secrets. They are never in `wrangler.jsonc` or the deploy workflow. Set them once by hand from `web/` with `wrangler secret put <NAME>`; they persist across deploys. `APNS_TOPIC` and `APNS_TOPIC_MACOS` are optional; set them only if the bundle IDs differ.
 
@@ -41,4 +41,4 @@ Apply `0030_push_devices.sql` and the additive `0044_push_device_bundle.sql` mig
 - A debug build never receives pushes: its token is `sandbox`. APNs rejects it if sent to the production host, and the Worker uses the environment stored with the token.
 - Cloudflare Workers `fetch` is used for the HTTP/2 request. Cloudflare does not document HTTP/2 to arbitrary origins, so the first live push is the real test.
 
-Existing registrations and old clients that omit the bundle identifier continue to use the legacy topic. New registrations carry the `com` bundle identifier and use that topic, independent of legacy overrides. For both generations to receive push, the APNs key must be authorized for both topics. Register the new app normally after installing it; legacy preferences and app-scoped Keychain items do not migrate automatically.
+Existing registrations and old clients that omit the bundle identifier continue to use the legacy topic. Explicitly registered previous `com` per-platform topics remain accepted and routed to their recorded topic; new builds register `com.justinharbour.simpledocs`. For all generations to receive push, the APNs key must be authorized for their respective topics. Register the new app normally after installing it; legacy preferences and app-scoped Keychain items do not migrate automatically. Deploy the additive database migration and compatible Worker before installing builds that register the new topic.

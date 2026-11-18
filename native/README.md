@@ -22,9 +22,9 @@ The voicemail greeting editor uses `GET/PUT /api/settings/voicemail` (`{greeting
 
 ## Layout
 
-Shared SwiftUI screens are in `Apps/ConnectedShared`; the macOS connected app is in `Apps/MacConnected`, the direct edition in `Apps/MacDirect` (unchanged, still a preview with synthetic data) and iPhone/iPad in `Apps/iOS`. The models, sign-in, networking and view models live in Swift packages under `Packages/`; see [connected-integration.md](docs/connected-integration.md) for what each package does and how sessions work. `project.yml` is the [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec (the `.xcodeproj` is generated and not committed).
+Shared SwiftUI screens are in `Apps/ConnectedShared`; platform entry points are in `Apps/MacConnected` and `Apps/iOS`. The old synthetic direct preview source remains for reference but is not a build target. The `SimpleDocsDirect` package is only an eligibility and Keychain foundation, not a provider integration. No keys are collected in the app. See [connected-integration.md](docs/connected-integration.md). `project.yml` is the [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec (the `.xcodeproj` is generated and not committed).
 
-The two macOS editions are separate targets with separate bundle identifiers, product names and entitlements. The identifiers are `com.justinharbour.simpledocs.mac.connected`, `com.justinharbour.simpledocs.mac.direct`, and `com.justinharbour.simpledocs.ios`. Confirm ownership and register the App IDs and appropriate capabilities and provisioning profiles in the Apple Developer account before signing. No signing settings or live resources are changed here.
+The macOS and iOS/iPadOS app targets share `com.justinharbour.simpledocs` as their main bundle identifier; they are platform builds, not one cross-platform binary. Settings identify the self-hosted mode and explicitly mark direct provider connections unavailable. tvOS and a Share extension are not implemented. See [unified product](docs/unified-product.md) for the platform, policy and provisioning gaps.
 
 These IDs are different applications from the old `dev` IDs, not in-place upgrades. Existing installations, preferences, sandbox data and Keychain access may not carry over; users may need to sign in again and re-enter direct-provider credentials. The existing direct-provider Keychain service name is intentionally retained; no credentials are deleted or copied. Keep the old app installed until data and credentials are safely accounted for. See [push.md](docs/push.md) for the APNs cutover.
 
@@ -45,7 +45,6 @@ Packages/*Connected/ci/guard.sh
 # Generate the project, then build each target without signing
 xcodegen generate
 xcodebuild -project SimpleDocs.xcodeproj -scheme SimpleDocsMacConnected -destination 'platform=macOS' build CODE_SIGNING_ALLOWED=NO
-xcodebuild -project SimpleDocs.xcodeproj -scheme SimpleDocsMacDirect    -destination 'platform=macOS' build CODE_SIGNING_ALLOWED=NO
 xcodebuild -project SimpleDocs.xcodeproj -scheme SimpleDocsiOS          -destination 'generic/platform=iOS' build CODE_SIGNING_ALLOWED=NO
 xcodebuild -project SimpleDocs.xcodeproj -scheme SimpleDocsSignInTests  -destination 'platform=macOS' test CODE_SIGNING_ALLOWED=NO
 ```

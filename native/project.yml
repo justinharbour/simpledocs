@@ -45,30 +45,12 @@ targets:
     settings:
       base:
         # Confirm App IDs and provisioning with the Apple Developer account before signing.
-        PRODUCT_BUNDLE_IDENTIFIER: com.justinharbour.simpledocs.mac.connected
+        PRODUCT_BUNDLE_IDENTIFIER: com.justinharbour.simpledocs
         PRODUCT_NAME: simpledocs
         CODE_SIGN_ENTITLEMENTS: Config/MacConnected.entitlements
         ENABLE_HARDENED_RUNTIME: "YES"
         GENERATE_INFOPLIST_FILE: "YES"
         INFOPLIST_KEY_CFBundleDisplayName: simpledocs
-        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
-  SimpleDocsMacDirect:
-    type: application
-    platform: macOS
-    sources: [Apps/MacDirect]
-    dependencies:
-      - package: SimpleDocsKit
-        product: SimpleDocsCore
-      - package: SimpleDocsKit
-        product: SimpleDocsViews
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.justinharbour.simpledocs.mac.direct
-        PRODUCT_NAME: simpledocs Direct
-        CODE_SIGN_ENTITLEMENTS: Config/MacDirect.entitlements
-        ENABLE_HARDENED_RUNTIME: "YES"
-        GENERATE_INFOPLIST_FILE: "YES"
-        INFOPLIST_KEY_CFBundleDisplayName: simpledocs Direct
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
   SimpleDocsiOS:
     type: application
@@ -90,7 +72,7 @@ targets:
         product: SimpleDocsOAuth
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.justinharbour.simpledocs.ios
+        PRODUCT_BUNDLE_IDENTIFIER: com.justinharbour.simpledocs
         CODE_SIGN_ENTITLEMENTS: Config/iOS.entitlements
         PRODUCT_NAME: simpledocs
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -118,8 +100,6 @@ targets:
 schemes:
   SimpleDocsMacConnected:
     build: {targets: {SimpleDocsMacConnected: all}}
-  SimpleDocsMacDirect:
-    build: {targets: {SimpleDocsMacDirect: all}}
   SimpleDocsiOS:
     build: {targets: {SimpleDocsiOS: all}}
   SimpleDocsSignInTests:

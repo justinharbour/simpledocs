@@ -2,7 +2,7 @@
 // content or phone numbers. Never log tokens, keys, or provider payloads.
 // Sending never throws: a push failure must not break the primary flow.
 const HOSTS = { production: 'https://api.push.apple.com', sandbox: 'https://api.sandbox.push.apple.com' };
-const TOPICS = { ios: 'com.justinharbour.simpledocs.ios', macos: 'com.justinharbour.simpledocs.mac.connected' };
+const TOPICS = { ios: ['com.justinharbour.simpledocs', 'com.justinharbour.simpledocs.ios'], macos: ['com.justinharbour.simpledocs', 'com.justinharbour.simpledocs.mac.connected'] };
 const LEGACY_TOPICS = { ios: 'dev.justinharbour.simpledocs.ios', macos: 'dev.justinharbour.simpledocs.mac.connected' };
 const TOKEN = /^[0-9a-f]{64,200}$/;
 const JWT_MAX_AGE_MS = 50 * 60 * 1000;
@@ -25,7 +25,8 @@ function credentials(env) {
 }
 
 function topicFor(env, device) {
-  if (device.bundle_id) return TOPICS[device.platform];
+  if (device.bundle_id && TOPICS[device.platform]?.includes(device.bundle_id)) return device.bundle_id;
+  if (device.bundle_id) throw Error('Invalid bundle identifier');
   const override = device.platform === 'macos' ? env.APNS_TOPIC_MACOS : env.APNS_TOPIC;
   return typeof override === 'string' && override.trim() ? override.trim() : LEGACY_TOPICS[device.platform];
 }
@@ -113,7 +114,7 @@ export async function handlePushDevices(request, env, actor, token) {
     try { body = await readJson(request); } catch { return reply({ error: 'Invalid request' }, 400); }
     const value = typeof body?.token === 'string' ? body.token.toLowerCase() : '';
     if (!TOKEN.test(value) || !['ios', 'macos'].includes(body.platform) || !['sandbox', 'production'].includes(body.environment)) return reply({ error: 'Invalid device' }, 400);
-    if (body.bundleId !== undefined && body.bundleId !== TOPICS[body.platform]) return reply({ error: 'Invalid bundle identifier' }, 400);
+    if (body.bundleId !== undefined && !TOPICS[body.platform].includes(body.bundleId)) return reply({ error: 'Invalid bundle identifier' }, 400);
     await env.DB.prepare("INSERT INTO push_devices (token, platform, environment, bundle_id) VALUES (?, ?, ?, ?) ON CONFLICT(token) DO UPDATE SET platform = excluded.platform, environment = excluded.environment, bundle_id = excluded.bundle_id, last_seen_at = datetime('now')")
       .bind(value, body.platform, body.environment, body.bundleId ?? null).run();
     return reply({ ok: true });
