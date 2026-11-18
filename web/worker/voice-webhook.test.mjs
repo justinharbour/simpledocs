@@ -16,11 +16,11 @@ async function signed(body, ts = timestamp) {
 }
 function setup() {
   const db = new DatabaseSync(':memory:');
-  db.exec(readFileSync(new URL('../../backend/core/migrations/0008_voice_webhooks.sql', import.meta.url), 'utf8'));
+  for (const name of ['0008_voice_webhooks.sql', '0012_transmissions.sql', '0013_transcripts.sql']) db.exec(readFileSync(new URL(`../../backend/core/migrations/${name}`, import.meta.url), 'utf8'));
   const DB = { prepare(sql) { return { async all() { return { results: db.prepare(sql).all() }; }, bind(...args) { return { async first() { return db.prepare(sql).get(...args); }, async run() { return db.prepare(sql).run(...args); } }; } }; } };
   const objects = new Map();
-  const VOICE_RECORDINGS = { async put(key, value) { objects.set(key, value); }, async get(key) { const value = objects.get(key); return value ? { body: value } : null; } };
-  return { env: { DB, VOICE_RECORDINGS, TELNYX_PUBLIC_KEY: publicKey, TELNYX_VOICE_CONNECTION_ID: 'connection' }, db, objects };
+  const FILES = { async put(key, value) { objects.set(key, value); }, async get(key) { const value = objects.get(key); return value ? { body: value } : null; } };
+  return { env: { DB, FILES, TELNYX_PUBLIC_KEY: publicKey, TELNYX_VOICE_CONNECTION_ID: 'connection' }, db, objects };
 }
 
 test('authenticates, durably records, archives privately and deduplicates', async () => {
@@ -62,7 +62,7 @@ test('storage failure returns retryable response and later retry archives', asyn
 });
 
 test('lifecycle event requires no recording storage and conflicts are rejected', async () => {
-  const { env } = setup(); delete env.VOICE_RECORDINGS;
+  const { env } = setup(); delete env.FILES;
   assert.equal((await handleVoiceWebhook(await signed(JSON.stringify(event('call.hangup'))), env, fetch, now)).status, 200);
   assert.equal((await handleVoiceWebhook(await signed(JSON.stringify(event('call.answered'))), env, fetch, now)).status, 409);
 });
@@ -85,12 +85,64 @@ test('voicemail answers only dedicated incoming calls, greets then records and c
   const marker = commands[0].body.client_state;
   await send('call.answered', 'answered', { client_state: marker });
   assert.match(commands[1].url, /\/speak$/);
+  assert.deepEqual(commands[1].body, { client_state: marker, payload: 'Please leave a message.', payload_type: 'text', voice: 'Telnyx.KokoroTTS.af', language: 'en-US', command_id: commands[1].body.command_id });
   await send('call.speak.ended', 'unmatched-speech', { client_state: btoa('unrelated') });
   assert.equal(commands.length, 2);
   await send('call.speak.ended', 'spoken', { client_state: marker });
   assert.match(commands[2].url, /\/record_start$/);
+  assert.equal(commands[2].body.transcription, true);
+  assert.equal(commands[2].body.transcription_engine, 'A');
+  assert.equal(commands[2].body.transcription_language, 'en-US');
+  assert.equal(commands.slice(0, 2).some(c => 'transcription' in c.body), false);
   await send('call.recording.saved', 'recorded', { client_state: commands[2].body.client_state });
   assert.equal(db.prepare('SELECT kind FROM voice_recordings').get().kind, 'voicemail');
+});
+
+async function greetingCommand(env, callId) {
+  const commands = [];
+  const fetcher = async (url, options) => { commands.push({ url, body: JSON.parse(options.body) }); return Response.json({ data: { result: 'ok' } }); };
+  const send = async (type, eventId, extra) => { const e = event(type); e.data.id = eventId; Object.assign(e.data.payload, { call_control_id: callId }, extra); return handleVoiceWebhook(await signed(JSON.stringify(e)), env, fetcher, now); };
+  await send('call.initiated', `init-${callId}`, { direction: 'incoming', to: '+12025550102' });
+  await send('call.answered', `answered-${callId}`, { client_state: commands[0].body.client_state });
+  return commands.find(c => c.url.endsWith('/speak'));
+}
+const voicemailEnv = extra => ({ VOICEMAIL_ENABLED: 'true', VOICE_INBOUND_ENABLED: 'true', VOICEMAIL_NUMBER: '+12025550102', TELNYX_API_TOKEN: 'test', ...extra });
+const store = (db, values) => { for (const [key, value] of Object.entries(values)) db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run(`voicemail_${key}`, value, 'now'); };
+
+test('voicemail speaks the stored greeting and voice at call time, ahead of the environment', async () => {
+  const { env, db } = setup();
+  Object.assign(env, voicemailEnv({ VOICEMAIL_GREETING: 'From env' }));
+  store(db, { greeting: 'Stored hello', voice: 'AWS.Polly.Joanna-Neural', service_level: 'premium' });
+  const speak = await greetingCommand(env, 'named');
+  assert.equal(speak.body.payload, 'Stored hello');
+  assert.equal(speak.body.voice, 'AWS.Polly.Joanna-Neural');
+  assert.equal(speak.body.payload_type, 'text');
+  assert.equal('service_level' in speak.body, false);
+  db.prepare("UPDATE settings SET value = 'female' WHERE key = 'voicemail_voice'").run();
+  const legacy = await greetingCommand(env, 'legacy');
+  assert.equal(legacy.body.voice, 'female');
+  assert.equal(legacy.body.service_level, 'premium');
+});
+
+test('voicemail falls back to the environment greeting and default voice, and needs one of the two greetings', async () => {
+  const fromEnv = setup();
+  Object.assign(fromEnv.env, voicemailEnv({ VOICEMAIL_GREETING: 'From env' }));
+  const speak = await greetingCommand(fromEnv.env, 'env');
+  assert.equal(speak.body.payload, 'From env');
+  assert.equal(speak.body.voice, 'Telnyx.KokoroTTS.af');
+  assert.equal('service_level' in speak.body, false);
+
+  const storedOnly = setup();
+  Object.assign(storedOnly.env, voicemailEnv());
+  store(storedOnly.db, { greeting: 'Only stored' });
+  assert.equal((await greetingCommand(storedOnly.env, 'stored')).body.payload, 'Only stored');
+
+  const neither = setup();
+  Object.assign(neither.env, voicemailEnv());
+  let count = 0;
+  const e = event('call.initiated'); Object.assign(e.data.payload, { direction: 'incoming', to: '+12025550102' });
+  await handleVoiceWebhook(await signed(JSON.stringify(e)), neither.env, async () => { count++; return new Response('ok'); }, now);
+  assert.equal(count, 0);
 });
 
 test('disabled, unrelated, outbound and stale calls never trigger commands', async () => {

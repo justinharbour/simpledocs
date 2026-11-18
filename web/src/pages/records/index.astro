@@ -1,13 +1,155 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import PageHeader from "@/components/PageHeader.astro";
-import EmptyState from "@/components/EmptyState.astro";
+import { Button } from "@/components/starwind/button";
 ---
-<AppLayout title="Records" description="Communication records.">
-  <PageHeader title="Records" summary="Communication records and documents." />
-  <section class="mt-10 max-w-2xl">
-    <EmptyState title="Record listing is not available yet" headingLevel="h2">
-      To check the last fax submitted in this browser session, open <a href="/fax/" class="underline underline-offset-4">Send a fax</a> and select Check delivery status. This page does not currently list saved records.
-    </EmptyState>
+
+<AppLayout title="Records" description="Everything sent and received.">
+  <PageHeader title="Records" summary="Sent documents, received faxes and voicemail, newest first." />
+
+  <div id="list-view">
+    <div id="list" aria-live="polite"></div>
+  </div>
+
+  <section id="detail-view" hidden aria-labelledby="detail-heading" class="max-w-3xl">
+    <Button id="back-to-list" type="button" variant="ghost" size="sm" class="mb-4">Back to all records</Button>
+    <h2 id="detail-heading" class="sr-only">Record details</h2>
+    <div id="detail"></div>
   </section>
+
+  <script>
+    import { watchTransmission } from "@/lib/detail";
+    import { api, badgeEl, channelLabels, duration, h, skeletonRows, statusBadge, when } from "@/lib/ui";
+    import { table, tableBody, tableCell, tableHead, tableHeader, tableRow } from "@/components/starwind/table/variants";
+    import { tabsList, tabsTrigger } from "@/components/starwind/tabs/variants";
+
+    type Channel = { channel: string; status: string };
+    type Rec = {
+      type: "transmission" | "inbound_fax" | "recording";
+      id: string; title: string; createdAt: string; updatedAt: string; channels: Channel[];
+      previewUrl: string; previewType: "pdf" | "audio";
+      pageCount?: number; direction?: string | null; fromNumber?: string | null; toNumber?: string | null; durationSecs?: number | null; kind?: string; transcript?: string | null;
+    };
+    const filters = [
+      ["all", "All"], ["transmission", "Sent"], ["inbound_fax", "Received faxes"], ["recording", "Voicemail"],
+    ] as const;
+
+    const $ = (id: string) => document.getElementById(id)!;
+    let records: Rec[] = [];
+    let filter = "all";
+    let stop: (() => void) | null = null;
+
+    const typeLabel = (r: Rec) => (r.type === "transmission" ? "Sent" : r.type === "inbound_fax" ? "Received fax" : r.kind === "voicemail" ? "Voicemail" : "Recording");
+    const who = (r: Rec) => (r.type === "recording" ? [r.direction === "outbound" ? r.toNumber : r.fromNumber].filter(Boolean).join("") || "Unknown number" : r.title);
+
+    function empty(): HTMLElement {
+      const box = h("div", "border-border rounded-lg border border-dashed px-6 py-10 text-center");
+      box.append(h("p", "font-medium", filter === "all" ? "Nothing here yet" : "No records of this kind yet"));
+      const hint = h("p", "text-muted-foreground mx-auto mt-1 max-w-prose text-sm", "Send a PDF by fax or paper mail and it will show up here with its delivery status. Received faxes and voicemail appear on their own. ");
+      const link = h("a", "underline underline-offset-4", "Send a document");
+      link.href = "/send/"; hint.append(link); box.append(hint);
+      return box;
+    }
+
+    function renderList() {
+      const list = $("list");
+      const tabs = h("div", tabsList({ class: "mb-4" }));
+      tabs.setAttribute("role", "group"); tabs.setAttribute("aria-label", "Filter records");
+      for (const [value, label] of filters) {
+        const button = h("button", tabsTrigger(), label) as HTMLButtonElement;
+        button.type = "button"; button.setAttribute("aria-pressed", String(filter === value));
+        if (filter === value) button.setAttribute("data-active", "");
+        button.addEventListener("click", () => { filter = value; renderList(); });
+        tabs.append(button);
+      }
+      const shown = records.filter((r) => filter === "all" || r.type === filter);
+      if (!shown.length) return list.replaceChildren(tabs, empty());
+      const t = h("table", table()), head = h("thead", tableHeader()), hr = h("tr", tableRow());
+      for (const name of ["Record", "Type", "Status", "Created", "Last change"]) hr.append(h("th", tableHead(), name));
+      head.append(hr);
+      const body = h("tbody", tableBody());
+      for (const r of shown) {
+        const tr = h("tr", tableRow({ class: "hover:bg-muted/50 cursor-pointer" }));
+        const first = h("td", tableCell({ class: "font-medium" }));
+        const open = h("button", "underline-offset-4 hover:underline text-left", who(r)) as HTMLButtonElement;
+        open.type = "button"; open.addEventListener("click", (e) => { e.stopPropagation(); show(r); });
+        first.append(open);
+        const kind = h("td", tableCell(), typeLabel(r));
+        const state = h("td", tableCell({ class: "whitespace-normal" }));
+        const badges = h("div", "flex flex-wrap gap-1");
+        for (const c of r.channels) badges.append(statusBadge(c.status, c.channel));
+        state.append(badges);
+        tr.append(first, kind, state, h("td", tableCell(), when(r.createdAt)), h("td", tableCell(), when(r.updatedAt)));
+        tr.addEventListener("click", () => show(r));
+        body.append(tr);
+      }
+      t.append(head, body);
+      const wrap = h("div", "overflow-x-auto"); wrap.append(t);
+      list.replaceChildren(tabs, wrap);
+    }
+
+    function preview(r: Rec): HTMLElement {
+      const box = h("div", "mt-4");
+      if (r.previewType === "audio") {
+        const audio = document.createElement("audio");
+        audio.controls = true; audio.preload = "metadata"; audio.src = r.previewUrl; audio.className = "w-full";
+        audio.setAttribute("aria-label", `Play ${typeLabel(r).toLowerCase()}`);
+        audio.addEventListener("play", () => { void fetch(`/api/voice/recordings/${r.id}/heard`, { method: "POST" }); }, { once: true });
+        const link = h("a", "mt-2 inline-block text-sm underline underline-offset-4", "Download recording");
+        link.href = `${r.previewUrl}?download=1`;
+        box.append(audio, link);
+        if (r.transcript) box.append(h("h4", "mt-4 text-sm font-medium", "Transcript"), h("p", "text-muted-foreground mt-1 max-w-prose text-sm whitespace-pre-line", r.transcript));
+      } else {
+        const frame = h("iframe", "border-border h-[32rem] w-full rounded-lg border");
+        frame.src = r.previewUrl; frame.title = `Preview of ${who(r)}`;
+        const link = h("a", "mt-2 inline-block text-sm underline underline-offset-4", "Open the PDF in a new tab");
+        link.href = r.previewUrl; link.target = "_blank"; link.rel = "noopener";
+        box.append(frame, link);
+      }
+      return box;
+    }
+
+    function show(r: Rec) {
+      stop?.(); stop = null;
+      $("list-view").hidden = true; $("detail-view").hidden = false;
+      const target = $("detail");
+      if (r.type === "transmission") {
+        target.replaceChildren(skeletonRows(3, "h-24 w-full"));
+        stop = watchTransmission(target, r.id);
+      } else {
+        const head = h("div", "flex flex-wrap items-baseline justify-between gap-2");
+        head.append(h("h3", "text-lg font-semibold", who(r)), badgeEl(typeLabel(r), "outline"));
+        const bits = [r.type === "recording" ? (r.direction === "outbound" ? "Outgoing" : r.direction === "inbound" ? "Incoming" : "") : "", duration(r.durationSecs)].filter(Boolean);
+        const lines = h("div", "mt-3 flex flex-col gap-2");
+        const steps = h("ol", "border-border mt-2 flex flex-col gap-2 border-l pl-4 text-sm");
+        const first = h("li", "flex flex-wrap items-baseline gap-x-2");
+        first.append(h("span", "font-medium", r.type === "inbound_fax" ? "Received" : "Recorded"), h("span", "text-muted-foreground ml-auto text-xs", when(r.createdAt)));
+        steps.append(first);
+        if (r.type === "recording" && r.channels[0]?.status === "heard") {
+          const heard = h("li", "flex flex-wrap items-baseline gap-x-2");
+          heard.append(h("span", "font-medium", "Heard"), h("span", "text-muted-foreground ml-auto text-xs", when(r.updatedAt)));
+          steps.append(heard);
+        }
+        lines.append(h("p", "text-muted-foreground text-sm", bits.join(" · ") || ""), steps);
+        target.replaceChildren(head, lines, preview(r));
+      }
+      window.scrollTo({ top: 0 });
+    }
+
+    $("back-to-list").addEventListener("click", () => { stop?.(); stop = null; $("detail-view").hidden = true; $("list-view").hidden = false; void load(); });
+
+    async function load() {
+      if (!records.length) $("list").replaceChildren(skeletonRows(5, "h-12 w-full"));
+      try {
+        records = (await api<{ records: Rec[] }>("/api/records")).records;
+        renderList();
+      } catch {
+        const box = h("div", "border-border rounded-lg border border-dashed px-6 py-10 text-center");
+        box.append(h("p", "font-medium", "Records could not be loaded"), h("p", "text-muted-foreground mt-1 text-sm", "Reload the page to try again."));
+        $("list").replaceChildren(box);
+      }
+    }
+    void channelLabels;
+    void load();
+  </script>
 </AppLayout>

@@ -21,7 +21,8 @@ export async function handleFaxStatus(request, env, actor, id, fetcher = fetch) 
         const data = (await response.json())?.data;
         if (data?.id === row.provider_id && ['delivered', 'failed'].includes(data.status)) {
           const applied = await applyFaxDeliveryEvent(env.DB, { providerId: row.provider_id, status: data.status });
-          if (applied === 'updated' && data.status === 'failed') pushLater(env, { kind: 'fax-failed', id });
+          // Queued sends push from deliveries.mjs when the delivery turns failed.
+          if (applied === 'updated' && data.status === 'failed' && !await env.DB.prepare('SELECT 1 AS found FROM dispatches WHERE id = ?').bind(id).first()) pushLater(env, { kind: 'fax-failed', id });
           row = await env.DB.prepare('SELECT status, provider_id FROM fax_intents WHERE id = ? AND actor_id = ?').bind(id, actor).first();
         }
       }

@@ -9,6 +9,7 @@ const MESSAGES = {
   fax: ['New fax', 'A fax was received.'],
   voicemail: ['New voicemail', 'A voicemail was saved.'],
   'fax-failed': ['Fax failed', 'An outgoing fax could not be delivered.'],
+  'mail-failed': ['Letter failed', 'An outgoing letter could not be sent.'],
   'fax-attention': ['Fax needs attention', 'An inbound fax has not been archived.'],
 };
 const reply = (body, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });

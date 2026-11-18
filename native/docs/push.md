@@ -1,6 +1,6 @@
 # Push notifications (APNs)
 
-The Worker sends a push to every registered iPhone and Mac when an inbound fax is archived, a voicemail is saved, an outgoing fax reaches `failed`, or the pending-fax alert email goes out. Payloads hold only a generic title and body, a `thread-id` (the kind), and `kind` and `id` fields. They never hold document content or phone numbers.
+The Worker sends a push to every registered iPhone and Mac when an inbound fax is archived, a voicemail is saved, an outgoing fax or letter reaches `failed`, or the pending-fax alert email goes out. Outgoing failures fire from `mark()` in `web/worker/deliveries.mjs`, only on the transition into `failed`, so a repeat webhook, queue redelivery or cron poll never pushes twice. A voicemail pushes when its recording row is first inserted, so a duplicate event or the transcript event does not. Payloads hold only a generic title and body, a `thread-id` (the kind), and `kind` and `id` fields. They never hold document content or phone numbers.
 
 ## How it works
 
@@ -19,7 +19,7 @@ Apple Developer portal:
 2. Keys: create an **Apple Push Notifications service (APNs)** key and download the `.p8`. It can be downloaded only once. Note its Key ID and your Team ID.
 3. Regenerate the provisioning profiles for both apps so they carry the push entitlement.
 
-Worker secrets (do not put these in `wrangler.jsonc`; set them with `wrangler secret put` from `web/`, which does not need a deploy):
+Worker secrets. They are never in `wrangler.jsonc`. `.github/workflows/deploy.yml` uploads `APNS_KEY_P8`, `APNS_KEY_ID` and `APNS_TEAM_ID` on every deploy, the same way it does `TELNYX_*` and `POSTGRID_*`, from GitHub repository secrets of the same names. **Create those three repository secrets before the next deploy, or the deploy step fails** (the action rejects an empty listed secret). `APNS_TOPIC` and `APNS_TOPIC_MACOS` are optional and not in the workflow; set them with `wrangler secret put` only if the bundle IDs differ.
 
 | Secret | Value |
 | --- | --- |

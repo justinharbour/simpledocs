@@ -4,7 +4,16 @@ const reply = (body, status = 200) => Response.json(body, { status, headers: { '
 const text = (v, max) => typeof v === 'string' && v.trim().length > 0 && v.length <= max;
 const escape = s => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 
-function contact(value) {
+// Do not trust the secret binding name alone: swapped keys could otherwise
+// turn a user-confirmed test into a paid physical mailing.
+export function mailApiKey(env, mode) {
+  if (!['test', 'live'].includes(mode)) return null;
+  const apiKey = mode === 'test' ? env.POSTGRID_TEST_KEY : env.POSTGRID_LIVE_KEY;
+  if (typeof apiKey !== 'string' || apiKey !== apiKey.trim() || !apiKey.startsWith(mode === 'test' ? 'test_sk' : 'live_sk') || apiKey.length <= 7) return null;
+  return apiKey;
+}
+
+export function contact(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error('Invalid address');
   const fields = ['firstName', 'lastName', 'addressLine1', 'addressLine2', 'city', 'provinceOrState', 'postalOrZip', 'countryCode'];
   if (Object.keys(value).some(k => !fields.includes(k)) || !['firstName', 'addressLine1', 'city', 'provinceOrState', 'postalOrZip'].every(k => text(value[k], 150)) || value.countryCode !== 'US' || fields.some(k => value[k] !== undefined && !text(value[k], 150))) throw Error('Invalid address');
@@ -80,10 +89,8 @@ export async function handleMail(request, env, actor, id, action, fetcher = fetc
   let body;
   try { body = await readJson(request); } catch { return reply({ error: 'Invalid request' }, 400); }
   if (!body || Object.keys(body).sort().join(',') !== 'confirmed,mode,reviewHash,revision' || !['test', 'live'].includes(body.mode) || body.confirmed !== true || !Number.isSafeInteger(body.revision) || body.revision < 1 || !/^[a-f0-9]{64}$/.test(body.reviewHash ?? '')) return reply({ error: 'Explicit confirmation of reviewed content required' }, 400);
-  const apiKey = body.mode === 'test' ? env.POSTGRID_TEST_KEY : env.POSTGRID_LIVE_KEY;
-  // Do not trust the secret binding name alone: swapped keys could otherwise
-  // turn a user-confirmed test into a paid physical mailing.
-  if (typeof apiKey !== 'string' || apiKey !== apiKey.trim() || !apiKey.startsWith(body.mode === 'test' ? 'test_sk' : 'live_sk') || apiKey.length <= 7) return reply({ error: 'Selected mail mode is unavailable' }, 503);
+  const apiKey = mailApiKey(env, body.mode);
+  if (!apiKey) return reply({ error: 'Selected mail mode is unavailable' }, 503);
   const row = await env.DB.prepare('SELECT revision, content_json FROM mail_drafts WHERE id = ? AND actor_id = ?').bind(id, actor).first();
   if (!row || row.revision !== body.revision) return reply({ error: 'Draft changed or not found' }, 409);
   let payload;
