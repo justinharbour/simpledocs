@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.0](https://github.com/justinharbour/simpledocs/compare/native-v1.0.0...native-v1.1.0) (2026-11-18)
+
+
+### Features
+
+* add unsigned Apple TV dashboard app ([8cf7840](https://github.com/justinharbour/simpledocs/commit/8cf7840eed0ef5788cff6133a53bb37502545ec1))
+* add unsigned Apple TV dashboard app ([6b89659](https://github.com/justinharbour/simpledocs/commit/6b89659afc8d24039a0e0062f99441c965123030))
+
 ## 1.0.0 (2026-11-18)
 
 
