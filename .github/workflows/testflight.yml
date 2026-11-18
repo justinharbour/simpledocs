@@ -47,7 +47,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [ios, macos]
+        platform: [ios, macos, tvos]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -75,6 +75,7 @@ jobs:
           APPLE_IOS_SHARE_PROFILE_BASE64: ${{ matrix.platform == 'ios' && secrets.APPLE_IOS_SHARE_PROFILE_BASE64 || '' }}
           APPLE_MAC_PROFILE_BASE64: ${{ matrix.platform == 'macos' && secrets.APPLE_MAC_PROFILE_BASE64 || '' }}
           APPLE_MAC_SHARE_PROFILE_BASE64: ${{ matrix.platform == 'macos' && secrets.APPLE_MAC_SHARE_PROFILE_BASE64 || '' }}
+          APPLE_TV_PROFILE_BASE64: ${{ matrix.platform == 'tvos' && secrets.APPLE_TV_PROFILE_BASE64 || '' }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}

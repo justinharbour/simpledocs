@@ -1,11 +1,10 @@
 # Native releases
 
-This workflow depends on the unified native project in draft #68, including its
-two share extensions, version build settings and `com.justinharbour.simpledocs`
-identifiers. Merge and reconcile that project before enabling releases. It does
-not release the older separate Direct application. No tvOS target exists; add
-one and its real signing configuration when it does, rather than claiming a
-tvOS release today.
+The TestFlight workflow archives and uploads three apps from the unified native
+project, all with the bundle ID `com.justinharbour.simpledocs`: iOS (with its
+share extension), macOS (with its share extension) and tvOS (`SimpleDocsTV`, no
+extension, no App Group, no push). It does not release the older separate
+Direct application.
 
 ## GitHub setup and flow
 
@@ -19,7 +18,7 @@ and tag. Promote `develop` to `main` through the normal reviewed promotion PR.
 Once Apple setup is complete, dispatch the TestFlight workflow **on main** with
 the published tag. It verifies the tagged commit is an ancestor of main, checks
 its version, and builds that exact commit. A GitHub release means the tag was created, **not**
-that Apple accepted, processed, reviewed, or distributed a build. Check both
+that Apple accepted, processed, reviewed, or distributed a build. Check all three
 matrix jobs and App Store Connect. Upload does not submit for App Review or
 automatically add external testers. Follow the repository's branch protection
 and promotion process; do not bypass checks.
@@ -123,6 +122,7 @@ binary file; do not include filenames or shell syntax):
 | `APPLE_IOS_SHARE_PROFILE_BASE64` | iOS App Store share extension profile, base64 binary |
 | `APPLE_MAC_PROFILE_BASE64` | Mac App Store app profile, base64 binary `.provisionprofile` |
 | `APPLE_MAC_SHARE_PROFILE_BASE64` | Mac App Store share extension profile, base64 binary |
+| `APPLE_TV_PROFILE_BASE64` | tvOS App Store app profile, base64 binary `.mobileprovision` |
 | `ASC_KEY_ID` | App Store Connect team API key ID |
 | `ASC_ISSUER_ID` | App Store Connect issuer UUID |
 | `ASC_PRIVATE_KEY` | Complete original `.p8` PEM text, including header/footer and newlines |
