@@ -19,7 +19,8 @@ export async function recordCall(db, event, payload) {
   } else if (event.event_type === 'call.hangup') {
     const call = await db.prepare('SELECT direction, started_at, answered_at, ended_at FROM calls WHERE call_control_id = ?').bind(id).first();
     if (!call || call.ended_at) return;
-    const voicemail = await db.prepare('SELECT 1 AS yes FROM voicemail_calls WHERE call_control_id = ?').bind(id).first();
+    // A voicemail call is one where voicemail actually answered; a call the softphone picked up has the row but no answer command.
+    const voicemail = await db.prepare("SELECT 1 AS yes FROM voicemail_commands WHERE call_control_id = ? AND action = 'answer'").bind(id).first();
     const duration = call.answered_at ? secondsBetween(call.answered_at, at) : 0;
     const outcome = voicemail ? 'voicemail' : call.answered_at ? 'answered' : call.direction === 'inbound' ? 'missed' : 'no answer';
     await db.prepare('UPDATE calls SET ended_at = ?, duration_secs = ?, hangup_cause = ?, outcome = ?, updated_at = ? WHERE call_control_id = ? AND ended_at IS NULL')
@@ -48,12 +49,20 @@ export async function listCalls(request, env) {
   } catch { return new Response('Unavailable', { status: 503, headers }); }
 }
 
+// Shared with the inbox. Returns whether a recording with this id exists.
+export async function setHeard(db, id, heard = true) {
+  const result = heard
+    ? await db.prepare('UPDATE voice_recordings SET heard_at = COALESCE(heard_at, ?) WHERE recording_id = ?').bind(new Date().toISOString(), id).run()
+    : await db.prepare('UPDATE voice_recordings SET heard_at = NULL WHERE recording_id = ?').bind(id).run();
+  return (result.meta?.changes ?? result.changes ?? 0) > 0;
+}
+
 export async function markHeard(request, env, id) {
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405, headers });
   if (request.headers.get('origin') !== new URL(request.url).origin) return new Response('Invalid origin', { status: 403, headers });
   if (!env.DB) return new Response('Unavailable', { status: 503, headers });
   try {
-    await env.DB.prepare('UPDATE voice_recordings SET heard_at = COALESCE(heard_at, ?) WHERE recording_id = ?').bind(new Date().toISOString(), id).run();
+    await setHeard(env.DB, id, true);
     return Response.json({ id, heard: true }, { headers });
   } catch { return new Response('Unavailable', { status: 503, headers }); }
 }

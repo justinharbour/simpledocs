@@ -19,6 +19,7 @@
     "TELNYX_WEBRTC_CREDENTIAL_ID": "76d778d0-2352-4186-b1b0-cb97788ba887",
     "TELNYX_VOICE_FROM": "+12134587846",
     "VOICEMAIL_NUMBER": "+12134587846",
+    "SMS_NUMBER": "+12134587846",
     "VOICEMAIL_GREETING": "You have reached Justin. Please leave a message after the tone.",
     "FAX_ALERTS_ENABLED": "true",
     "FAX_ALERT_AFTER_SECONDS": "300",

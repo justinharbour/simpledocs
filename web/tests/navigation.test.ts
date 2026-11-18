@@ -19,8 +19,8 @@ describe("navigation", () => {
     expect(new Set(all.map((i) => i.label)).size).toBe(all.length);
   });
 
-  it("offers Send, Calls and Records instead of the old separate forms", () => {
-    expect(primaryNav.map((i) => i.label)).toEqual(["Overview", "Send", "Calls", "Records"]);
+  it("offers the inbox first, then Send, Calls, Messages and Records", () => {
+    expect(primaryNav.map((i) => i.label)).toEqual(["Inbox", "Send", "Calls", "Messages", "Records"]);
     expect(secondaryNav.map((i) => i.label)).toEqual(["Settings"]);
   });
 });

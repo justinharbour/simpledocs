@@ -1,5 +1,6 @@
 ---
-import HomeIcon from "@tabler/icons/outline/layout-dashboard.svg";
+import InboxIcon from "@tabler/icons/outline/inbox.svg";
+import MessageIcon from "@tabler/icons/outline/message-circle.svg";
 import SendIcon from "@tabler/icons/outline/send.svg";
 import PhoneIcon from "@tabler/icons/outline/phone.svg";
 import FilesIcon from "@tabler/icons/outline/files.svg";
@@ -12,16 +13,18 @@ import {
   SidebarGroupContent,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/starwind/sidebar";
 import { isCurrent, primaryNav, secondaryNav } from "@/lib/navigation";
 
-const icons: Record<string, typeof HomeIcon> = {
-  Overview: HomeIcon,
+const icons: Record<string, typeof InboxIcon> = {
+  Inbox: InboxIcon,
   Send: SendIcon,
   Calls: PhoneIcon,
+  Messages: MessageIcon,
   Records: FilesIcon,
   Settings: SettingsIcon,
 };
@@ -56,6 +59,12 @@ const pathname = Astro.url.pathname;
                       <Icon aria-hidden="true" />
                       <span>{item.label}</span>
                     </SidebarMenuButton>
+                    {item.label === "Inbox" && (
+                      <SidebarMenuBadge data-inbox-badge hidden>
+                        <span data-inbox-count>0</span>
+                        <span class="sr-only"> unread</span>
+                      </SidebarMenuBadge>
+                    )}
                   </SidebarMenuItem>
                 );
               })

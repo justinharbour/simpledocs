@@ -11,6 +11,9 @@ import { handleFaxOperator } from './inbound-fax-operator.mjs';
 import { handleMail, listUnresolvedMail } from './mail-send.mjs';
 import { handleVoiceWebhook, handleVoiceRecording, listVoiceRecordings } from './voice-webhook.mjs';
 import { handleVoiceSession } from './voice-session.mjs';
+import { handlePresence } from './voice-presence.mjs';
+import { handleSms, handleSmsWebhook } from './sms.mjs';
+import { handleInbox } from './inbox.mjs';
 import { handleVoicemailSettings } from './voicemail-config.mjs';
 import { sendPendingFaxAlert } from './inbound-fax-alert.mjs';
 import { handlePushDevices, notifyPush, withPush } from './push.mjs';
@@ -42,6 +45,7 @@ export function createWorker(resolveKeys = issuer => {
     if (url.pathname === '/webhooks/telnyx/fax') return handleInboundFax(request, env);
     // This one endpoint uses Telnyx's signature, not a browser Access JWT.
     if (url.pathname === '/api/webhooks/telnyx/voice') return handleVoiceWebhook(request, env);
+    if (url.pathname === '/api/webhooks/telnyx/messaging') return handleSmsWebhook(request, env);
     const expected = env.ACCESS_AUDIENCE;
     const issuer = env.ACCESS_TEAM_DOMAIN;
     const token = request.headers.get('cf-access-jwt-assertion');
@@ -78,6 +82,13 @@ export function createWorker(resolveKeys = issuer => {
     const voiceOwner = !env.VOICE_OWNER_SUBJECT || actor === env.VOICE_OWNER_SUBJECT;
     if ((url.pathname === '/api/voice/recordings' || url.pathname.startsWith('/api/voice/recordings/') || url.pathname === '/api/voice/calls') && !voiceOwner) {
       return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+    }
+    const ownerOnly = url.pathname === '/api/voice/presence' || url.pathname.startsWith('/api/sms/');
+    if (ownerOnly && !voiceOwner) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+    if (url.pathname === '/api/voice/presence') return handlePresence(request, env);
+    if (url.pathname.startsWith('/api/sms/')) return handleSms(request, env);
+    if (url.pathname === '/api/inbox' || url.pathname.startsWith('/api/inbox/')) {
+      return handleInbox(request, env, { fax: inboundFaxAllowed(actor, env.INBOUND_FAX_ALLOWED_SUBJECTS), voice: voiceOwner });
     }
     if (url.pathname === '/api/voice/calls') return listCalls(request, env);
     if (url.pathname === '/api/voice/recordings') return listVoiceRecordings(request, env);

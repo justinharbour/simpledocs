@@ -1,4 +1,4 @@
-import { processVoicemail, isVoicemailRecording } from './voicemail.mjs';
+import { processVoicemail, isVoicemailRecording, isRingLeg } from './voicemail.mjs';
 import { pushLater } from './push.mjs';
 import { recordCall, recordingMeta } from './voice-calls.mjs';
 const MAX_BODY = 128 * 1024;
@@ -11,7 +11,7 @@ const MAX_TRANSCRIPT = 20000;
 const applyTranscript = (db, id) => db.prepare("UPDATE voice_recordings SET transcript = (SELECT t.transcript FROM voice_transcripts t WHERE t.recording_id = voice_recordings.recording_id), transcript_at = datetime('now') WHERE recording_id = ? AND transcript IS NULL AND EXISTS (SELECT 1 FROM voice_transcripts t WHERE t.recording_id = voice_recordings.recording_id AND t.call_control_id = voice_recordings.call_control_id)").bind(id).run();
 const reply = (status, message) => new Response(message, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
 
-async function bounded(stream, limit) {
+export async function bounded(stream, limit) {
   if (!stream) throw new Error('missing body');
   const reader = stream.getReader(); const parts = []; let size = 0;
   try {
@@ -33,7 +33,7 @@ function decode64(value) {
   return Uint8Array.from(atob(value), c => c.charCodeAt(0));
 }
 
-async function verify(bytes, request, publicKey, now) {
+export async function verify(bytes, request, publicKey, now) {
   try {
     const timestamp = request.headers.get('telnyx-timestamp');
     const signature = decode64(request.headers.get('telnyx-signature-ed25519'));
@@ -65,8 +65,12 @@ export async function handleVoiceWebhook(request, env, fetcher = fetch, now = Da
   try { data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)).data; payload = data.payload; } catch { return reply(400, 'Invalid event'); }
   const validString = value => typeof value === 'string' && value.length > 0 && value.length <= 256 && value.trim() === value;
   if (!data || !payload || !validString(data.id) || !TYPES.has(data.event_type) || !validString(payload.call_control_id) ||
-      !validString(data.occurred_at) || !Number.isFinite(Date.parse(data.occurred_at)) || payload.connection_id !== env.TELNYX_VOICE_CONNECTION_ID) return reply(400, 'Invalid event');
+      !validString(data.occurred_at) || !Number.isFinite(Date.parse(data.occurred_at))) return reply(400, 'Invalid event');
   try {
+    // The softphone credential lives on another Telnyx connection, so the transferred leg may report that
+    // connection. It is accepted only when it carries the marker of a ring we started.
+    if (payload.connection_id !== env.TELNYX_VOICE_CONNECTION_ID &&
+        (data.event_type.startsWith('call.recording') || !await isRingLeg(env.DB, payload.client_state))) return reply(400, 'Invalid event');
     await env.DB.prepare('INSERT OR IGNORE INTO voice_events (event_id, event_type, call_control_id, occurred_at) VALUES (?, ?, ?, ?)').bind(data.id, data.event_type, payload.call_control_id, data.occurred_at).run();
     const event = await env.DB.prepare('SELECT event_type, call_control_id, occurred_at FROM voice_events WHERE event_id = ?').bind(data.id).first();
     if (!event || event.event_type !== data.event_type || event.call_control_id !== payload.call_control_id || event.occurred_at !== data.occurred_at) return reply(409, 'Event conflict');
@@ -79,9 +83,10 @@ export async function handleVoiceWebhook(request, env, fetcher = fetch, now = Da
       return reply(200, 'Accepted');
     }
     if (data.event_type !== 'call.recording.saved') {
-      await processVoicemail(env, data, payload, fetcher);
-      // The call log is secondary: it must never fail a webhook voicemail depends on.
-      try { await recordCall(env.DB, data, payload); } catch { /* Telnyx retries are not needed for logging. */ }
+      const softphoneLeg = await processVoicemail(env, data, payload, fetcher);
+      // The call log is secondary: it must never fail a webhook voicemail depends on. The leg that
+      // rings the softphone is part of the same inbound call, so it is not logged as a second call.
+      if (!softphoneLeg) try { await recordCall(env.DB, data, payload); } catch { /* Telnyx retries are not needed for logging. */ }
       return reply(200, 'Accepted');
     }
     if (!env.FILES) return reply(503, 'Recording storage unavailable');
