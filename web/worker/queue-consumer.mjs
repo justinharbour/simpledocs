@@ -33,7 +33,7 @@ async function readObject(env, key) {
 async function sendFax(env, row, fetcher) {
   const existing = await env.DB.prepare('SELECT status FROM fax_intents WHERE id = ?').bind(row.id).first();
   // Redelivery after a provider submission: never submit again.
-  if (existing && existing.status !== 'prepared') { await reflectFax(env.DB, row, await env.DB.prepare('SELECT status, provider_id FROM fax_intents WHERE id = ?').bind(row.id).first()); return; }
+  if (existing && existing.status !== 'prepared') { await reflectFax(env, row, await env.DB.prepare('SELECT status, provider_id FROM fax_intents WHERE id = ?').bind(row.id).first()); return; }
   const config = { enabled: env.FAX_ENABLED === 'true', token: env.TELNYX_API_TOKEN, connectionId: env.TELNYX_FAX_CONNECTION_ID, from: env.TELNYX_FAX_FROM };
   if (!config.enabled || !config.token || !config.connectionId || !E164.test(config.from ?? '')) throw new Permanent('Fax sending is not configured');
   const options = JSON.parse(row.options_json);
@@ -61,7 +61,7 @@ async function sendFax(env, row, fetcher) {
   const result = await sendPreparedFax(env.DB, { id: row.id, actor: row.actor_id, config, confirmed: true }, input => submitFax(input, fetcher));
   if (result.outcome === 'unavailable') throw new Permanent('Fax sending is not configured');
   if (result.outcome === 'not_claimed') throw new Waiting('Waiting for the previous fax to finish');
-  await reflectFax(env.DB, row, await env.DB.prepare('SELECT status, provider_id FROM fax_intents WHERE id = ?').bind(row.id).first());
+  await reflectFax(env, row, await env.DB.prepare('SELECT status, provider_id FROM fax_intents WHERE id = ?').bind(row.id).first());
 }
 
 function letterForm(options, pdf, row) {
@@ -98,7 +98,7 @@ async function sendMail(env, row, fetcher) {
   const claim = await env.DB.prepare("INSERT INTO mail_intents (draft_id, actor_id, revision, review_hash, payload_json, status, confirmed_at, updated_at, provider_mode) SELECT id, actor_id, revision, ?, ?, 'submitting', ?, ?, ? FROM mail_drafts WHERE id = ? AND actor_id = ? AND revision = ? ON CONFLICT DO NOTHING")
     .bind(approval.reviewHash, JSON.stringify(summary), now, now, approval.mode, row.id, row.actor_id, draft.revision).run();
   if (claim.meta.changes !== 1) throw new Waiting('Waiting for another letter to finish submitting');
-  await mark(env.DB, row.id, 'submitting');
+  await mark(env, row.id, 'submitting');
   let status = 'unknown'; let providerId = null; let rejected = false;
   try {
     const response = await fetcher('https://api.postgrid.com/print-mail/v1/letters', { method: 'POST', headers: { 'X-API-Key': apiKey }, body: letterForm(options, pdf, row), redirect: 'manual' });
@@ -110,14 +110,14 @@ async function sendMail(env, row, fetcher) {
   if (rejected) {
     // A definitive client error means no order exists, so the claim is released.
     await env.DB.prepare("DELETE FROM mail_intents WHERE draft_id = ? AND status = 'submitting'").bind(row.id).run();
-    await mark(env.DB, row.id, 'failed', { error: 'PostGrid rejected the letter; nothing was mailed' });
+    await mark(env, row.id, 'failed', { error: 'PostGrid rejected the letter; nothing was mailed' });
     return;
   }
   // The confirmation page was the owner's sign-off, so an accepted order never blocks the next letter.
   const settledAt = new Date().toISOString();
   await env.DB.prepare("UPDATE mail_intents SET status = ?, provider_id = ?, updated_at = ?, acknowledged_at = CASE WHEN ? = 'accepted' THEN ? ELSE acknowledged_at END WHERE draft_id = ? AND status = 'submitting'").bind(status, providerId, settledAt, status, settledAt, row.id).run();
-  if (status === 'accepted') await mark(env.DB, row.id, 'accepted', { providerId, providerStatus: 'accepted' });
-  else await mark(env.DB, row.id, 'unknown', { error: 'PostGrid did not confirm this letter. Check PostGrid before sending again.' });
+  if (status === 'accepted') await mark(env, row.id, 'accepted', { providerId, providerStatus: 'accepted' });
+  else await mark(env, row.id, 'unknown', { error: 'PostGrid did not confirm this letter. Check PostGrid before sending again.' });
 }
 
 // Returns what the queue should do with the message: 'ack' or { retry: seconds }.
@@ -131,9 +131,9 @@ export async function processDelivery(env, body, attempts = 1, fetcher = fetch) 
     else await sendMail(env, row, fetcher);
     return 'ack';
   } catch (error) {
-    if (error instanceof Permanent) { await mark(env.DB, row.id, 'failed', { error: error.message }); return 'ack'; }
+    if (error instanceof Permanent) { await mark(env, row.id, 'failed', { error: error.message }); return 'ack'; }
     if (error instanceof Waiting) return attempts <= MAX_RETRIES ? { retry: 60 } : 'ack';
-    if (attempts > MAX_RETRIES) { await mark(env.DB, row.id, 'failed', { error: 'Could not reach the provider after several tries; nothing was sent' }); return 'ack'; }
+    if (attempts > MAX_RETRIES) { await mark(env, row.id, 'failed', { error: 'Could not reach the provider after several tries; nothing was sent' }); return 'ack'; }
     return { retry: RETRY_SECONDS * attempts };
   }
 }
@@ -155,7 +155,7 @@ export async function reconcileDeliveries(env, fetcher = fetch, now = Date.now()
   if (!env.DELIVERIES) return;
   const queued = await env.DB.prepare("SELECT id, transmission_id, channel, created_at FROM dispatches WHERE status = 'queued' AND updated_at < ? ORDER BY updated_at LIMIT 25").bind(cutoff).all();
   for (const row of queued.results ?? []) {
-    if (now - Date.parse(row.created_at) > GIVE_UP_MS) { await mark(env.DB, row.id, 'failed', { error: 'Could not be submitted within a day; nothing was sent' }); continue; }
+    if (now - Date.parse(row.created_at) > GIVE_UP_MS) { await mark(env, row.id, 'failed', { error: 'Could not be submitted within a day; nothing was sent' }); continue; }
     await enqueue(env, row.transmission_id, row.channel, row.id);
   }
 }

@@ -34,6 +34,20 @@ import Testing
         #expect((json["content"] as? [String: String])?["subject"] == "Sample")
     }
 
+    @Test func plansPushDeviceRegistration() throws {
+        let (registry, binding) = try setup()
+        let token = String(repeating: "ab", count: 32)
+        let register = try WorkerPlanner.plan(.registerPushDevice(token: token, platform: .macos, environment: .sandbox), binding: binding, registry: registry)
+        let body = try #require(register.body)
+        let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: String])
+        #expect(register.url.absoluteString == "https://a.example.com/api/push/devices")
+        #expect(register.method == "POST" && register.contentType == "application/json")
+        #expect(json == ["token": token, "platform": "macos", "environment": "sandbox"])
+        for bad in ["", "abc", String(repeating: "A", count: 64), String(repeating: "g", count: 64), String(repeating: "a", count: 201), token + "/x"] {
+            #expect(throws: WorkerPlanError.invalidIdentifier) { try WorkerPlanner.plan(.registerPushDevice(token: bad, platform: .ios, environment: .production), binding: binding, registry: registry) }
+        }
+    }
+
     @Test func rejectsBadInput() throws {
         let (registry, binding) = try setup()
         let invalidID = UUID(uuidString: "ba8b94b2-8b67-11a4-a933-c93b4f61a001")!

@@ -254,7 +254,7 @@ export async function approveMail(request, env, actor, id, deliveryId) {
   const changed = await env.DB.prepare("UPDATE dispatches SET options_json = ? WHERE id = ? AND status = 'awaiting_approval'").bind(JSON.stringify(options), deliveryId).run();
   if (changed.meta.changes !== 1) return reply({ error: 'This letter was already approved' }, 409);
   // Only an approved row is ever put on the queue.
-  await mark(env.DB, deliveryId, 'queued', { providerStatus: body.mode === 'test' ? 'test mode' : 'live mode' });
+  await mark(env, deliveryId, 'queued', { providerStatus: body.mode === 'test' ? 'test mode' : 'live mode' });
   await enqueue(env, id, 'mail', deliveryId);
   return reply({ id: deliveryId, status: 'queued' }, 202);
 }

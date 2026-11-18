@@ -8,7 +8,11 @@ public enum WorkerOperation: Sendable, Equatable {
     case readFax(UUID)
     case listInboundFaxes
     case listVoiceRecordings
+    case registerPushDevice(token: String, platform: PushPlatform, environment: PushEnvironment)
 }
+
+public enum PushPlatform: String, Sendable, Equatable { case ios, macos }
+public enum PushEnvironment: String, Sendable, Equatable { case sandbox, production }
 
 public enum WorkerPlanError: Error, Equatable, Sendable {
     case noActiveInstance
@@ -44,6 +48,11 @@ public enum WorkerPlanner {
         switch operation {
         case .listInboundFaxes: return try listPlan("inbound-faxes", binding: binding, active: active)
         case .listVoiceRecordings: return try listPlan("voice/recordings", binding: binding, active: active)
+        case .registerPushDevice(let token, let platform, let environment):
+            guard isDeviceToken(token) else { throw WorkerPlanError.invalidIdentifier }
+            let body = try? JSONSerialization.data(withJSONObject: ["token": token, "platform": platform.rawValue, "environment": environment.rawValue], options: [.sortedKeys])
+            guard let body else { throw WorkerPlanError.invalidDraft }
+            return try pushPlan("push/devices", method: "POST", body: body, binding: binding, active: active)
         default: break
         }
         let id: UUID
@@ -51,7 +60,7 @@ public enum WorkerPlanner {
         let method: String
         var body: Data?
         switch operation {
-        case .listInboundFaxes, .listVoiceRecordings: throw WorkerPlanError.invalidIdentifier
+        case .listInboundFaxes, .listVoiceRecordings, .registerPushDevice: throw WorkerPlanError.invalidIdentifier
         case .readMailDraft(let value):
             (id, route, method) = (value, "mail-drafts", "GET")
         case .readFax(let value):
@@ -83,6 +92,21 @@ public enum WorkerPlanner {
         }
         return WorkerPlan(binding: binding, url: url, method: method,
                           contentType: body == nil ? nil : "application/json", body: body)
+    }
+
+    /// Lowercase hexadecimal, the same 64 to 200 character form the Worker accepts.
+    private static func isDeviceToken(_ token: String) -> Bool {
+        token.utf8.count >= 64 && token.utf8.count <= 200 && token.utf8.allSatisfy { ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x61 && $0 <= 0x66) }
+    }
+
+    private static func pushPlan(_ route: String, method: String, body: Data?, binding: ContextBinding, active: ActiveContext) throws -> WorkerPlan {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = active.scope.origin.host
+        components.port = active.scope.origin.port
+        components.path = "/api/\(route)"
+        guard let url = components.url, OriginBinding.permits(url, for: active.scope.origin) else { throw WorkerPlanError.staleContext }
+        return WorkerPlan(binding: binding, url: url, method: method, contentType: body == nil ? nil : "application/json", body: body)
     }
 
     private static func listPlan(_ route: String, binding: ContextBinding, active: ActiveContext) throws -> WorkerPlan {

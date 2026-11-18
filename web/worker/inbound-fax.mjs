@@ -1,3 +1,4 @@
+import { pushLater } from './push.mjs';
 // The public route is independent of Access, and must fail closed before any
 // storage or network operation. Never log payloads, URLs or provider errors.
 import { applyOutboundFaxEvent } from './deliveries.mjs';
@@ -86,6 +87,7 @@ export async function recoverInboundFax(env, eventId, { fetcher = fetch, now = D
     const saved = await env.DB.prepare("INSERT INTO inbound_fax_events (event_id, fax_id, event_type, occurred_at, received_at, object_key) VALUES (?, ?, 'fax.received', ?, ?, ?) ON CONFLICT(event_id) DO NOTHING")
       .bind(eventId, receipt.fax_id, receipt.occurred_at, new Date(now).toISOString(), objectKey).run();
     if (!saved.success) return false;
+    if (saved.meta?.changes === 1) pushLater(env, { kind: 'fax', id: eventId });
     const archived = await env.DB.prepare("SELECT event_id FROM inbound_fax_events WHERE event_id = ? AND fax_id = ? AND event_type = 'fax.received' AND object_key IS NOT NULL").bind(eventId, receipt.fax_id).first();
     return !!archived;
   } catch { return false; }
@@ -106,7 +108,7 @@ export async function handleInboundFax(request, env, { fetcher = fetch, now = Da
     // Outbound delivery tracking: only events for a fax we submitted are applied,
     // matched by the provider id stored when Telnyx accepted it.
     if (!UUID.test(data.id) || !UUID.test(payload.fax_id) || !OUTBOUND_TYPES.has(data.event_type) || payload.connection_id !== env.TELNYX_FAX_CONNECTION_ID) return response(400);
-    try { await applyOutboundFaxEvent(env.DB, data.event_type, payload.fax_id); return response(200); } catch { return response(503); }
+    try { await applyOutboundFaxEvent(env, data.event_type, payload.fax_id); return response(200); } catch { return response(503); }
   }
   try {
     if (!UUID.test(data.id) || !UUID.test(payload.fax_id) || !TYPES.has(data.event_type) || payload.direction !== 'inbound' || payload.connection_id !== env.TELNYX_FAX_CONNECTION_ID || payload.to !== env.TELNYX_FAX_NUMBER || typeof data.occurred_at !== 'string' || data.occurred_at.length > 64 || !Number.isFinite(Date.parse(data.occurred_at))) throw new Error();
@@ -128,6 +130,7 @@ export async function handleInboundFax(request, env, { fetcher = fetch, now = Da
     const result = await env.DB.prepare('INSERT INTO inbound_fax_events (event_id, fax_id, event_type, occurred_at, received_at, object_key) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(event_id) DO NOTHING')
       .bind(data.id, payload.fax_id, data.event_type, data.occurred_at, new Date(now).toISOString(), objectKey).run();
     if (!result.success) throw new Error();
+    if (data.event_type === 'fax.received' && result.meta?.changes === 1) pushLater(env, { kind: 'fax', id: data.id });
     return response(200);
   } catch { return response(503); }
 }
