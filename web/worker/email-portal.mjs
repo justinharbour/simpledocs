@@ -7,7 +7,7 @@ const fail = (status = 404) => json({ error: 'Unavailable' }, status);
 const cookie = token => `__Secure-sdportal=${token}; Path=/portal; Secure; HttpOnly; SameSite=Strict; Max-Age=1800`;
 const validEmail = s => typeof s === 'string' && s.length <= 254 && /^[^\s@<>\r\n]+@[^\s@<>\r\n]+\.[^\s@<>\r\n]+$/.test(s);
 const uuid = s => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
-const ready = env => env.PORTAL_ENABLED === 'true' && env.DB && env.FILES && env.PORTAL_ORIGIN && env.PORTAL_KEY;
+const ready = env => env.DB && env.FILES && env.PORTAL_ORIGIN && env.PORTAL_KEY;
 const originOK = (r, env) => { try { const u = new URL(env.PORTAL_ORIGIN); return u.protocol === 'https:' && u.origin === env.PORTAL_ORIGIN && new URL(r.url).origin === u.origin && r.headers.get('origin') === u.origin; } catch { return false; } };
 async function limit(env, category, value, maximum) {
   // Hash destination/client identifiers; bounded fixed windows are deliberately fail-closed.
@@ -34,21 +34,23 @@ async function session(r, env) {
 // Owner API is called only after the Worker has verified its Access JWT.
 export async function createEmailDelivery(r, env, actor, transmissionId) {
   if (r.method !== 'POST') return fail(405);
-  if (!ready(env) || !env.PORTAL_EMAIL || !validEmail(env.PORTAL_SENDER)) return fail(503);
+  if (!ready(env) || typeof env.PORTAL_EMAIL?.send !== 'function' || !validEmail(env.PORTAL_SENDER)) return json({ error: 'Email portal is not configured: set PORTAL_ORIGIN, PORTAL_KEY, PORTAL_SENDER and the PORTAL_EMAIL binding.' }, 503);
   if (!originOK(r, env)) return fail(403);
   let b; try { b = await body(r); } catch { return fail(400); }
   if (!uuid(transmissionId) || !validEmail(b?.email) || !['none', 'sms', 'voice'].includes(b?.pinChannel)) return fail(400);
   let phone = null;
   if (b.pinChannel !== 'none') {
     phone = normalizePhone(b.phone);
-    if (!phone || !env.TELNYX_VERIFY_PROFILE_ID || !env.TELNYX_API_TOKEN) return fail(400);
+    if (!phone) return json({ error: 'Enter a valid verification phone number.' }, 400);
+    if (!env.TELNYX_VERIFY_PROFILE_ID || !env.TELNYX_API_TOKEN) return json({ error: 'Phone verification requires TELNYX_VERIFY_PROFILE_ID and TELNYX_API_TOKEN.' }, 503);
   }
   if (!(await limit(env, 'email-owner', actor, 30)) || !(await limit(env, 'email-destination', b.email.toLowerCase(), 5))) return fail(429);
   const tx = await env.DB.prepare('SELECT source_key FROM transmissions WHERE id = ? AND actor_id = ?').bind(transmissionId, actor).first();
   if (!tx) return fail();
   const source = await env.FILES.get(tx.source_key); if (!source) return fail(503);
   const bytes = new Uint8Array(await source.arrayBuffer()); if (bytes.length > 5 * 1024 * 1024) return fail(400);
-  const id = crypto.randomUUID(), token = newPortalToken(), now = Date.now(), key = await importPortalKey(env.PORTAL_KEY);
+  let key; try { key = await importPortalKey(env.PORTAL_KEY); } catch { return json({ error: 'PORTAL_KEY must be a 32-byte base64url secret.' }, 503); }
+  const id = crypto.randomUUID(), token = newPortalToken(), now = Date.now();
   const encrypted = await encryptPortalDocument(key, bytes, id, 'source');
   const objectKey = `portal/${id}/source.enc`;
   await env.FILES.put(objectKey, encrypted.ciphertext);

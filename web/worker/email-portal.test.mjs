@@ -42,3 +42,19 @@ test('ambiguous provider outcomes are not retried', async () => {
   assert.equal((await portal(req('/portal/pin/start', { consent: true }, cookie), env, broken)).status, 503); assert.equal((await portal(req('/portal/pin/start', { consent: true }, cookie), env, broken)).status, 400); assert.equal(calls, 1); assert.equal(db.prepare('SELECT pin_state FROM portal_deliveries').get().pin_state, 'unknown');
   env.PORTAL_EMAIL.send = async () => { throw Error('uncertain'); }; const r = await createEmailDelivery(req('/x', { email: 'other@example.test', pinChannel: 'none' }), env, 'owner', tx); assert.equal((await r.json()).status, 'unknown');
 });
+
+test('five failed PIN checks exhaust the durable limit without further provider calls', async () => {
+  const { env, messages } = setup(), d = await create(env, messages, 'sms'), { cookie } = await exchange(env, d.token); let checks = 0;
+  const fetcher = async url => url.endsWith('/actions/verify') ? (checks++, Response.json({ data: { response_code: 'rejected' } })) : Response.json({ data: { id: verifyId } });
+  assert.equal((await portal(req('/portal/pin/start', { consent: true }, cookie), env, fetcher)).status, 200);
+  for (let i = 0; i < 5; i++) assert.equal((await portal(req('/portal/pin/check', { code: '000000' }, cookie), env, fetcher)).status, 403);
+  assert.equal((await portal(req('/portal/pin/check', { code: '000000' }, cookie), env, fetcher)).status, 429);
+  assert.equal(checks, 5); assert.equal((await portal(req('/portal/document', undefined, cookie), env)).status, 403);
+});
+
+test('GET of the portal never consumes a link and owner API remains access protected', async () => {
+  const { env, messages, db } = setup(), d = await create(env, messages);
+  assert.equal((await portal(req('/portal'), env)).status, 200);
+  assert.equal(db.prepare('SELECT consumed_at FROM portal_deliveries').get().consumed_at, null);
+  const { r } = await exchange(env, d.token); assert.equal(r.status, 200);
+});

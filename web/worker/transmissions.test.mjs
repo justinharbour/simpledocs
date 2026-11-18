@@ -117,3 +117,22 @@ test('every new route requires a verified Access identity', async () => {
     assert.equal((await worker.fetch(new Request(`https://example.test${path}`, { method, headers: { 'cf-access-jwt-assertion': 'forged' } }), env)).status, 401, `${method} ${path} forged`);
   }
 });
+
+test('email-only transmission uses the portal and appears in records without claiming delivery', async () => {
+  const messages = [];
+  const { env } = makeEnv({ PORTAL_ORIGIN: 'https://example.test', PORTAL_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', PORTAL_SENDER: 'sender@example.test', PORTAL_EMAIL: { send: async message => messages.push(message) } });
+  const response = await createTransmission(await sendRequest({ email: { email: 'recipient@example.test', pinChannel: 'none' } }, await samplePdf(1)), env, actor);
+  const result = await response.json();
+  assert.equal(response.status, 202); assert.equal(result.deliveries[0].status, 'accepted'); assert.equal(messages.length, 1);
+  const detail = await (await getTransmission(env, actor, result.id)).json();
+  assert.equal(detail.deliveries[0].channel, 'email'); assert.equal(detail.deliveries[0].status, 'accepted');
+  assert.equal((await (await listTransmissions(env, actor)).json()).transmissions[0].channels[0].channel, 'email');
+  assert.equal((await getTransmission(env, 'someone-else', result.id)).status, 404);
+});
+
+test('email configuration failure is reported without a provider call', async () => {
+  const { env } = makeEnv();
+  const r = await createTransmission(await sendRequest({ email: { email: 'recipient@example.test', pinChannel: 'none' } }, await samplePdf(1)), env, actor);
+  const result = await r.json();
+  assert.equal(result.deliveries[0].status, 'failed'); assert.match(result.deliveries[0].error, /not configured/);
+});

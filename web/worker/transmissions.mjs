@@ -2,6 +2,7 @@ import { buildCoverPage, countPages, DEFAULT_FROM_NUMBER, DEFAULT_SENDER_NAME } 
 import { enqueue, isTerminal, mailReviewHash, mark, refreshDelivery, sha256Hex, UUID } from './deliveries.mjs';
 import { contact, mailApiKey } from './mail-send.mjs';
 import { normalizePhone } from './phone.mjs';
+import { createEmailDelivery } from './email-portal.mjs';
 
 const LIMIT = 5 * 1024 * 1024;
 const MAX_FAX_RECIPIENTS = 10;
@@ -122,7 +123,7 @@ export async function createTransmission(request, env, actor) {
     mail.doubleSided = spec.mail.doubleSided === true;
     mail.mailingClass = spec.mail.mailingClass === 'standard_class' ? 'standard_class' : 'first_class';
   }
-  if (!faxNumbers.length && !mail) return reply({ error: 'Choose at least one way to send' }, 400);
+  if (!faxNumbers.length && !mail && !spec.email) return reply({ error: 'Choose at least one way to send' }, 400);
 
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
@@ -155,6 +156,16 @@ export async function createTransmission(request, env, actor) {
     created.push({ id: deliveryId, channel: 'mail', status: 'awaiting_approval' });
   }
   for (const item of created) if (item.channel === 'fax') await enqueue(env, id, 'fax', item.id);
+  if (spec.email) {
+    try {
+      const origin = new URL(request.url).origin;
+      const emailRequest = new Request(`${origin}/api/transmissions/${id}/email`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify(spec.email) });
+      const response = await createEmailDelivery(emailRequest, env, actor, id);
+      const result = await response.json();
+      if (!response.ok) created.push({ channel: 'email', status: 'failed', error: result.error || 'Email could not be sent.' });
+      else created.push({ id: result.id, channel: 'email', status: result.status });
+    } catch { created.push({ channel: 'email', status: 'unknown', error: 'Email outcome is unknown. Check Records before trying again.' }); }
+  }
   return reply({ id, deliveries: created }, 202);
 }
 
@@ -170,8 +181,10 @@ export async function listTransmissions(env, actor) {
   if (!env.DB) return reply({ error: 'Storage unavailable' }, 503);
   const rows = await env.DB.prepare('SELECT id, title, page_count, created_at, updated_at FROM transmissions WHERE actor_id = ? ORDER BY created_at DESC, id DESC LIMIT 100').bind(actor).all();
   const deliveries = await env.DB.prepare('SELECT transmission_id, id, channel, status FROM dispatches WHERE transmission_id IN (SELECT id FROM transmissions WHERE actor_id = ? ORDER BY created_at DESC, id DESC LIMIT 100)').bind(actor).all();
+  const emails = await env.DB.prepare('SELECT transmission_id, id, send_status, revoked_at FROM portal_deliveries WHERE actor_id = ? AND transmission_id IN (SELECT id FROM transmissions WHERE actor_id = ? ORDER BY created_at DESC, id DESC LIMIT 100)').bind(actor, actor).all();
   const by = new Map();
   for (const d of deliveries.results ?? []) by.set(d.transmission_id, [...(by.get(d.transmission_id) ?? []), { id: d.id, channel: d.channel, status: d.status }]);
+  for (const d of emails.results ?? []) by.set(d.transmission_id, [...(by.get(d.transmission_id) ?? []), { id: d.id, channel: 'email', status: d.revoked_at ? 'revoked' : d.send_status }]);
   return reply({ transmissions: (rows.results ?? []).map(r => ({ id: r.id, title: r.title, pageCount: r.page_count, createdAt: r.created_at, updatedAt: r.updated_at, channels: by.get(r.id) ?? [] })) });
 }
 
@@ -192,6 +205,8 @@ export async function getTransmission(env, actor, id, fetcher = fetch) {
     const timeline = (await env.DB.prepare('SELECT at, status, detail FROM timeline WHERE delivery_id = ? ORDER BY id').bind(row.id).all()).results ?? [];
     deliveries.push(deliveryView(row, id, timeline));
   }
+  const emails = await env.DB.prepare('SELECT id, recipient, send_status, revoked_at, created_at FROM portal_deliveries WHERE transmission_id = ? AND actor_id = ? ORDER BY created_at, id').bind(id, actor).all();
+  for (const email of emails.results ?? []) deliveries.push({ id: email.id, channel: 'email', recipient: email.recipient, status: email.revoked_at ? 'revoked' : email.send_status, providerStatus: null, error: null, createdAt: new Date(email.created_at).toISOString(), updatedAt: new Date(email.created_at).toISOString(), submittedAt: null, finishedAt: null, needsApproval: false, coverUrl: null, timeline: [] });
   const settled = deliveries.every(d => isTerminal(d.status));
   const refreshed = await env.DB.prepare('SELECT updated_at FROM transmissions WHERE id = ?').bind(id).first();
   return reply({ id, title: tx.title, pageCount: tx.page_count, createdAt: tx.created_at, updatedAt: refreshed?.updated_at ?? tx.updated_at, documentUrl: `/api/transmissions/${id}/document`, settled, deliveries });

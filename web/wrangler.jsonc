@@ -25,13 +25,15 @@
     "FAX_ALERT_AFTER_SECONDS": "300",
     "FAX_ALERT_INTERVAL_SECONDS": "3600",
     "FAX_ALERT_SENDER": "noreply@mail.justinharbour.com",
-    "FAX_ALERT_RECIPIENT": "github@justinharbour.com"
+    "FAX_ALERT_RECIPIENT": "github@justinharbour.com",
+    "PORTAL_ORIGIN": "https://simpledocs.justinharbour.dev",
+    "PORTAL_SENDER": "noreply@mail.justinharbour.com"
   },
   "routes": [
     { "pattern": "simpledocs.justinharbour.dev", "custom_domain": true }
   ],
   "triggers": { "crons": ["*/5 * * * *"] },
-  "send_email": [{ "name": "FAX_ALERT_EMAIL" }],
+  "send_email": [{ "name": "FAX_ALERT_EMAIL" }, { "name": "PORTAL_EMAIL" }],
   "queues": {
     "producers": [{ "binding": "DELIVERIES", "queue": "simpledocs-deliveries-queue-prod" }],
     "consumers": [{

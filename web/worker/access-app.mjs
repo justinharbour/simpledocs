@@ -71,6 +71,24 @@ for (const path of ['/webhooks/telnyx/fax', '/api/webhooks/telnyx/voice', '/api/
     }) });
   }
 }
+// Recipient endpoints authenticate independently in the Worker. Never bypass
+// the owner API or use a wildcard. Existing applications are not modified.
+for (const path of ['/portal', '/portal/exchange', '/portal/status', '/portal/pin/start', '/portal/pin/check', '/portal/document']) {
+  const domain = `${hostname}${path}`;
+  const found = [];
+  let p = 1, r;
+  do {
+    r = await api(`${base}?per_page=100&page=${p++}`);
+    found.push(...r.result.filter(a => a.domain === domain));
+  } while (p <= (r.result_info?.total_pages ?? 1));
+  if (found.length > 1) throw new Error(`Multiple Access applications match ${path}`);
+  if (!found.length) {
+    await api(base, { method: 'POST', body: JSON.stringify({ name: `Simpledocs recipient ${path}`, type: 'self_hosted', domain, policies: [{ name: 'Recipient portal bypass', decision: 'bypass', include: [{ everyone: {} }], precedence: 1 }] }) });
+  } else {
+    const policies = await api(`${base}/${found[0].id}/policies?per_page=100`);
+    if ((policies.result_info?.total_pages ?? 1) > 1 || policies.result.length !== 1 || policies.result[0].decision !== 'bypass' || policies.result[0].include?.length !== 1 || !policies.result[0].include[0].everyone) throw new Error(`Unexpected Access policy for ${path}`);
+  }
+}
 // Audience is public metadata, not a credential. GitHub output passes it to Wrangler.
 const { appendFile } = await import('node:fs/promises');
 await appendFile(process.env.GITHUB_OUTPUT, `audience=${app.aud}\n`);

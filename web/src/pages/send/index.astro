@@ -18,8 +18,8 @@ import { Switch } from "@/components/starwind/switch";
 import { Textarea } from "@/components/starwind/textarea";
 ---
 
-<AppLayout title="Send" description="Send one PDF by fax, paper mail, or both.">
-  <PageHeader title="Send" summary="Choose a PDF once, then send it by fax, paper mail, or both." />
+<AppLayout title="Send" description="Send one PDF by fax, paper mail, or email.">
+  <PageHeader title="Send" summary="Choose a PDF once, then send it by fax, paper mail, or email." />
 
   <div id="wizard" class="max-w-3xl">
     <div class="mb-6">
@@ -65,7 +65,7 @@ import { Textarea } from "@/components/starwind/textarea";
 
     <section data-step="2" hidden aria-labelledby="s2">
       <h2 id="s2" class="mb-1 text-lg font-semibold">How should it go out?</h2>
-      <p class="text-muted-foreground mb-3 text-sm">Pick one or both. They go out as one send.</p>
+      <p class="text-muted-foreground mb-3 text-sm">Pick one or more. They go out as one send.</p>
       <div class="grid gap-3 sm:grid-cols-2">
         <div data-channel-card="fax" class="border-border hover:bg-muted/50 data-[on=true]:border-primary data-[on=true]:bg-primary/5 cursor-pointer rounded-xl border p-4">
           <div class="flex items-start gap-3">
@@ -75,6 +75,9 @@ import { Textarea } from "@/components/starwind/textarea";
               <p class="text-muted-foreground mt-1 text-sm">Sent through Telnyx from +1 213 414 7728. Includes a cover page if you want one.</p>
             </div>
           </div>
+        </div>
+        <div data-channel-card="email" class="border-border hover:bg-muted/50 data-[on=true]:border-primary data-[on=true]:bg-primary/5 cursor-pointer rounded-xl border p-4">
+          <div class="flex items-start gap-3"><Checkbox aria-label="Email" data-channel="email" /><div><p class="font-medium">Email</p><p class="text-muted-foreground mt-1 text-sm">Send a link to a secure document portal.</p></div></div>
         </div>
         <div data-channel-card="mail" class="border-border hover:bg-muted/50 data-[on=true]:border-primary data-[on=true]:bg-primary/5 cursor-pointer rounded-xl border p-4">
           <div class="flex items-start gap-3">
@@ -91,6 +94,14 @@ import { Textarea } from "@/components/starwind/textarea";
     <section data-step="3" hidden aria-labelledby="s3">
       <h2 id="s3" class="mb-3 text-lg font-semibold">Details</h2>
       <div class="flex flex-col gap-6">
+        <Card data-panel="email">
+          <CardHeader><CardTitle>Email</CardTitle><CardDescription>The recipient receives a single-use link that expires after seven days.</CardDescription></CardHeader>
+          <CardContent class="flex flex-col gap-4">
+            <div class="flex flex-col gap-1.5"><Label for="email-recipient">Recipient email</Label><Input id="email-recipient" type="email" autocomplete="email" /></div>
+            <div class="flex flex-col gap-1.5"><label for="email-pin" class="text-sm font-medium">Additional phone verification</label><select id="email-pin" class="border-border bg-background rounded-md border p-2"><option value="none">None</option><option value="sms">SMS code</option><option value="voice">Voice call code</option></select></div>
+            <div id="email-phone-fields" hidden class="flex flex-col gap-1.5"><Label for="email-phone">Recipient phone number</Label><Input id="email-phone" type="tel" autocomplete="tel" /><p class="text-muted-foreground text-sm">The recipient must agree before the automated message or call is sent.</p></div>
+          </CardContent>
+        </Card>
         <Card data-panel="fax">
           <CardHeader>
             <CardTitle>Fax</CardTitle>
@@ -274,6 +285,8 @@ import { Textarea } from "@/components/starwind/textarea";
       const fax = channelOn("fax"), mail = channelOn("mail");
       document.querySelector<HTMLElement>('[data-panel="fax"]')!.hidden = !fax;
       document.querySelector<HTMLElement>('[data-panel="mail"]')!.hidden = !mail;
+      document.querySelector<HTMLElement>('[data-panel="email"]')!.hidden = !channelOn("email");
+      $("email-phone-fields").hidden = value("email-pin") === "none";
       $("cover-fields").hidden = !switchOn("cover");
       $("mode-box").hidden = !mail;
     }
@@ -340,11 +353,16 @@ import { Textarea } from "@/components/starwind/textarea";
     const queueCover = () => { clearTimeout(coverTimer); coverTimer = setTimeout(() => void refreshCover(), 500); };
     for (const id of ["cover-to", "cover-from", "cover-subject", "cover-date", "cover-message", "fax-recipients"]) $(id).addEventListener("input", queueCover);
     document.querySelector('[data-switch="cover"]')!.addEventListener("click", () => setTimeout(() => { sync(); queueCover(); }, 0));
+    $("email-pin").addEventListener("change", sync);
 
     function validate(): string {
       if (step === 1 && !file) return "Choose a PDF to continue.";
-      if (step === 2 && !channelOn("fax") && !channelOn("mail")) return "Pick fax, paper mail, or both.";
+      if (step === 2 && !channelOn("fax") && !channelOn("mail") && !channelOn("email")) return "Pick at least one sending method.";
       if (step === 3) {
+        if (channelOn("email")) {
+          if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value("email-recipient"))) return "Enter a valid recipient email address.";
+          if (value("email-pin") !== "none" && !normalizePhone(value("email-phone"))) return "Enter a valid verification phone number.";
+        }
         if (channelOn("fax")) {
           const numbers = faxNumbers();
           if (!numbers.length) return "Enter at least one fax number.";
@@ -361,6 +379,7 @@ import { Textarea } from "@/components/starwind/textarea";
       const dl = $("summary"); dl.replaceChildren();
       const add = (term: string, text: string) => { dl.append(h("dt", "text-muted-foreground", term), h("dd", "font-medium whitespace-pre-line", text)); };
       add("Document", `${file?.name} (${pages} ${pages === 1 ? "page" : "pages"})`);
+      if (channelOn("email")) { add("Email to", value("email-recipient")); add("Verification", value("email-pin") === "none" ? "Email link only" : `${value("email-pin") === "sms" ? "SMS" : "Voice call"} to ${value("email-phone")}, with recipient consent`); }
       if (channelOn("fax")) {
         const list = faxNumbers().map((n) => normalizePhone(n)!);
         add("Fax to", list.join("\n"));
@@ -386,14 +405,17 @@ import { Textarea } from "@/components/starwind/textarea";
       const spec: Record<string, unknown> = { title: file!.name.replace(/\.pdf$/i, "") };
       if (channelOn("fax")) spec.fax = { recipients: faxNumbers().map((n) => normalizePhone(n)), cover: switchOn("cover") ? { enabled: true, to: value("cover-to"), from: value("cover-from"), subject: value("cover-subject"), message: value("cover-message"), date: value("cover-date") } : { enabled: false } };
       if (mail) spec.mail = { to: readAddress("to"), from: readAddress("from"), color: switchOn("color"), doubleSided: switchOn("duplex"), mailingClass: selectValue("class") || "first_class" };
+      if (channelOn("email")) spec.email = { email: value("email-recipient"), pinChannel: value("email-pin"), phone: value("email-phone") };
       const form = new FormData();
       form.set("document", file!); form.set("spec", JSON.stringify(spec));
       try {
-        const created = await api<{ id: string; deliveries: { id: string; channel: string }[] }>("/api/transmissions", { method: "POST", body: form });
+        const created = await api<{ id: string; deliveries: { id?: string; channel: string; status: string; error?: string }[] }>("/api/transmissions", { method: "POST", body: form });
         $("wizard").hidden = true; $("result").hidden = false;
         const body = $("result-body"); body.replaceChildren(skeletonRows(2, "h-24 w-full"));
         const letter = created.deliveries.find((d) => d.channel === "mail");
-        if (letter) {
+        const emailError = created.deliveries.find((d) => d.channel === "email" && d.error);
+        if (emailError) toast(emailError.error!, "error");
+        if (letter?.id) {
           try { await approveLetter(created.id, letter.id, mode); }
           catch (error) { toast(error instanceof Error ? error.message : "The letter could not be confirmed.", "error"); }
         }

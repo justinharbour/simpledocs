@@ -14,12 +14,13 @@ const statuses: Record<string, { label: string; variant: BadgeVariant }> = {
   completed: { label: "Completed by PostGrid", variant: "info" },
   failed: { label: "Failed", variant: "error" },
   unknown: { label: "Outcome unknown", variant: "warning" },
+  revoked: { label: "Access revoked", variant: "secondary" },
   received: { label: "Received", variant: "success" },
   heard: { label: "Heard", variant: "ghost" },
   unheard: { label: "New", variant: "info" },
 };
 
-export const channelLabels: Record<string, string> = { fax: "Fax", mail: "Paper mail", voice: "Voicemail" };
+export const channelLabels: Record<string, string> = { fax: "Fax", mail: "Paper mail", email: "Email", voice: "Voicemail" };
 export const isTerminal = (status: string) => ["delivered", "completed", "failed"].includes(status);
 export const statusLabel = (status: string) => statuses[status]?.label ?? status;
 

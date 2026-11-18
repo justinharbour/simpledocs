@@ -1,12 +1,12 @@
 # Email portal draft: integration and rollout
 
-This is a **disabled, incomplete draft**, not a production-ready sending option.
+This is an incomplete draft and has not been deployed or independently security reviewed.
 The owner API can create an email delivery for an existing owner-authorized
 transmission (`POST /api/transmissions/:id/email`, JSON `{email, pinChannel:
 "none"|"sms"|"voice", phone?}`) and revoke it (`POST
-/api/transmissions/:id/email/:deliveryId/revoke`). This is an independent
-record, not yet a channel in the Send wizard, transmission detail, or records.
-There is no owner UI or recovery/resend workflow. Do not enable it yet.
+/api/transmissions/:id/email/:deliveryId/revoke`). This is an independent record integrated with Send and transmission records.
+The owner can select email and optional phone verification; the recipient must
+consent before a message or call is initiated. There is no recovery/resend UI.
 
 ## Access and email evidence
 
@@ -28,7 +28,7 @@ documents arbitrary recipients on Workers Paid and a sender from an onboarded
 Email Sending domain; verified destination addresses have a separate free path.
 This does not establish current account onboarding, plan, quota, sender domain,
 or deliverability. A new `PORTAL_EMAIL` binding and `PORTAL_SENDER` are needed;
-acceptance is not delivery. The binding is deliberately not configured here.
+acceptance is not delivery. The Wrangler configuration declares the binding; live account setup remains unverified.
 
 Telnyx endpoint discovery and schemas identify `POST /v2/verifications/sms`,
 `/v2/verifications/call` with `phone_number`, `verify_profile_id`, and optional
@@ -55,7 +55,7 @@ uncertainty is not retried automatically. Fixed-window D1 client, destination,
 and owner limits are basic controls, not comprehensive bot or SMS-pumping
 protection; IP availability and upstream trust must be verified.
 
-Remaining release work includes a reviewed owner UI, recipient-specific consent
+Remaining release work includes recipient-specific consent
 and legal wording, stronger abuse protection and cost monitoring, retention and
 garbage collection for expired tokens, rate-limit rows, sessions and encrypted
 objects, transactional orphan recovery, reliable atomic one-time exchange plus
@@ -81,9 +81,8 @@ number if the parallel branch uses it.
 ## Configuration, after review only
 
 Apply the migration through the normal reviewed deployment process, provision
-path bypasses as above, add `PORTAL_EMAIL` Workers email binding, provision the
+path bypasses as above, verify the `PORTAL_EMAIL` Workers email binding, provision the
 onboarded `PORTAL_SENDER`, set exact HTTPS `PORTAL_ORIGIN`, and keep a dedicated
 random 32-byte base64url `PORTAL_KEY` secret backed up and retained for the
 lifetime of all copies. Configure `TELNYX_VERIFY_PROFILE_ID` and the existing
-`TELNYX_API_TOKEN` only if PIN is used. Set `PORTAL_ENABLED=true` only after all
-release work and verification. This branch adds none of those live settings.
+`TELNYX_API_TOKEN` only if PIN is used. No feature flag is required. This branch makes no live configuration changes.

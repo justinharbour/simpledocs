@@ -3,7 +3,7 @@ import { api, channelLabels, h, isTerminal, postJson, statusBadge, statusLabel, 
 
 export type Delivery = {
   id: string;
-  channel: "fax" | "mail";
+  channel: "fax" | "mail" | "email";
   recipient: string;
   status: string;
   providerStatus: string | null;
@@ -48,6 +48,7 @@ function note(delivery: Delivery): string {
   if (delivery.needsApproval) return "This letter was not confirmed, so nothing was mailed. Start again from Send.";
   if (delivery.status === "queued") return "Waiting its turn. It has not been sent yet.";
   if (delivery.status === "accepted" && delivery.channel === "fax") return "Telnyx has the fax. It is not delivered until the receiving machine confirms.";
+  if (delivery.status === "accepted" && delivery.channel === "email") return "Email accepted for sending; delivery is not confirmed.";
   if (delivery.status === "accepted") return "PostGrid has the letter. It is not printed or mailed yet.";
   if (delivery.status === "completed") return "PostGrid reports the letter as completed. That is not a delivery confirmation.";
   return "";
