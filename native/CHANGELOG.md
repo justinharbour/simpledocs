@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.0](https://github.com/justinharbour/simpledocs/compare/native-v1.1.0...native-v1.2.0) (2026-11-18)
+
+
+### Features
+
+* **native:** add app icons for iOS, macOS and tvOS ([cc591a6](https://github.com/justinharbour/simpledocs/commit/cc591a610fc417d12f90d6373f509100614ff387))
+* **native:** add app icons for iOS, macOS and tvOS ([c9b793d](https://github.com/justinharbour/simpledocs/commit/c9b793df92d78301e40a83be9873dcfa1db38287))
+* **native:** upload the Apple TV app to TestFlight ([98a5969](https://github.com/justinharbour/simpledocs/commit/98a5969f9b392ec79c0440f15f012fbd8d450d67))
+* **native:** upload the Apple TV app to TestFlight ([de515ea](https://github.com/justinharbour/simpledocs/commit/de515eae4eb94c61c9bec0dfe026c915fadc8fa6))
+
 ## [1.1.0](https://github.com/justinharbour/simpledocs/compare/native-v1.0.0...native-v1.1.0) (2026-11-18)
 
 
