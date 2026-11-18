@@ -272,11 +272,11 @@ struct SendView: View {
             }
         }
         .formStyle(.grouped)
-        .confirmationDialog("Mail a real letter?", isPresented: $confirmLive, titleVisibility: .visible) {
-            Button("Mail the letter", role: .destructive) { Task { await model.send() } }
+        .confirmationDialog("Create this transmission?", isPresented: $confirmLive, titleVisibility: .visible) {
+            Button("Create transmission", role: .destructive) { Task { await model.send() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("PostGrid will print and mail this letter to \(model.draft.mailTo.oneLine). This costs money and can't be undone.")
+            Text("Any faxes will be queued now. The letter to \(model.draft.mailTo.oneLine) will require separate confirmation in its record. Pricing and an exact envelope proof are not available here.")
         }
     }
 

@@ -397,21 +397,10 @@ public struct PickedDocument: Equatable, Sendable {
             let numberDocumentPages = draft.numberDocumentPages
             let numberFaxCover = draft.channels.hasFax && draft.cover.enabled && draft.cover.includeNumbers
             let created = try await session.call { try await $0.createTransmission(documents: files, spec: spec, numberDocumentPages: numberDocumentPages, numberFaxCover: numberFaxCover) }
-            var approved = false
-            var problem: String?
-            if draft.channels.hasMail, let letter = created.deliveries.first(where: { $0.channel == "mail" }) {
-                let (id, mode) = (created.id, draft.mode)
-                do {
-                    try await session.call { api in
-                        let review = try await api.mailReview(transmissionID: id, deliveryID: letter.id, mode: mode)
-                        guard review.available else { throw APIError.server(status: 503, message: "Paper mail in \(mode.rawValue) mode isn't set up on this instance, so the letter was not mailed.") }
-                        try await api.approveMail(transmissionID: id, deliveryID: letter.id, mode: mode, reviewHash: review.reviewHash)
-                    }
-                    approved = true
-                } catch { problem = describe(error) }
-            }
+            let problem: String? = draft.channels.hasMail
+                ? "Open the record to review and confirm the letter separately." : nil
             step = .sent(SentSummary(transmissionID: created.id, envelopeNumber: created.envelopeNumber, faxCount: created.deliveries.filter { $0.channel == "fax" }.count,
-                                     letterApproved: approved, letterProblem: problem))
+                                     letterApproved: false, letterProblem: problem))
         } catch is CancellationError {
             step = .review
         } catch {
