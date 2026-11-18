@@ -12,16 +12,16 @@ so older Workers reject the whole request instead of silently dropping email.
 1. Preserve both protected owner hosts. The owner UI can send and revoke on
    `simpledocs.justinharbour.com` and `simpledocs.justinharbour.dev`, but invite
    links and recipient cookies use only `https://simpledocs.justinharbour.com`.
-2. Create six separate self-hosted Cloudflare Access applications with a single
-   `.com` destination each: `/portal`, `/portal/exchange`, `/portal/status`,
-   `/portal/pin/start`, `/portal/pin/check`, and `/portal/document`. Each uses one
-   Bypass/Everyone policy. Never add a wildcard or bypass an owner `/api` path.
-   Verify edge behavior on both hosts without sending anything: the recipient
-   landing page is public on `.com`; an unauthenticated document or status
-   request is denied; `.dev`, the owner app, owner APIs, and adjacent/normalized
-   paths remain protected. The Worker independently verifies Access JWTs on
-   owner routes and accepts only the exact public route set. The deploy workflow
-   validates policy metadata and does not create recipient exceptions.
+2. After deploying the Worker, the workflow adds six exact public path overrides
+   to the existing `.com` Access destination: `/portal`, `/portal/exchange`,
+   `/portal/status`, `/portal/pin/start`, `/portal/pin/check`, and `/portal/document`.
+   Unlike separate Access application paths, literal destination overrides do
+   not inherit to subpaths. Do not create separate bypass applications or add a
+   wildcard. The workflow verifies the owner audience and OAuth configuration
+   are preserved and checks both domains without sending anything: `.com` serves
+   the recipient landing page, recipient endpoints deny access without a session,
+   and `.dev`, owner routes, and adjacent paths remain protected. The Worker also
+   independently verifies Access JWTs on owner routes.
 3. Store a backed-up dedicated 32-byte random base64url `PORTAL_KEY` in the
    repository's Actions secrets. Keep the key for the life of its copies and
    protected backups. To rotate, set the outgoing key as `PORTAL_PREVIOUS_KEY`
@@ -34,13 +34,23 @@ so older Workers reject the whole request instead of silently dropping email.
    sender domain.
 4. Set Actions variable `TELNYX_VERIFY_PROFILE_ID` to a dedicated Simpledocs
    profile accessible by the actual production `TELNYX_API_TOKEN`, with a daily
-   spend cap and no external webhook. Do not reuse CommCenter profiles. Review
-   recipient consent wording and the allowed destination region. Verify metadata
+   spend cap, US/Canada destinations only, and no external webhook. Do not reuse
+   CommCenter profiles. Review recipient consent wording. Verify metadata
    with a read-only profile GET; do not initiate a verification as a smoke test.
 5. Promote through `develop` and `main`. The production workflow performs
-   read-only provider and Access preflight before migration or deploy. Verify
-   migration history, Worker binding metadata, and the non-sending checks above.
+   read-only provider and Access preflight before migration or deploy, then
+   records non-sending edge checks. Verify migration history and Worker bindings.
    End-to-end delivery testing requires separate permission for each real send.
+
+## Release proof
+
+Record the exact PR head and its normal CI run, the promoted commit and deploy
+run, migration history, and the deploy workflow's recipient portal proof summary.
+Keep provider configuration checks, edge checks, and actual delivery evidence
+separate. A passing test with a provider double or an accepted submission is
+not proof of delivery. Mark any real delivery check that was not authorized as
+not run. Do not include invitation links, access codes, phone numbers, document
+contents, or credentials in evidence.
 
 ## Security and failure behavior
 

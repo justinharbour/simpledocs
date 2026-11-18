@@ -17,8 +17,9 @@ async function get(url, token) {
 const account = `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}`;
 const cf = path => get(path.startsWith('/') ? `${account}${path}` : path, CLOUDFLARE_API_TOKEN);
 const verify = await get(`https://api.telnyx.com/v2/verify_profiles/${TELNYX_VERIFY_PROFILE_ID}`, TELNYX_API_TOKEN);
-if (verify.data?.id !== TELNYX_VERIFY_PROFILE_ID || !/^Simpledocs\b/i.test(verify.data.name ?? '') || verify.data.daily_spend_limit_enabled !== true || !(Number(verify.data.daily_spend_limit) > 0) || verify.data.webhook_url || verify.data.webhook_failover_url) {
-  throw Error('Verify requires a dedicated Simpledocs profile with a daily spend cap and no external webhook');
+const usCanadaOnly = channel => [...new Set(channel?.whitelisted_destinations)].sort().join(',') === 'CA,US';
+if (verify.data?.id !== TELNYX_VERIFY_PROFILE_ID || !/^Simpledocs\b/i.test(verify.data.name ?? '') || verify.data.daily_spend_limit_enabled !== true || !(Number(verify.data.daily_spend_limit) > 0) || verify.data.webhook_url || verify.data.webhook_failover_url || !usCanadaOnly(verify.data.sms) || !usCanadaOnly(verify.data.call)) {
+  throw Error('Verify requires a dedicated Simpledocs profile with a daily spend cap, US/Canada destinations only, and no external webhook');
 }
 const limits = (await cf('/email/sending/limits')).result;
 if (limits?.recipient_mode !== 'arbitrary' || limits.usage?.over_quota !== false) throw Error('Cloudflare Email Sending needs arbitrary-recipient mode and available quota');
@@ -36,15 +37,24 @@ do {
   apps.push(...response.result);
 } while (page <= (response.result_info?.total_pages ?? 1));
 const uri = app => [...new Set([app.domain, ...(app.destinations ?? []).map(d => d.uri), ...(app.self_hosted_domains ?? [])].filter(Boolean))];
-for (const path of PORTAL_PATHS) {
-  const expected = recipientHost + path;
-  const matched = apps.filter(a => uri(a).includes(expected));
-  if (matched.length !== 1 || matched[0].type !== 'self_hosted' || uri(matched[0]).length !== 1 || matched[0].destinations?.some(d => d.type !== 'public' || d.overrides?.length)) throw Error(`Configure one Access application for ${expected} only`);
-  const policy = await cf(`/access/apps/${matched[0].id}/policies?per_page=100`);
-  const p = policy.result?.[0];
-  if ((policy.result_info?.total_pages ?? 1) !== 1 || policy.result?.length !== 1 || p.decision !== 'bypass' || JSON.stringify(p.include) !== '[{"everyone":{}}]' || p.require?.length || p.exclude?.length) throw Error(`Unexpected Access policy for ${expected}`);
-}
 for (const app of apps) {
-  if (uri(app).some(d => d.startsWith(`${legacyHost}/portal`) || (d.startsWith(`${recipientHost}/portal`) && !PORTAL_PATHS.some(path => d === recipientHost + path)))) throw Error('Unexpected overlapping or legacy-host recipient Access application');
+  if (uri(app).some(d => [legacyHost, recipientHost].some(host => d.startsWith(`${host}/portal`)))) throw Error('Unexpected separate recipient Access application; use exact destination overrides');
+}
+if (process.argv.includes('--check-edge')) {
+  const probe = async (host, path, accepted) => {
+    const response = await fetch(`https://${host}${path}`, { redirect: 'manual', signal: AbortSignal.timeout(10000) });
+    if (!(await accepted(response))) throw Error(`Unexpected no-auth edge response for ${host}${path}: ${response.status}`);
+  };
+  const protectedRoute = r => [302, 401, 403].includes(r.status);
+  await probe(recipientHost, '/portal', async r => r.ok && (await r.text()).includes('Access code from your email'));
+  for (const path of PORTAL_PATHS.slice(1)) await probe(recipientHost, path, async r => r.status === 404 && (await r.json()).error === 'Unavailable');
+  for (const host of [legacyHost, recipientHost]) {
+    for (const path of ['/', '/api/transmissions', '/portal/adjacent', '/portal/document/']) await probe(host, path, protectedRoute);
+  }
+  for (const path of PORTAL_PATHS) await probe(legacyHost, path, protectedRoute);
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    const { appendFile } = await import('node:fs/promises');
+    await appendFile(process.env.GITHUB_STEP_SUMMARY, `## Recipient portal release proof\n\n- Commit: \`${process.env.GITHUB_SHA}\`\n- Provider configuration: verified with production workflow credentials; no sends\n- Edge: canonical landing reachable; recipient session required; both owner hosts and non-recipient paths protected\n- Live email, SMS, and voice delivery: not run (separate authorization required)\n`);
+  }
 }
 console.log('Portal production prerequisites verified without sending communications.');

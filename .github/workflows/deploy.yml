@@ -84,3 +84,16 @@ jobs:
       - name: Remove temporary deploy secret file
         if: ${{ always() }}
         run: rm -f -- "$RUNNER_TEMP/simpledocs-secrets.json"
+      - name: Publish exact recipient routes after deploying authenticated Worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node web/worker/access-app.mjs --publish-portal
+      - name: Verify public and protected edge routes without sending
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          PORTAL_KEY: ${{ secrets.PORTAL_KEY }}
+          TELNYX_API_TOKEN: ${{ secrets.TELNYX_API_TOKEN }}
+          TELNYX_VERIFY_PROFILE_ID: ${{ vars.TELNYX_VERIFY_PROFILE_ID }}
+        run: node web/worker/portal-production.mjs --check-edge
