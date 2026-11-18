@@ -13,7 +13,7 @@ import { handleVoiceWebhook, handleVoiceRecording, listVoiceRecordings } from '.
 import { handleVoiceSession } from './voice-session.mjs';
 import { handlePresence } from './voice-presence.mjs';
 import { handleAvailability } from './availability-policy.mjs';
-import { handleAiTool, handleKnowledge, listAiRequests } from './ai-voicemail.mjs';
+import { handleAiTool, handleKnowledge, listAiRequests, deleteAiRequest, expireAiSessions } from './ai-voicemail.mjs';
 import { handleSms, handleSmsWebhook } from './sms.mjs';
 import { handleInbox } from './inbox.mjs';
 import { handleVoicemailSettings } from './voicemail-config.mjs';
@@ -39,6 +39,7 @@ export function createWorker(resolveKeys = issuer => {
     if (result === 'unavailable') console.error('Pending fax alert unavailable');
     if (result === 'accepted') await notifyPush(env, { kind: 'fax-attention' });
     try { await reconcileDeliveries(withPush(env, ctx)); } catch { console.error('Delivery reconcile unavailable'); }
+    try { await expireAiSessions(env); } catch { console.error('AI session cleanup unavailable'); }
   },
   queue(batch, env, ctx) { return handleQueue(batch, withPush(env, ctx)); },
   async fetch(request, env, ctx) {
@@ -92,6 +93,8 @@ export function createWorker(resolveKeys = issuer => {
     if (url.pathname === '/api/voice/presence') return handlePresence(request, env);
     if (url.pathname === '/api/voice/availability') return handleAvailability(request, env);
     if (url.pathname === '/api/voice/ai-requests') return voiceOwner ? listAiRequests(request, env) : new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+    const aiRequest = /^\/api\/voice\/ai-requests\/([a-f0-9]{64})$/.exec(url.pathname);
+    if (aiRequest) return voiceOwner ? deleteAiRequest(request, env, aiRequest[1]) : new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
     if (url.pathname === '/api/settings/ai-knowledge') return voiceOwner ? handleKnowledge(request, env) : new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
     if (url.pathname.startsWith('/api/sms/')) return handleSms(request, env);
     if (url.pathname === '/api/inbox' || url.pathname.startsWith('/api/inbox/')) {

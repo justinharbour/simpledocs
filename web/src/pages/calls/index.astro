@@ -112,10 +112,18 @@ const select = input({ size: "sm" });
       catch { availability.value = availabilityPolicy.mode; toast("Availability could not be saved.", "error"); }
       finally { availability.disabled = false; }
     });
-    api<{ requests: { kind: string; details: string; created_at: string }[] }>("/api/voice/ai-requests").then(({ requests }) => {
+    api<{ requests: { id: string; kind: string; details: string; created_at: string }[] }>("/api/voice/ai-requests").then(({ requests }) => {
       const box = el("ai-requests");
       if (!requests.length) { box.textContent = "No AI assistant requests yet."; return; }
-      box.replaceChildren(...requests.map(r => { const item = document.createElement("article"); item.className = "border-border mb-3 rounded-lg border p-4"; const title = document.createElement("h3"); title.className = "font-medium"; title.textContent = `${r.kind} · ${r.created_at}`; const text = document.createElement("p"); text.className = "whitespace-pre-wrap text-sm"; text.textContent = r.details; item.append(title, text); return item; }));
+      box.replaceChildren(...requests.map(r => {
+        const item = document.createElement("article"); item.className = "border-border mb-3 rounded-lg border p-4";
+        const title = document.createElement("h3"); title.className = "font-medium"; title.textContent = `${r.kind} · ${r.created_at}`;
+        const text = document.createElement("p"); text.className = "whitespace-pre-wrap text-sm"; text.textContent = r.details; item.append(title, text);
+        if (r.kind === "sms") { const note = document.createElement("p"); note.className = "text-muted-foreground mt-2 text-sm"; note.textContent = "No text has been sent. Verify the number and consent independently, and check for opt-outs before using Messages. Do not text if uncertain."; const link = document.createElement("a"); link.href = "/messages/"; link.className = "underline"; link.textContent = "Open Messages"; item.append(note, link); }
+        const remove = document.createElement("button"); remove.type = "button"; remove.className = "ml-3 underline text-sm"; remove.textContent = "Delete request";
+        remove.addEventListener("click", async () => { if (!confirm("Permanently delete this request?")) return; remove.disabled = true; try { const response = await fetch(`/api/voice/ai-requests/${r.id}`, { method: "DELETE" }); if (!response.ok) { const body = await response.json(); throw new Error(body.error); } item.remove(); } catch (error) { toast(error instanceof Error ? error.message : "Request could not be deleted.", "error"); remove.disabled = false; } });
+        item.append(remove); return item;
+      }));
     }).catch(() => { el("ai-requests").textContent = "AI requests could not be loaded."; });
     const label = (node: HTMLElement, name: IconName, text: string) => node.replaceChildren(icon(name), document.createTextNode(text));
 

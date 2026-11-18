@@ -65,6 +65,7 @@ async function command(env, id, action, body, fetcher) {
     const response = await fetcher(`https://api.telnyx.com/v2/calls/${encodeURIComponent(id)}/actions/${action}`, {
       method: 'POST', redirect: 'manual', headers: auth(env),
       body: JSON.stringify({ ...body, command_id: commandId }),
+      ...(ai ? { signal: AbortSignal.timeout(8000) } : {}),
     });
     outcome = response.ok ? 'accepted' : ai && response.status >= 400 && response.status < 500 ? 'rejected' : 'unknown';
   } catch { /* Unknown outcome: never issue a second command automatically. */ }

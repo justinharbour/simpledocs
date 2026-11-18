@@ -60,6 +60,34 @@ export async function handleAiTool(request, env, kind) {
 
 export async function listAiRequests(request, env) {
   if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405);
-  try { const rows = await env.DB.prepare('SELECT kind, details, consent, created_at FROM ai_voicemail_requests ORDER BY created_at DESC LIMIT 100').all(); return json({ requests: rows.results }); }
+  try {
+    const rows = await env.DB.prepare('SELECT call_control_id, kind, details, consent, created_at FROM ai_voicemail_requests ORDER BY created_at DESC LIMIT 100').all();
+    return json({ requests: await Promise.all(rows.results.map(async ({ call_control_id, ...row }) => ({ ...row, id: await digest(`${call_control_id}:${row.kind}`) }))) });
+  }
   catch { return json({ error: 'Requests unavailable' }, 503); }
+}
+
+// Deletion is deliberately delayed until the callback credential expires: otherwise
+// a replay of the original tool invocation could recreate a deleted record.
+export async function deleteAiRequest(request, env, id, now = Date.now()) {
+  if (request.method !== 'DELETE') return json({ error: 'Method not allowed' }, 405);
+  if (request.headers.get('origin') !== new URL(request.url).origin) return json({ error: 'Invalid origin' }, 403);
+  if (!/^[a-f0-9]{64}$/.test(id)) return json({ error: 'Not found' }, 404);
+  try {
+    const rows = await env.DB.prepare('SELECT r.call_control_id, r.kind, s.created_at AS session_at FROM ai_voicemail_requests r LEFT JOIN ai_voicemail_sessions s ON s.call_control_id = r.call_control_id').all();
+    for (const row of rows.results) {
+      if (await digest(`${row.call_control_id}:${row.kind}`) !== id) continue;
+      if (row.session_at && now - Date.parse(row.session_at) <= 4 * 3600000) return json({ error: 'Delete after the callback window expires (four hours after the call started).' }, 409);
+      await env.DB.prepare('DELETE FROM ai_voicemail_requests WHERE call_control_id = ? AND kind = ?').bind(row.call_control_id, row.kind).run();
+      return json({ deleted: true });
+    }
+    return json({ error: 'Not found' }, 404);
+  } catch { return json({ error: 'Deletion unavailable' }, 503); }
+}
+
+// Only short-lived credentials are automatically removed. Caller requests are
+// retained until owner deletion, so no unexpected loss of unread messages.
+export async function expireAiSessions(env, now = Date.now()) {
+  const cutoff = new Date(now - 4 * 3600000).toISOString();
+  await env.DB.prepare('DELETE FROM ai_voicemail_sessions WHERE created_at < ?').bind(cutoff).run();
 }
