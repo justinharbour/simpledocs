@@ -16,6 +16,8 @@ async function dashboard(env, actor) {
   const voiceAllowed = !env.VOICE_OWNER_SUBJECT || actor === env.VOICE_OWNER_SUBJECT;
   const calls = voiceAllowed ? await env.DB.prepare('SELECT outcome, COUNT(*) AS n FROM calls WHERE started_at >= ? GROUP BY outcome').bind(since).all() : { results: [] };
   const byOutcome = Object.fromEntries((calls.results ?? []).map(r => [r.outcome, r.n]));
+  // A missed hangup webhook would leave a row ringing; only recent unended calls count as live.
+  if (voiceAllowed) byOutcome.ringing = (await env.DB.prepare("SELECT COUNT(*) AS n FROM calls WHERE outcome = 'ringing' AND ended_at IS NULL AND started_at >= ?").bind(new Date(Date.now() - 120000).toISOString()).first())?.n ?? 0;
   const unreadFax = faxAllowed ? (await env.DB.prepare("SELECT COUNT(*) AS n FROM inbound_fax_events WHERE event_type = 'fax.received' AND object_key IS NOT NULL AND NOT EXISTS (SELECT 1 FROM inbox_reads r WHERE r.kind = 'fax' AND r.id = inbound_fax_events.event_id)").first())?.n ?? 0 : 0;
   const unreadVoicemail = voiceAllowed ? (await env.DB.prepare("SELECT COUNT(*) AS n FROM voice_recordings WHERE kind = 'voicemail' AND heard_at IS NULL").first())?.n ?? 0 : 0;
   const pendingApprovals = (await env.DB.prepare("SELECT COUNT(*) AS n FROM dispatches d JOIN transmissions t ON t.id = d.transmission_id WHERE t.actor_id = ? AND d.status = 'awaiting_approval'").bind(actor).first())?.n ?? 0;
