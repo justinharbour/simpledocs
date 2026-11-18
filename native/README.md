@@ -18,7 +18,7 @@ Status wording comes from the provider. "Accepted by provider" and "Completed by
 
 Call back opens the phone's dialer with a `tel:` link. A dialer inside the app would need Telnyx's WebRTC SDK, which this project does not bundle.
 
-The voicemail greeting editor expects `GET/PUT /api/settings/voicemail` returning `{greeting, voice, service_level}`. If the instance answers 404, the screen says the instance doesn't support it yet.
+The voicemail greeting editor uses `GET/PUT /api/settings/voicemail` (`{greeting, voice, service_level}`). That route only exists on a voice-enabled instance; on others it answers 404 and the screen says the instance doesn't support it. Push registration (`POST /api/push/devices`) runs after sign-in; see [push.md](docs/push.md).
 
 ## Layout
 
@@ -55,5 +55,4 @@ The `native-connected` job in `.github/workflows/ci.yml` runs the guard and the 
 - **Sign-in against the live instance.** The app needs Managed OAuth turned on for the Access application with `dev.justinharbour.simpledocs:/oauth/callback` allowed. The Worker must accept the bearer token (Access turns it into the assertion) and the `Origin` header. Until that is checked end to end, sign-in may be refused.
 - **No iOS simulator was run**, so the iOS app is built for `generic/platform=iOS` only.
 - **No VoiceOver, keyboard-navigation or Dynamic Type pass.** Labels and system controls are in place; a manual pass is still needed.
-- **Voicemail greeting route** is not on the Worker yet (see above).
-- No signing, notarization or App Store Connect setup. Push notifications are a separate branch.
+- No signing, notarization or App Store Connect setup. Push delivery needs the Apple and Worker setup in [push.md](docs/push.md).

@@ -113,6 +113,12 @@ public actor WorkerAPI {
         return (try? decode(VoicemailSettings.self, data)) ?? value
     }
 
+    /// Hands the device's APNs token to the Worker. `platform` is ios or macos; `environment` is sandbox or production.
+    public func registerPushDevice(token: String, platform: String, environment: String) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["token": token, "platform": platform, "environment": environment], options: [.sortedKeys])
+        _ = try await send("POST", "/api/push/devices", body: body, contentType: "application/json")
+    }
+
     // MARK: Calls
 
     public func calls() async throws -> [CallItem] { try await get("/api/voice/calls", as: CallsResponse.self).calls }

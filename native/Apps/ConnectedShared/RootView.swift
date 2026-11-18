@@ -51,8 +51,19 @@ struct Workspace: View {
         Group {
             if compact { tabs } else { split }
         }
+        .task { await registerForPush() }
+        .onDisappear { PushCoordinator.shared.stop() }
         .onChange(of: actions.refreshTick) { Task { await refreshCurrent() } }
         .onChange(of: actions.newSendTick) { send.reset() }
+    }
+
+    /// Permission is requested only after sign-in. A failure here never affects the rest of the app.
+    private func registerForPush() async {
+        PushCoordinator.shared.onOpen = { actions.refresh() }
+        await PushCoordinator.shared.start { token in
+            let (platform, environment) = (PushCoordinator.platform.rawValue, PushCoordinator.environment.rawValue)
+            try? await session.call { try await $0.registerPushDevice(token: token, platform: platform, environment: environment) }
+        }
     }
 
     private func refreshCurrent() async {

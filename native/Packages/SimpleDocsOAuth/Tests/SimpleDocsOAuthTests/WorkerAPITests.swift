@@ -222,6 +222,16 @@ extension StubbedSuites { @Suite struct WorkerAPITests {
         }
     }
 
+    @Test func registersPushDeviceWithOriginAndJSONBody() async throws {
+        StubProtocol.reset(["POST /api/push/devices": [Stub(status: 200, body: Data("{}".utf8))]])
+        let api = try api(try session())
+        try await api.registerPushDevice(token: String(repeating: "ab", count: 32), platform: "macos", environment: "sandbox")
+        let sent = try #require(StubProtocol.requests.first)
+        #expect(sent.origin == "https://one.example.com")
+        let body = try #require(JSONSerialization.jsonObject(with: sent.body) as? [String: String])
+        #expect(body == ["token": String(repeating: "ab", count: 32), "platform": "macos", "environment": "sandbox"])
+    }
+
     @Test func clientRefusesAMalformedInstance() throws {
         var bad = try session()
         bad.instance = "http://one.example.com"
