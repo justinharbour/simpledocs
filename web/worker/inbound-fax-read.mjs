@@ -5,6 +5,7 @@ const json = (value, status = 200) => Response.json(value, { status, headers });
 // Subjects are explicitly authorized for this shared inbox, independently of
 // merely possessing an Access assertion. No client-provided actor is accepted.
 function authorized(actor, configured) {
+  if (configured === undefined) return typeof actor === 'string' && actor.length > 0;
   try {
     const subjects = JSON.parse(configured);
     return typeof actor === 'string' && Array.isArray(subjects) && subjects.length > 0 && subjects.every(s => typeof s === 'string' && s.trim() === s && s.length > 0) && subjects.includes(actor);

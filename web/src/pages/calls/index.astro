@@ -14,7 +14,7 @@ import PageHeader from "@/components/PageHeader.astro";
     </div>
     <form id="call-form" class="mt-6 flex flex-col gap-3">
       <label for="call-number">Phone number <span class="text-sm text-muted-foreground">Include country code, for example +12025550102.</span></label>
-      <input id="call-number" type="tel" autocomplete="tel" pattern="\+[1-9][0-9]{1,14}" required class="rounded-md border border-input bg-background px-3 py-2" />
+      <input id="call-number" type="tel" autocomplete="tel" inputmode="tel" required class="rounded-md border border-input bg-background px-3 py-2" />
       <label class="flex items-start gap-2"><input id="call-confirm" type="checkbox" required class="mt-1" /> I confirm this call is authorized and may incur charges.</label>
       <button id="call" disabled type="submit" class="self-start rounded-md bg-primary px-4 py-2 text-primary-foreground disabled:opacity-50">Call</button>
     </form>
@@ -34,6 +34,7 @@ import PageHeader from "@/components/PageHeader.astro";
   </section>
   <script>
     import { TelnyxRTC } from '@telnyx/webrtc';
+    import { normalizePhone } from '@/lib/phone';
     const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
     const status = el<HTMLElement>('phone-status');
     const connect = el<HTMLButtonElement>('connect'), disconnect = el<HTMLButtonElement>('disconnect');
@@ -71,8 +72,8 @@ import PageHeader from "@/components/PageHeader.astro";
     disconnect.addEventListener('click', () => { if (call) void call.hangup(); client?.disconnect(); client = null; call = null; ready = false; answered = false; muted = false; mute.textContent = 'Mute'; status.textContent = 'Disconnected.'; controls(); });
     el<HTMLFormElement>('call-form').addEventListener('submit', event => {
       event.preventDefault(); if (!ready || !client || call) return;
-      const destination = el<HTMLInputElement>('call-number').value;
-      if (!/^\+[1-9]\d{1,14}$/.test(destination) || !el<HTMLInputElement>('call-confirm').checked) return;
+      const destination = normalizePhone(el<HTMLInputElement>('call-number').value);
+      if (!destination || !el<HTMLInputElement>('call-confirm').checked) return;
       try { call = client.newCall({ destinationNumber: destination, callerNumber, audio: true, remoteElement: remoteAudio }); status.textContent = 'Calling…'; controls(); }
       catch { status.textContent = 'Unable to start the call. Check your microphone and connection.'; }
     });

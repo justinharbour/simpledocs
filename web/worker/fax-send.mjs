@@ -1,5 +1,6 @@
 import { prepareFax, sendPreparedFax } from './fax-intents.mjs';
 import { submitFax } from './telnyx-fax.mjs';
+import { normalizePhone } from './phone.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const E164 = /^\+[1-9]\d{1,14}$/;
@@ -25,9 +26,9 @@ export async function handleFaxSend(request, env, actor, id, fetcher = fetch) {
   let form;
   try { form = await new Response(new Blob(chunks), { headers: { 'Content-Type': request.headers.get('content-type') || '' } }).formData(); }
   catch { return reply({ error: 'Invalid form' }, 400); }
-  const destination = form.get('destination');
+  const destination = normalizePhone(form.get('destination'));
   const document = form.get('document');
-  if (form.get('confirmed') !== 'true' || typeof destination !== 'string' || !E164.test(destination) ||
+  if (form.get('confirmed') !== 'true' || !destination ||
       !(document instanceof File) || document.size === 0 || document.size > limit || document.type !== 'application/pdf') return reply({ error: 'Provide a PDF, destination, and paid-send confirmation' }, 400);
   const bytes = new Uint8Array(await document.arrayBuffer());
   if (new TextDecoder().decode(bytes.slice(0, 5)) !== '%PDF-') return reply({ error: 'Invalid PDF' }, 400);

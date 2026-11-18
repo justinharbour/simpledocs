@@ -6,8 +6,8 @@ import PageHeader from "@/components/PageHeader.astro";
   <PageHeader title="Send a fax" summary="Choose a PDF and enter the destination number." />
   <p class="text-muted-foreground text-sm">Fax availability depends on the instance configuration. Provider acceptance does not confirm delivery.</p>
   <form id="fax-form" class="mt-10 flex max-w-xl flex-col gap-5">
-    <label class="flex flex-col gap-2" for="destination">Fax number <span class="text-muted-foreground text-sm">Include the country code, for example +12025550102.</span></label>
-    <input class="rounded-md border border-input bg-background px-3 py-2" id="destination" name="destination" type="tel" required pattern="\+[1-9][0-9]{1,14}" />
+    <label class="flex flex-col gap-2" for="destination">Fax number <span class="text-muted-foreground text-sm">For example (202) 555-0102 or +44 20 7946 0958.</span></label>
+    <input class="rounded-md border border-input bg-background px-3 py-2" id="destination" name="destination" type="tel" autocomplete="tel" inputmode="tel" required />
     <label class="flex flex-col gap-2" for="document">PDF document <span class="text-muted-foreground text-sm">Maximum 5 MB.</span></label>
     <input id="document" name="document" type="file" accept="application/pdf,.pdf" required />
     <label class="flex items-start gap-2"><input class="mt-1" type="checkbox" name="confirmed" value="true" required /> I confirm this is an authorized recipient and agree to the fax charges.</label>
