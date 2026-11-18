@@ -17,7 +17,7 @@ import { handleInbox } from './inbox.mjs';
 import { handleVoicemailSettings } from './voicemail-config.mjs';
 import { sendPendingFaxAlert } from './inbound-fax-alert.mjs';
 import { handlePushDevices, notifyPush, withPush } from './push.mjs';
-import { createEmailDelivery, portal, revokeEmailDelivery } from './email-portal.mjs';
+import { cleanupPortal, createEmailDelivery, portal, revokeEmailDelivery } from './email-portal.mjs';
 
 // Static Assets do not propagate ctx.access. Verify the Access assertion against
 // the configured team's keys instead; never trust an unverified identity header.
@@ -38,6 +38,7 @@ export function createWorker(resolveKeys = issuer => {
     if (result === 'unavailable') console.error('Pending fax alert unavailable');
     if (result === 'accepted') await notifyPush(env, { kind: 'fax-attention' });
     try { await reconcileDeliveries(withPush(env, ctx)); } catch { console.error('Delivery reconcile unavailable'); }
+    try { await cleanupPortal(env); } catch { console.error('Portal cleanup unavailable'); }
   },
   queue(batch, env, ctx) { return handleQueue(batch, withPush(env, ctx)); },
   async fetch(request, env, ctx) {

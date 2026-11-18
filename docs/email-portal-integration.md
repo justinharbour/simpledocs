@@ -51,14 +51,12 @@ the existing source remains under the current R2 storage protections. Possession
 of a forwarded link is sufficient without PIN. A PIN is optional per delivery;
 when selected, an unchecked recipient consent checkbox precedes one Telnyx
 request, a matching accepted PIN is required, and attempts are bounded. Provider
-uncertainty is not retried automatically. Fixed-window D1 client, destination,
+uncertainty is not retried automatically. Fixed-window D1 client, destination, global Verify,
 and owner limits are basic controls, not comprehensive bot or SMS-pumping
 protection; IP availability and upstream trust must be verified.
 
 Remaining release work includes recipient-specific consent
-and legal wording, stronger abuse protection and cost monitoring, retention and
-garbage collection for expired tokens, rate-limit rows, sessions and encrypted
-objects, transactional orphan recovery, reliable atomic one-time exchange plus
+and legal wording, stronger abuse protection and cost monitoring, retention policy for audit metadata and transactional orphan recovery, reliable atomic one-time exchange plus
 session creation, token/session failure recovery, key rotation and backup,
 security review, accessibility testing, and end-to-end deployment verification.
 Provider timeouts are deliberately reported as unknown, not failures or delivery.
@@ -86,3 +84,13 @@ onboarded `PORTAL_SENDER`, set exact HTTPS `PORTAL_ORIGIN`, and keep a dedicated
 random 32-byte base64url `PORTAL_KEY` secret backed up and retained for the
 lifetime of all copies. Configure `TELNYX_VERIFY_PROFILE_ID` and the existing
 `TELNYX_API_TOKEN` only if PIN is used. No feature flag is required. This branch makes no live configuration changes.
+
+Email attempts are durably claimed once per transmission before provider submission.
+Configuration failures are retained in Records. A crash or timeout at the
+provider boundary remains unknown; do not retry without checking. Scheduled
+cleanup removes expired sessions, old rate buckets, and up to 50 expired or
+revoked encrypted copies per run while retaining delivery and consent metadata.
+A failure before the email attempt row is created, or between encrypted R2 write
+and database insertion, still needs reconciliation; R2 lifecycle policies should
+be considered for orphan cleanup. Existing delivery rows from the earlier draft
+are not backfilled into email_attempts.

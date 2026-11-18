@@ -14,7 +14,8 @@ async function limit(env, category, value, maximum) {
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${category}:${value}`)));
   const bucket = Array.from(digest, b => b.toString(16).padStart(2, '0')).join('');
   const period = Math.floor(Date.now() / 3600000);
-  const row = await env.DB.prepare('INSERT INTO portal_limits (bucket, period, count) VALUES (?, ?, 1) ON CONFLICT(bucket, period) DO UPDATE SET count = count + 1 WHERE count < ? RETURNING count').bind(bucket, period, maximum).first();
+  let row;
+  try { row = await env.DB.prepare('INSERT INTO portal_limits (bucket, period, count) VALUES (?, ?, 1) ON CONFLICT(bucket, period) DO UPDATE SET count = count + 1 WHERE count < ? RETURNING count').bind(bucket, period, maximum).first(); } catch { return false; }
   return !!row;
 }
 async function body(r) {
@@ -34,30 +35,43 @@ async function session(r, env) {
 // Owner API is called only after the Worker has verified its Access JWT.
 export async function createEmailDelivery(r, env, actor, transmissionId) {
   if (r.method !== 'POST') return fail(405);
-  if (!ready(env) || typeof env.PORTAL_EMAIL?.send !== 'function' || !validEmail(env.PORTAL_SENDER)) return json({ error: 'Email portal is not configured: set PORTAL_ORIGIN, PORTAL_KEY, PORTAL_SENDER and the PORTAL_EMAIL binding.' }, 503);
-  if (!originOK(r, env)) return fail(403);
+  if (!env.DB) return fail(503);
+  if (r.headers.get('origin') !== new URL(r.url).origin) return fail(403);
   let b; try { b = await body(r); } catch { return fail(400); }
-  if (!uuid(transmissionId) || !validEmail(b?.email) || !['none', 'sms', 'voice'].includes(b?.pinChannel)) return fail(400);
+  if (!uuid(transmissionId)) return fail(400);
+  const tx = await env.DB.prepare('SELECT source_key FROM transmissions WHERE id = ? AND actor_id = ?').bind(transmissionId, actor).first();
+  if (!tx) return fail();
+  const recipient = typeof b?.email === 'string' ? b.email.slice(0, 254) : '';
+  const claimed = await env.DB.prepare("INSERT INTO email_attempts (transmission_id, actor_id, recipient, status, created_at) VALUES (?, ?, ?, 'preparing', ?) ON CONFLICT(transmission_id) DO NOTHING").bind(transmissionId, actor, recipient, Date.now()).run();
+  if (claimed.meta.changes !== 1) return json({ error: 'Email was already attempted for this transmission. Check Records before sending again.' }, 409);
+  const reject = async (message, status = 503) => {
+    await env.DB.prepare("UPDATE email_attempts SET status = 'failed', error = ? WHERE transmission_id = ? AND status = 'preparing'").bind(message, transmissionId).run();
+    return json({ error: message }, status);
+  };
+  if (!validEmail(b?.email) || !['none', 'sms', 'voice'].includes(b?.pinChannel)) return reject('Enter a valid email address and verification option.', 400);
+  if (!ready(env) || typeof env.PORTAL_EMAIL?.send !== 'function' || !validEmail(env.PORTAL_SENDER) || !originOK(r, env)) return reject('Email portal is not configured: set PORTAL_ORIGIN, PORTAL_KEY, PORTAL_SENDER and the PORTAL_EMAIL binding.');
   let phone = null;
   if (b.pinChannel !== 'none') {
     phone = normalizePhone(b.phone);
-    if (!phone) return json({ error: 'Enter a valid verification phone number.' }, 400);
-    if (!env.TELNYX_VERIFY_PROFILE_ID || !env.TELNYX_API_TOKEN) return json({ error: 'Phone verification requires TELNYX_VERIFY_PROFILE_ID and TELNYX_API_TOKEN.' }, 503);
+    if (!phone) return reject('Enter a valid verification phone number.', 400);
+    if (!env.TELNYX_VERIFY_PROFILE_ID || !env.TELNYX_API_TOKEN) return reject('Phone verification requires TELNYX_VERIFY_PROFILE_ID and TELNYX_API_TOKEN.');
   }
-  if (!(await limit(env, 'email-owner', actor, 30)) || !(await limit(env, 'email-destination', b.email.toLowerCase(), 5))) return fail(429);
-  const tx = await env.DB.prepare('SELECT source_key FROM transmissions WHERE id = ? AND actor_id = ?').bind(transmissionId, actor).first();
-  if (!tx) return fail();
-  const source = await env.FILES.get(tx.source_key); if (!source) return fail(503);
-  const bytes = new Uint8Array(await source.arrayBuffer()); if (bytes.length > 5 * 1024 * 1024) return fail(400);
-  let key; try { key = await importPortalKey(env.PORTAL_KEY); } catch { return json({ error: 'PORTAL_KEY must be a 32-byte base64url secret.' }, 503); }
+  if (!(await limit(env, 'email-owner', actor, 30)) || !(await limit(env, 'email-destination', b.email.toLowerCase(), 5))) return reject('Email rate limit reached. Try again later with a new transmission.', 429);
+  const source = await env.FILES.get(tx.source_key); if (!source) return reject('The source document is unavailable.');
+  const bytes = new Uint8Array(await source.arrayBuffer()); if (bytes.length > 5 * 1024 * 1024) return reject('The source document exceeds 5 MB.', 400);
+  let key; try { key = await importPortalKey(env.PORTAL_KEY); } catch { return reject('PORTAL_KEY must be a 32-byte base64url secret.'); }
   const id = crypto.randomUUID(), token = newPortalToken(), now = Date.now();
   const encrypted = await encryptPortalDocument(key, bytes, id, 'source');
   const objectKey = `portal/${id}/source.enc`;
   await env.FILES.put(objectKey, encrypted.ciphertext);
   await env.DB.prepare('INSERT INTO portal_deliveries (id, transmission_id, actor_id, recipient, token_hash, expires_at, object_key, iv, pin_channel, pin_phone, pin_state, send_status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(id, transmissionId, actor, b.email, await portalTokenHash(token), now + 7 * 86400000, objectKey, encrypted.iv, b.pinChannel, phone, b.pinChannel === 'none' ? 'none' : 'pending', 'submitting', now).run();
+  // Persist the no-retry boundary before the provider call. A crash after this
+  // claim leaves an honest unknown outcome, even if the provider accepted it.
+  await env.DB.prepare("UPDATE email_attempts SET status = 'unknown', delivery_id = ? WHERE transmission_id = ? AND status = 'preparing'").bind(id, transmissionId).run();
   try {
     await env.PORTAL_EMAIL.send({ from: env.PORTAL_SENDER, to: b.email, subject: 'A document is available securely', text: `A document has been shared with you. Open this link to access it within seven days:\n\n${env.PORTAL_ORIGIN}/portal#${token}\n\nAnyone with this link can use it. Do not forward it.` });
     await env.DB.prepare("UPDATE portal_deliveries SET send_status = 'accepted' WHERE id = ?").bind(id).run();
+    await env.DB.prepare("UPDATE email_attempts SET status = 'accepted' WHERE transmission_id = ? AND status = 'unknown'").bind(transmissionId).run();
     return json({ id, status: 'accepted', notice: 'Email accepted for sending; delivery is not confirmed.' }, 202);
   } catch {
     // A timeout can mean that email was sent. Never automatically retry.
@@ -72,6 +86,21 @@ export async function revokeEmailDelivery(r, env, actor, transmissionId, id) {
   if (!originOK(r, env)) return fail(403);
   const result = await env.DB.prepare('UPDATE portal_deliveries SET revoked_at = ? WHERE id = ? AND transmission_id = ? AND actor_id = ? AND revoked_at IS NULL').bind(Date.now(), id, transmissionId, actor).run();
   return result.meta.changes === 1 ? json({ status: 'revoked' }) : fail();
+}
+
+// Bounded cleanup preserves delivery metadata and consent audit while removing
+// expired sessions and encrypted copies. Failed deletes remain eligible for retry.
+export async function cleanupPortal(env, now = Date.now()) {
+  if (!env.DB || typeof env.FILES?.delete !== 'function') return;
+  await env.DB.prepare('DELETE FROM portal_sessions WHERE expires_at <= ?').bind(now).run();
+  await env.DB.prepare('DELETE FROM portal_limits WHERE period < ?').bind(Math.floor(now / 3600000) - 1).run();
+  const rows = await env.DB.prepare("SELECT id, object_key FROM portal_deliveries WHERE (expires_at <= ? OR revoked_at IS NOT NULL) AND object_key <> '' ORDER BY expires_at LIMIT 50").bind(now).all();
+  for (const row of rows.results ?? []) {
+    try {
+      await env.FILES.delete(row.object_key);
+      await env.DB.prepare("UPDATE portal_deliveries SET object_key = '' WHERE id = ? AND object_key = ?").bind(row.id, row.object_key).run();
+    } catch { /* retry in the next scheduled run */ }
+  }
 }
 
 async function telnyx(env, path, payload, fetcher) {
@@ -105,7 +134,7 @@ export async function portal(r, env, fetcher = fetch) {
   if (path === '/portal/pin/start' && r.method === 'POST') {
     let b; try { b = await body(r); } catch { return fail(400); }
     if (b?.consent !== true || s.pin_state !== 'pending' || !['sms', 'voice'].includes(s.pin_channel) || !env.TELNYX_VERIFY_PROFILE_ID || !env.TELNYX_API_TOKEN) return fail(400);
-    if (!(await limit(env, 'verify-destination', s.pin_phone, 3))) return fail(429);
+    if (!(await limit(env, 'verify-global', 'all', 30)) || !(await limit(env, 'verify-destination', s.pin_phone, 3))) return fail(429);
     const claim = await env.DB.prepare("UPDATE portal_deliveries SET pin_state = 'submitting', consent_at = ?, consent_version = 'portal-v1' WHERE id = ? AND pin_state = 'pending' AND revoked_at IS NULL AND expires_at > ?").bind(Date.now(), s.id, Date.now()).run();
     if (claim.meta.changes !== 1) return fail(409);
     const result = await telnyx(env, `verifications/${s.pin_channel === 'sms' ? 'sms' : 'call'}`, { phone_number: s.pin_phone, verify_profile_id: env.TELNYX_VERIFY_PROFILE_ID, timeout_secs: 300 }, fetcher);

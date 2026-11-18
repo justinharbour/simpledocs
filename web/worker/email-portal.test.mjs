@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeEnv } from './test-env.mjs';
-import { createEmailDelivery, portal, revokeEmailDelivery } from './email-portal.mjs';
+import { cleanupPortal, createEmailDelivery, portal, revokeEmailDelivery } from './email-portal.mjs';
 import { newPortalToken } from './portal-crypto.mjs';
 const tx = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', verifyId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 function setup() {
@@ -40,7 +40,7 @@ test('voice verification requires consent and an accepted code', async () => {
 test('ambiguous provider outcomes are not retried', async () => {
   const { env, messages, db } = setup(), d = await create(env, messages, 'sms'), { cookie } = await exchange(env, d.token); let calls = 0; const broken = async () => { calls++; throw Error('private'); };
   assert.equal((await portal(req('/portal/pin/start', { consent: true }, cookie), env, broken)).status, 503); assert.equal((await portal(req('/portal/pin/start', { consent: true }, cookie), env, broken)).status, 400); assert.equal(calls, 1); assert.equal(db.prepare('SELECT pin_state FROM portal_deliveries').get().pin_state, 'unknown');
-  env.PORTAL_EMAIL.send = async () => { throw Error('uncertain'); }; const r = await createEmailDelivery(req('/x', { email: 'other@example.test', pinChannel: 'none' }), env, 'owner', tx); assert.equal((await r.json()).status, 'unknown');
+  env.PORTAL_EMAIL.send = async () => { throw Error('uncertain'); }; const r = await createEmailDelivery(req('/x', { email: 'other@example.test', pinChannel: 'none' }), env, 'owner', tx); assert.equal(r.status, 409);
 });
 
 test('five failed PIN checks exhaust the durable limit without further provider calls', async () => {
@@ -57,4 +57,25 @@ test('GET of the portal never consumes a link and owner API remains access prote
   assert.equal((await portal(req('/portal'), env)).status, 200);
   assert.equal(db.prepare('SELECT consumed_at FROM portal_deliveries').get().consumed_at, null);
   const { r } = await exchange(env, d.token); assert.equal(r.status, 200);
+});
+
+test('provider ambiguity is persisted and repeat attempts cannot send', async () => {
+  const { env, db } = setup(); let calls = 0;
+  env.PORTAL_EMAIL.send = async () => { calls++; throw Error('timeout'); };
+  const request = () => req('/x', { email: 'recipient@example.test', pinChannel: 'none' });
+  assert.equal((await (await createEmailDelivery(request(), env, 'owner', tx)).json()).status, 'unknown');
+  assert.equal((await createEmailDelivery(request(), env, 'owner', tx)).status, 409);
+  assert.equal(calls, 1); assert.equal(db.prepare('SELECT status FROM email_attempts').get().status, 'unknown');
+});
+
+test('cleanup removes expired objects and sessions but retains audit record', async () => {
+  const { env, db, objects, messages } = setup(), d = await create(env, messages), { cookie } = await exchange(env, d.token);
+  const key = db.prepare('SELECT object_key FROM portal_deliveries').get().object_key;
+  env.FILES.delete = async k => { objects.delete(k); };
+  db.prepare('UPDATE portal_deliveries SET expires_at = 1').run();
+  db.prepare('UPDATE portal_sessions SET expires_at = 1').run();
+  await cleanupPortal(env);
+  assert.equal(objects.has(key), false); assert.equal(db.prepare('SELECT object_key FROM portal_deliveries').get().object_key, '');
+  assert.equal(db.prepare('SELECT count(*) AS n FROM portal_sessions').get().n, 0);
+  assert.equal((await portal(req('/portal/document', undefined, cookie), env)).status, 404);
 });

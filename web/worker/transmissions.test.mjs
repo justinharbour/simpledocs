@@ -135,4 +135,7 @@ test('email configuration failure is reported without a provider call', async ()
   const r = await createTransmission(await sendRequest({ email: { email: 'recipient@example.test', pinChannel: 'none' } }, await samplePdf(1)), env, actor);
   const result = await r.json();
   assert.equal(result.deliveries[0].status, 'failed'); assert.match(result.deliveries[0].error, /not configured/);
+  const detail = await (await getTransmission(env, actor, result.id)).json();
+  assert.equal(detail.deliveries[0].status, 'failed'); assert.match(detail.deliveries[0].error, /not configured/);
+  assert.equal((await (await listTransmissions(env, actor)).json()).transmissions[0].channels[0].status, 'failed');
 });
