@@ -67,7 +67,9 @@ async function command(env, id, action, body, fetcher) {
       body: JSON.stringify({ ...body, command_id: commandId }),
       ...(ai ? { signal: AbortSignal.timeout(8000) } : {}),
     });
-    outcome = response.ok ? 'accepted' : ai && response.status >= 400 && response.status < 500 ? 'rejected' : 'unknown';
+    // A 4xx alone does not prove that no assistant is active (Telnyx also
+    // documents an already-active error). Do not start competing voicemail.
+    outcome = response.ok ? 'accepted' : 'unknown';
   } catch { /* Unknown outcome: never issue a second command automatically. */ }
   if (ai) await env.DB.prepare('UPDATE ai_voicemail_commands SET outcome = ? WHERE call_control_id = ?').bind(outcome, id).run();
   else await env.DB.prepare('UPDATE voicemail_commands SET outcome = ? WHERE call_control_id = ? AND action = ?').bind(outcome, id, action).run();

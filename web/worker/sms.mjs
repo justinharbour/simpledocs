@@ -48,6 +48,13 @@ export async function handleSmsWebhook(request, env, now = Date.now()) {
       const from = payload.from?.phone_number;
       const toUs = Array.isArray(payload.to) && payload.to.some(t => t?.phone_number === env.SMS_NUMBER);
       if (!toUs || !E164.test(from ?? '') || from === env.SMS_NUMBER) return reply(200, 'Ignored');
+      // A STOP is monotonic locally: an out-of-order START or replay must not
+      // silently restore permission. Provider-side re-subscription alone is not
+      // evidence of consent to a particular conversation.
+      const keyword = typeof payload.text === 'string' ? payload.text.trim().toUpperCase().replace(/\s+/g, ' ') : '';
+      if (payload.autoresponse_type === 'STOP' || ['STOP', 'STOPALL', 'STOP ALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT'].includes(keyword)) {
+        await env.DB.prepare('INSERT INTO sms_opt_outs (peer, opted_out_at) VALUES (?, ?) ON CONFLICT(peer) DO UPDATE SET opted_out_at = MAX(opted_out_at, excluded.opted_out_at)').bind(from, at).run();
+      }
       await env.DB.prepare("INSERT OR IGNORE INTO sms_messages (id, provider_id, direction, peer, body, status, created_at, status_at) VALUES (?, ?, 'inbound', ?, ?, 'received', ?, ?)")
         .bind(crypto.randomUUID(), payload.id, from, text, at, at).run();
       return reply(200, 'Accepted');
@@ -81,7 +88,8 @@ async function send(request, env, fetcher) {
   if (to === env.SMS_NUMBER) return json({ error: 'You cannot text your own number.' }, 400);
   const id = crypto.randomUUID(), now = new Date().toISOString();
   try {
-    await env.DB.prepare("INSERT INTO sms_messages (id, direction, peer, body, status, created_at, status_at) VALUES (?, 'outbound', ?, ?, 'queued', ?, ?)").bind(id, to, text, now, now).run();
+    const result = await env.DB.prepare("INSERT INTO sms_messages (id, direction, peer, body, status, created_at, status_at) SELECT ?, 'outbound', ?, ?, 'queued', ?, ? WHERE NOT EXISTS (SELECT 1 FROM sms_opt_outs WHERE peer = ?)").bind(id, to, text, now, now, to).run();
+    if ((result.meta?.changes ?? result.changes) !== 1) return json({ error: 'This recipient has opted out of SMS.' }, 403);
   } catch { return json({ error: 'Messaging unavailable' }, 503); }
   const fail = async (code, reason) => {
     await env.DB.prepare("UPDATE sms_messages SET status = 'failed', error_code = ?, error_text = ?, status_at = ? WHERE id = ?").bind(code, reason, new Date().toISOString(), id).run();

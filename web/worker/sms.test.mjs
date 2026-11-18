@@ -45,6 +45,25 @@ test('an inbound message creates a thread and a duplicate delivery changes nothi
   assert.equal(thread.messages[0].direction, 'inbound');
 });
 
+test('signed opt-out persists across replay and START and prevents a send', async () => {
+  const { env, db } = setup();
+  await hook(env, received('stop-1', 'stop'));
+  await hook(env, received('start-1', 'START', { autoresponse_type: 'START' }));
+  await hook(env, received('stop-1', 'stop'));
+  let called = false;
+  const response = await handleSms(jsonRequest('/api/sms/messages', { to: PEER, text: 'hello' }), env, async () => { called = true; return accepted()(); });
+  assert.equal(response.status, 403);
+  assert.equal(called, false);
+  assert.equal(db.prepare('SELECT count(*) n FROM sms_opt_outs').get().n, 1);
+  assert.equal(db.prepare("SELECT count(*) n FROM sms_messages WHERE direction = 'outbound'").get().n, 0);
+});
+
+test('provider STOP classification suppresses even a custom keyword', async () => {
+  const { env, db } = setup();
+  await hook(env, received('custom-stop', 'custom', { autoresponse_type: 'STOP' }));
+  assert.equal(db.prepare('SELECT count(*) n FROM sms_opt_outs').get().n, 1);
+});
+
 test('messages for another number or from our own number are ignored', async () => {
   const { env, db } = setup();
   await hook(env, received('m1', 'hi', { to: [{ phone_number: '+12134147728' }] }));
