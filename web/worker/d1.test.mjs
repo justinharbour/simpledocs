@@ -4,6 +4,33 @@ import { readFile } from 'node:fs/promises';
 import { Miniflare } from 'miniflare';
 import { handleDraft } from './drafts.mjs';
 import { handleMail, listUnresolvedMail } from './mail-send.mjs';
+import { createTransmission } from './transmissions.mjs';
+import { address, makeEnv, samplePdf, sendRequest } from './test-env.mjs';
+
+it('allocates distinct envelope numbers across concurrent actors and refuses to wrap in local D1', async () => {
+  const mf = new Miniflare({ modules: true, script: 'export default { fetch() { return new Response("ok") } }', compatibilityDate: '2026-07-01', d1Databases: ['DB'] });
+  try {
+    const db = await mf.getD1Database('DB');
+    const dir = new URL('../../backend/core/migrations/', import.meta.url);
+    for (const name of ['0002_mail_drafts.sql', '0008_voice_webhooks.sql', '0012_transmissions.sql', '0040_ordered_envelopes.sql']) {
+      const sql = (await readFile(new URL(name, dir), 'utf8')).replace(/^\s*--.*$/gm, '');
+      await db.batch(sql.split(';').map(s => s.trim()).filter(Boolean).map(s => db.prepare(s)));
+    }
+    const { env, objects } = makeEnv({ DB: db });
+    const pdf = await samplePdf(1);
+    const create = async actor => createTransmission(await sendRequest({ mail: { to: address, from: address } }, pdf), env, actor);
+    const responses = await Promise.all(['a', 'b', 'c', 'd'].map(create));
+    assert.ok(responses.every(r => r.status === 202));
+    const results = await Promise.all(responses.map(r => r.json()));
+    assert.deepEqual(results.map(r => r.envelopeNumber).sort(), ['000001', '000002', '000003', '000004']);
+    assert.equal((await db.prepare('SELECT count(*) AS n FROM envelope_documents').first()).n, 4);
+    await db.prepare("UPDATE sqlite_sequence SET seq = 999998 WHERE name = 'envelope_numbers'").run();
+    const edge = await Promise.all([create('a'), create('b')]);
+    assert.deepEqual(edge.map(r => r.status).sort(), [202, 503]);
+    assert.equal((await edge.find(r => r.status === 202).json()).envelopeNumber, '999999');
+    assert.equal(objects.size, 5);
+  } finally { await mf.dispose(); }
+});
 
 it('persists and isolates drafts through a local D1 binding', async () => {
   const mf = new Miniflare({ modules: true, script: 'export default { fetch() { return new Response("ok") } }', compatibilityDate: '2026-07-01', d1Databases: ['DB'] });
