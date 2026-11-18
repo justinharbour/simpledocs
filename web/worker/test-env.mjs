@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { readdirSync, readFileSync } from 'node:fs';
 import { PDFDocument } from 'pdf-lib';
+import { approveFax, reviewFax } from './transmissions.mjs';
 
 const dir = new URL('../../backend/core/migrations/', import.meta.url);
 
@@ -50,12 +51,17 @@ export async function samplePdf(pages = 2) {
 
 export const address = { firstName: 'Ada', lastName: 'Lovelace', addressLine1: '1 Main St', city: 'Austin', provinceOrState: 'TX', postalOrZip: '78701', countryCode: 'US' };
 
-export async function sendRequest(spec, pdf, url = 'https://example.test/api/transmissions', field = 'documents') {
+export async function sendRequest(spec, pdf, url = 'https://example.test/api/transmissions', field = 'preparedDocuments') {
   const form = new FormData();
   if (Array.isArray(pdf)) for (const file of pdf) form.append(field, file);
-  else form.set('document', new File([pdf], 'lease.pdf', { type: 'application/pdf' }));
+  else form.set(field, new File([pdf], 'lease.pdf', { type: 'application/pdf' }));
   form.set('spec', JSON.stringify(spec));
   return new Request(url, { method: 'POST', body: form, headers: { origin: new URL(url).origin } });
 }
 
 export const jsonRequest = (path, body, method = 'POST') => new Request(`https://example.test${path}`, { method, body: JSON.stringify(body), headers: { origin: 'https://example.test', 'content-type': 'application/json' } });
+
+export async function approveTestFax(env, actor, id, deliveryId) {
+  const review = await (await reviewFax(new Request('https://example.test/x'), env, actor, id, deliveryId)).json();
+  return approveFax(jsonRequest('/x', { confirmed: true, reviewHash: review.reviewHash }), env, actor, id, deliveryId);
+}

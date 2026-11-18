@@ -25,7 +25,7 @@ describe.skipIf(!built)("workflow pages (run `pnpm build` first)", () => {
     expect(doc).toMatch(/<input\b[^>]*id="page-numbers"[^>]*>/);
     expect(doc.match(/<input\b[^>]*id="page-numbers"[^>]*>/)?.[0]).not.toMatch(/\bchecked\b/);
     expect(doc).toContain("Review and confirm");
-    expect(doc).toContain("Nothing is sent until you press Send");
+    expect(doc).toContain("Preparing sends nothing");
     expect(doc).toContain('id="dropzone"');
     expect(doc).toContain('data-channel="fax"');
     expect(doc).toContain('data-channel="mail"');

@@ -5,7 +5,7 @@ import { handleFaxSend } from './fax-send.mjs';
 import { handleInboundFax } from './inbound-fax.mjs';
 import { handleInboundFaxRead, inboundFaxAllowed } from './inbound-fax-read.mjs';
 import { handleQueue, reconcileDeliveries } from './queue-consumer.mjs';
-import { approveMail, createTransmission, getTransmission, getTransmissionFile, handleCoverPreview, handleSettings, listRecords, listTransmissions, reviewMail } from './transmissions.mjs';
+import { approveEmail, approveFax, approveMail, createTransmission, getTransmission, getTransmissionFile, handleCoverPreview, handleSettings, listRecipients, listRecords, listTransmissions, reviewEmail, reviewFax, reviewMail } from './transmissions.mjs';
 import { listCalls, markHeard } from './voice-calls.mjs';
 import { handleFaxOperator } from './inbound-fax-operator.mjs';
 import { handleMail, listUnresolvedMail } from './mail-send.mjs';
@@ -104,17 +104,22 @@ export function createWorker(resolveKeys = issuer => {
     if (url.pathname === '/api/settings/voicemail') return voiceOwner ? handleVoicemailSettings(request, env) : new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
     if (url.pathname === '/api/settings') return handleSettings(request, env, actor);
     if (url.pathname === '/api/cover-preview') return handleCoverPreview(request, env);
+    if (url.pathname === '/api/recipients') return listRecipients(request, env, actor);
     if (url.pathname === '/api/transmissions') return request.method === 'POST' ? createTransmission(request, env, actor) : request.method === 'GET' ? listTransmissions(env, actor) : new Response('Method not allowed', { status: 405 });
     if (url.pathname === '/api/records') {
       if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
       return listRecords(env, actor, { inboundAllowed: inboundFaxAllowed(actor, env.INBOUND_FAX_ALLOWED_SUBJECTS), voiceAllowed: voiceOwner });
     }
+    const emailReview = /^\/api\/transmissions\/([^/]+)\/email\/(review|approve)$/.exec(url.pathname);
+    if (emailReview) return (emailReview[2] === 'review' ? reviewEmail : approveEmail)(request, env, actor, emailReview[1]);
     const emailDelivery = /^\/api\/transmissions\/([^/]+)\/email(?:\/([^/]+)\/revoke)?$/.exec(url.pathname);
     if (emailDelivery) return emailDelivery[2] ? revokeEmailDelivery(request, env, actor, emailDelivery[1], emailDelivery[2]) : createEmailDelivery(request, env, actor, emailDelivery[1]);
-    const transmissionFile = /^\/api\/transmissions\/([^/]+)\/(document|cover)(?:\/([^/]+))?$/.exec(url.pathname);
+    const transmissionFile = /^\/api\/transmissions\/([^/]+)\/(document|cover|packet)(?:\/([^/]+))?$/.exec(url.pathname);
     if (transmissionFile) return request.method === 'GET' ? getTransmissionFile(env, actor, transmissionFile[1], transmissionFile[2], transmissionFile[3]) : new Response('Method not allowed', { status: 405 });
     const transmissionMail = /^\/api\/transmissions\/([^/]+)\/mail\/([^/]+)\/(review|approve)$/.exec(url.pathname);
     if (transmissionMail) return (transmissionMail[3] === 'review' ? reviewMail : approveMail)(request, env, actor, transmissionMail[1], transmissionMail[2]);
+    const transmissionFax = /^\/api\/transmissions\/([^/]+)\/fax\/([^/]+)\/(review|approve)$/.exec(url.pathname);
+    if (transmissionFax) return (transmissionFax[3] === 'review' ? reviewFax : approveFax)(request, env, actor, transmissionFax[1], transmissionFax[2]);
     const transmission = /^\/api\/transmissions\/([^/]+)$/.exec(url.pathname);
     if (transmission) return request.method === 'GET' ? getTransmission(env, actor, transmission[1]) : new Response('Method not allowed', { status: 405 });
     const fax = /^\/api\/faxes\/([^/]+)$/.exec(url.pathname);

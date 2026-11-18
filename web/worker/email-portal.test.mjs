@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeEnv, samplePdf, sendRequest } from './test-env.mjs';
-import { portal, revokeEmailDelivery } from './email-portal.mjs';
+import { createEmailDelivery, portal, revokeEmailDelivery } from './email-portal.mjs';
 import { newPortalToken } from './portal-crypto.mjs';
-import { createTransmission, getTransmission } from './transmissions.mjs';
+import { approveEmail, createTransmission, getTransmission, listRecipients, reviewEmail } from './transmissions.mjs';
 
 const origin = 'https://example.test';
 const legacy = 'https://legacy.example.test';
@@ -31,6 +31,51 @@ async function setup(pinChannel = 'none', send) {
 }
 
 const cookieFrom = response => response.headers.get('set-cookie')?.split(';')[0];
+
+test('email recipient history includes only actor-scoped submitted portal deliveries, deduplicated without verification data', async () => {
+  const { env, db } = await setup('sms');
+  const history = async actor => (await listRecipients(req('/api/recipients'), env, actor)).json();
+  assert.deepEqual((await history('owner')).email, ['recipient@example.test']);
+  assert.deepEqual((await history('other')).email, []);
+  const clone = db.prepare(`INSERT INTO portal_deliveries (id, transmission_id, actor_id, recipient, token_hash, expires_at, object_key, iv, key_id, pin_channel, pin_phone, pin_state, send_status, created_at)
+    SELECT ?, transmission_id, ?, ?, ?, expires_at, object_key, iv, key_id, pin_channel, pin_phone, pin_state, ?, ? FROM portal_deliveries WHERE id = ?`);
+  const id = db.prepare('SELECT id FROM portal_deliveries').get().id;
+  clone.run('duplicate', 'owner', 'RECIPIENT@example.test', 'hash1', 'unknown', Date.now() + 1, id);
+  clone.run('unsubmitted', 'owner', 'no-send@example.test', 'hash2', 'failed', Date.now() + 2, id);
+  clone.run('other', 'other', 'private@example.test', 'hash3', 'accepted', Date.now() + 3, id);
+  const prepared = await createTransmission(await sendRequest({ email: { email: 'pending@example.test', pinChannel: 'none' } }, await samplePdf(1)), env, 'owner');
+  assert.equal(prepared.status, 202);
+  const result = await history('owner');
+  assert.deepEqual(result.email, ['RECIPIENT@example.test']);
+  assert.equal(JSON.stringify(result).includes('+12125550100'), false);
+  assert.deepEqual((await history('other')).email, ['private@example.test']);
+});
+
+test('prepared email cannot send before explicit review and delivers the reviewed PDF', async () => {
+  const messages = [];
+  const { env, objects } = makeEnv({ PORTAL_ORIGIN: origin, PORTAL_KEY: newPortalToken(), PORTAL_SENDER: 'sender@example.test', PORTAL_EMAIL: { send: async message => messages.push(message) } });
+  const spec = { email: { email: 'recipient@example.test', pinChannel: 'none' } };
+  const response = await createTransmission(await sendRequest(spec, await samplePdf(2)), env, 'owner');
+  const tx = await response.json();
+  assert.equal(tx.deliveries[0].status, 'awaiting_approval');
+  assert.equal(messages.length, 0);
+  assert.equal((await createEmailDelivery(req('/x', spec.email), env, 'owner', tx.id)).status, 409);
+  assert.equal((await reviewEmail(req('/x'), env, 'other', tx.id)).status, 404);
+  const review = await (await reviewEmail(req('/x'), env, 'owner', tx.id)).json();
+  assert.equal((await approveEmail(req('/x', { confirmed: true, reviewHash: 'f'.repeat(64) }), env, 'owner', tx.id)).status, 409);
+  assert.equal(messages.length, 0);
+  const sourceKey = `outbound/${tx.id}/document.pdf`, original = objects.get(sourceKey);
+  objects.set(sourceKey, new Uint8Array([1]));
+  assert.equal((await approveEmail(req('/x', { confirmed: true, reviewHash: review.reviewHash }), env, 'owner', tx.id)).status, 404);
+  objects.set(sourceKey, original);
+  assert.equal((await approveEmail(req('/x', { confirmed: true, reviewHash: review.reviewHash }), env, 'owner', tx.id)).status, 202);
+  assert.equal((await approveEmail(req('/x', { confirmed: true, reviewHash: review.reviewHash }), env, 'owner', tx.id)).status, 409);
+  assert.equal(messages.length, 1);
+  const text = messages[0].text;
+  const invitation = { token: text.match(/\/portal#([\w-]+)/)[1], accessCode: text.match(/page: ([0-9A-F]{10})/)[1], verifier: newPortalToken() };
+  const cookie = cookieFrom(await portal(req('/portal/exchange', invitation), env));
+  assert.deepEqual(new Uint8Array(await (await portal(req('/portal/document', undefined, cookie), env)).arrayBuffer()), original);
+});
 
 test('legacy owner sends an ordered encrypted copy; canonical recipient redeems once and owner can revoke', async () => {
   const { env, db, objects, tx, invitation } = await setup();

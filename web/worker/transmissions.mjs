@@ -1,5 +1,5 @@
 import { formatDocumentNumber, formatEnvelopeNumber, MAX_DOCUMENT_BYTES, MAX_DOCUMENTS } from '../shared/envelope.mjs';
-import { buildCoverPage, DEFAULT_FROM_NUMBER, DEFAULT_SENDER_NAME } from './cover-page.mjs';
+import { buildCoverPage, prependCover, DEFAULT_FROM_NUMBER, DEFAULT_SENDER_NAME } from './cover-page.mjs';
 import { enqueue, isTerminal, mailReviewHash, mark, refreshDelivery, sha256Hex, UUID } from './deliveries.mjs';
 import { assembleEnvelope } from './envelope-pdf.mjs';
 import { contact, mailApiKey } from './mail-send.mjs';
@@ -13,6 +13,38 @@ const reply = (body, status = 200) => Response.json(body, { status, headers });
 const sameOrigin = request => request.headers.get('origin') === new URL(request.url).origin;
 const str = (value, max) => (typeof value === 'string' ? value.trim().slice(0, max) : '');
 const isoTime = value => (typeof value === 'string' && /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/.test(value) ? `${value.replace(' ', 'T')}Z` : value ?? null);
+
+// Recipient history is derived from the actor's existing sends, not a shared
+// address book. Never expose return addresses or another actor's dispatches.
+export async function listRecipients(request, env, actor) {
+  if (request.method !== 'GET') return reply({ error: 'Method not allowed' }, 405);
+  if (!env.DB) return reply({ error: 'Storage unavailable' }, 503);
+  const rows = await env.DB.prepare("SELECT d.channel, d.recipient, d.options_json FROM dispatches d JOIN transmissions t ON t.id = d.transmission_id WHERE t.actor_id = ? AND d.channel IN ('fax', 'mail') ORDER BY d.created_at DESC LIMIT 200").bind(actor).all();
+  // Portal deliveries are persisted at the provider's no-retry boundary; pending,
+  // preparing and failed attempts are not evidence of an email submission.
+  // Include older portal deliveries that predate email_attempts.
+  const emailRows = await env.DB.prepare("SELECT recipient FROM portal_deliveries WHERE actor_id = ? AND send_status IN ('unknown', 'accepted') ORDER BY created_at DESC LIMIT 200").bind(actor).all();
+  const fax = [], mail = [], seenFax = new Set(), seenMail = new Set();
+  for (const row of rows.results ?? []) {
+    if (row.channel === 'fax') {
+      const number = normalizePhone(row.recipient);
+      if (number && !seenFax.has(number)) { seenFax.add(number); fax.push(number); }
+    } else {
+      try {
+        const address = contact(JSON.parse(row.options_json).to);
+        const key = JSON.stringify(address).toLowerCase();
+        if (!seenMail.has(key)) { seenMail.add(key); mail.push(address); }
+      } catch { /* Ignore malformed or older dispatches. */ }
+    }
+  }
+  const email = [], seenEmail = new Set();
+  for (const row of emailRows.results ?? []) {
+    const address = typeof row.recipient === 'string' ? row.recipient.trim() : '';
+    const key = address.toLowerCase();
+    if (address.length <= 254 && /^[^\s@<>\r\n]+@[^\s@<>\r\n]+\.[^\s@<>\r\n]+$/.test(address) && !seenEmail.has(key)) { seenEmail.add(key); email.push(address); }
+  }
+  return reply({ fax, mail, email });
+}
 
 async function readBounded(request) {
   const reader = request.body?.getReader();
@@ -38,7 +70,11 @@ export async function getSettings(db) {
 
 export async function handleSettings(request, env, actor) {
   if (!env.DB) return reply({ error: 'Storage unavailable' }, 503);
-  if (request.method === 'GET') return reply({ ...(await getSettings(env.DB)), faxFrom: env.TELNYX_FAX_FROM || DEFAULT_FROM_NUMBER });
+  if (request.method === 'GET') {
+    const raw = env.FAX_ESTIMATE_USD_PER_PAGE;
+    const rate = typeof raw === 'string' && /^(?:0|[1-9]\d{0,2})(?:\.\d{1,6})?$/.test(raw) ? Number(raw) : null;
+    return reply({ ...(await getSettings(env.DB)), faxFrom: env.TELNYX_FAX_FROM || DEFAULT_FROM_NUMBER, faxEstimate: rate === null ? { rate: 0.007, source: 'Telnyx published list rate, checked November 2026', url: 'https://telnyx.com/pricing/fax' } : { rate, source: 'Instance-configured page rate; verify with your provider', url: null } });
+  }
   if (request.method !== 'PUT') return reply({ error: 'Method not allowed' }, 405);
   if (!sameOrigin(request)) return reply({ error: 'Invalid origin' }, 403);
   let body;
@@ -97,17 +133,17 @@ export async function createTransmission(request, env, actor) {
   catch { return reply({ error: 'Upload PDFs totaling up to 5 MB' }, 400); }
   // The plural field is intentionally distinct so old Workers reject a new
   // multi-file request rather than silently sending only its first file.
-  const legacy = form.getAll('document'), ordered = form.getAll('documents'), numbered = form.getAll('numberedDocuments');
+  const legacy = form.getAll('document'), ordered = form.getAll('documents'), numbered = form.getAll('numberedDocuments'), prepared = form.getAll('preparedDocuments'), preparedNumbered = form.getAll('preparedNumberedDocuments');
   const email = form.getAll('emailDocuments'), numberedEmail = form.getAll('numberedEmailDocuments');
-  if (legacy.length > 1 || [legacy, ordered, numbered, email, numberedEmail].filter(parts => parts.length).length > 1) return reply({ error: 'Use only one document upload field' }, 400);
-  // Opt-in uses its own field so a Worker without header support fails closed.
-  const files = [numberedEmail, email, numbered, ordered, legacy].find(parts => parts.length) ?? [];
+  if (legacy.length > 1 || [legacy, ordered, numbered, email, numberedEmail, prepared, preparedNumbered].filter(parts => parts.length).length > 1) return reply({ error: 'Use only one document upload field' }, 400);
+  const isPrepared = !!(prepared.length || preparedNumbered.length);
+  const files = [preparedNumbered, prepared, numberedEmail, email, numbered, ordered, legacy].find(parts => parts.length) ?? [];
   if (!files.length || files.length > MAX_DOCUMENTS || files.some(file => !(file instanceof File) || !file.size) || files.reduce((size, file) => size + file.size, 0) > MAX_DOCUMENT_BYTES) {
     return reply({ error: `Upload 1 to ${MAX_DOCUMENTS} nonempty PDFs totaling up to 5 MB` }, 400);
   }
   let spec;
   try { spec = parseSpec(form); } catch { return reply({ error: 'Invalid request' }, 400); }
-  if (!!spec.email !== !!(email.length || numberedEmail.length)) return reply({ error: 'Use the email document field only with email delivery' }, 400);
+  if (!isPrepared && !!spec.email !== !!(email.length || numberedEmail.length)) return reply({ error: 'Use the email document field only with email delivery' }, 400);
   if (spec.email) {
     if (!portalMutationOriginOK(request, env)) return reply({ error: 'Email requires a same-origin request' }, 403);
     if (!portalAvailable(env)) return reply({ error: 'Email portal requires an encryption key, sender address, and email binding.' }, 503);
@@ -139,7 +175,7 @@ export async function createTransmission(request, env, actor) {
   if (!faxNumbers.length && !mail && !spec.email) return reply({ error: 'Choose at least one way to send' }, 400);
 
   let assembled;
-  try { assembled = await assembleEnvelope(files, faxNumbers.length > 0 && spec.fax.cover?.enabled !== false, numbered.length > 0 || numberedEmail.length > 0); }
+  try { assembled = await assembleEnvelope(files, faxNumbers.length > 0 && spec.fax.cover?.enabled !== false, numbered.length > 0 || numberedEmail.length > 0 || preparedNumbered.length > 0); }
   catch (error) { return reply({ error: error instanceof Error ? error.message : 'The PDFs could not be read' }, 400); }
   const { pages, documents } = assembled;
   const title = str(spec.title, 200) || documents[0].name.replace(/\.pdf$/i, '') || 'Untitled document';
@@ -161,6 +197,7 @@ export async function createTransmission(request, env, actor) {
   await env.FILES.put(sourceKey, bytes, { httpMetadata: { contentType: 'application/pdf' } });
   const statements = [env.DB.prepare('INSERT INTO transmissions (id, actor_id, title, source_key, page_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(id, actor, title, sourceKey, pages, now, now)];
   if (spec.email) statements.push(env.DB.prepare("INSERT INTO email_attempts (transmission_id, actor_id, recipient, status, created_at) VALUES (?, ?, ?, 'pending', ?)").bind(id, actor, typeof spec.email.email === 'string' ? spec.email.email.slice(0, 254) : '', Date.now()));
+  if (spec.email && isPrepared) statements.push(env.DB.prepare('INSERT INTO email_reviews (transmission_id, actor_id, options_json, pdf_sha256) VALUES (?, ?, ?, ?)').bind(id, actor, JSON.stringify({ email: spec.email.email, pinChannel: spec.email.pinChannel, phone: spec.email.pinChannel === 'none' ? null : normalizePhone(spec.email.phone) }), await sha256Hex(bytes)));
   for (const doc of manifest) statements.push(env.DB.prepare('INSERT INTO envelope_documents (transmission_id, position, name, page_count) VALUES (?, ?, ?, ?)').bind(id, doc.position, doc.name, doc.pageCount));
   const addDelivery = (deliveryId, channel, recipient, options, status) => {
     statements.push(env.DB.prepare('INSERT INTO dispatches (id, transmission_id, channel, recipient, options_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(deliveryId, id, channel, recipient, JSON.stringify(options), status, now, now));
@@ -170,6 +207,7 @@ export async function createTransmission(request, env, actor) {
   for (const number of faxNumbers) {
     const deliveryId = crypto.randomUUID();
     const options = {};
+    let packet = bytes;
     if (spec.fax.cover?.enabled !== false) {
       const coverKey = `covers/${id}/${deliveryId}.pdf`;
       const fields = await coverFields(env, settings, spec.fax.cover, title, number, pages);
@@ -177,9 +215,15 @@ export async function createTransmission(request, env, actor) {
       const cover = await buildCoverPage(fields);
       await env.FILES.put(coverKey, cover, { httpMetadata: { contentType: 'application/pdf' } });
       options.coverKey = coverKey;
+      packet = await prependCover(cover, bytes);
     }
-    addDelivery(deliveryId, 'fax', number, options, 'queued');
-    created.push({ id: deliveryId, channel: 'fax', status: 'queued' });
+    options.packetKey = `outbound/${id}/fax/${deliveryId}.pdf`;
+    options.packetSha256 = await sha256Hex(packet);
+    options.from = env.TELNYX_FAX_FROM;
+    await env.FILES.put(options.packetKey, packet, { httpMetadata: { contentType: 'application/pdf' } });
+    const status = isPrepared ? 'awaiting_approval' : 'queued';
+    addDelivery(deliveryId, 'fax', number, options, status);
+    created.push({ id: deliveryId, channel: 'fax', status });
   }
   if (mail) {
     const deliveryId = crypto.randomUUID();
@@ -189,8 +233,9 @@ export async function createTransmission(request, env, actor) {
     created.push({ id: deliveryId, channel: 'mail', status: 'awaiting_approval' });
   }
   await env.DB.batch(statements);
-  for (const item of created) if (item.channel === 'fax') await enqueue(env, id, 'fax', item.id);
-  if (spec.email) {
+  if (!isPrepared) for (const item of created) if (item.channel === 'fax') await enqueue(env, id, 'fax', item.id);
+  if (spec.email && isPrepared) created.push({ id, channel: 'email', status: 'awaiting_approval' });
+  if (spec.email && !isPrepared) {
     try {
       const origin = new URL(request.url).origin;
       const { email, pinChannel, phone } = spec.email;
@@ -209,6 +254,7 @@ const deliveryView = (row, transmissionId, timeline) => ({
   createdAt: row.created_at, updatedAt: row.updated_at, submittedAt: row.submitted_at, finishedAt: row.finished_at,
   needsApproval: row.status === 'awaiting_approval',
   coverUrl: row.channel === 'fax' && JSON.parse(row.options_json).coverKey ? `/api/transmissions/${transmissionId}/cover/${row.id}` : null,
+  packetUrl: row.channel === 'fax' && JSON.parse(row.options_json).packetKey ? `/api/transmissions/${transmissionId}/packet/${row.id}` : null,
   timeline,
 });
 
@@ -264,8 +310,78 @@ export async function getTransmissionFile(env, actor, id, kind, deliveryId) {
   if (kind === 'document') return pdfResponse(env, tx.source_key, 'document.pdf');
   if (!UUID.test(deliveryId ?? '')) return reply({ error: 'Not found' }, 404);
   const row = await env.DB.prepare("SELECT options_json FROM dispatches WHERE id = ? AND transmission_id = ? AND channel = 'fax'").bind(deliveryId, id).first();
-  const key = row ? JSON.parse(row.options_json).coverKey : null;
-  return key ? pdfResponse(env, key, 'cover.pdf') : reply({ error: 'Not found' }, 404);
+  const key = row ? JSON.parse(row.options_json)[kind === 'packet' ? 'packetKey' : 'coverKey'] : null;
+  return key ? pdfResponse(env, key, kind === 'packet' ? 'fax-packet.pdf' : 'cover.pdf') : reply({ error: 'Not found' }, 404);
+}
+
+async function faxContext(env, actor, id, deliveryId) {
+  if (!UUID.test(id) || !UUID.test(deliveryId)) return null;
+  const row = await env.DB.prepare("SELECT d.* FROM dispatches d JOIN transmissions t ON t.id = d.transmission_id WHERE d.id = ? AND d.transmission_id = ? AND t.actor_id = ? AND d.channel = 'fax'").bind(deliveryId, id, actor).first();
+  if (!row) return null;
+  const options = JSON.parse(row.options_json);
+  if (!options.packetKey || !options.packetSha256 || !options.from) return null;
+  const object = await env.FILES.get(options.packetKey);
+  if (!object || await sha256Hex(new Uint8Array(await object.arrayBuffer())) !== options.packetSha256) return null;
+  const reviewHash = await sha256Hex(JSON.stringify({ id, deliveryId, recipient: row.recipient, from: options.from, packetSha256: options.packetSha256 }));
+  return { row, options, reviewHash };
+}
+
+export async function reviewFax(request, env, actor, id, deliveryId) {
+  if (request.method !== 'GET') return reply({ error: 'Method not allowed' }, 405);
+  if (!env.DB || !env.FILES) return reply({ error: 'Storage unavailable' }, 503);
+  const ctx = await faxContext(env, actor, id, deliveryId);
+  if (!ctx) return reply({ error: 'Fax proof unavailable' }, 404);
+  return reply({ recipient: ctx.row.recipient, from: ctx.options.from, status: ctx.row.status, reviewHash: ctx.reviewHash, packetSha256: ctx.options.packetSha256, packetUrl: `/api/transmissions/${id}/packet/${deliveryId}` });
+}
+
+export async function approveFax(request, env, actor, id, deliveryId) {
+  if (request.method !== 'POST') return reply({ error: 'Method not allowed' }, 405);
+  if (!sameOrigin(request)) return reply({ error: 'Invalid origin' }, 403);
+  if (!env.DB || !env.FILES || !env.DELIVERIES) return reply({ error: 'Storage unavailable' }, 503);
+  let body; try { body = await request.json(); } catch { return reply({ error: 'Invalid request' }, 400); }
+  if (!body || Object.keys(body).sort().join(',') !== 'confirmed,reviewHash' || body.confirmed !== true || !/^[a-f0-9]{64}$/.test(body.reviewHash ?? '')) return reply({ error: 'Review and confirm the fax' }, 400);
+  const ctx = await faxContext(env, actor, id, deliveryId);
+  if (!ctx) return reply({ error: 'Fax proof unavailable' }, 404);
+  if (ctx.row.status !== 'awaiting_approval' || ctx.reviewHash !== body.reviewHash) return reply({ error: 'Fax review no longer matches' }, 409);
+  if (env.FAX_ENABLED !== 'true' || !env.TELNYX_API_TOKEN || !env.TELNYX_FAX_CONNECTION_ID || env.TELNYX_FAX_FROM !== ctx.options.from) return reply({ error: 'Fax configuration changed or is unavailable; prepare a new fax' }, 503);
+  const now = new Date().toISOString();
+  const changed = await env.DB.prepare("UPDATE dispatches SET status = 'queued', updated_at = ? WHERE id = ? AND transmission_id = ? AND channel = 'fax' AND recipient = ? AND status = 'awaiting_approval' AND options_json = ?").bind(now, deliveryId, id, ctx.row.recipient, ctx.row.options_json).run();
+  if (changed.meta.changes !== 1) return reply({ error: 'Fax already approved or changed' }, 409);
+  try { await env.DB.prepare("INSERT INTO timeline (delivery_id, at, status, detail) VALUES (?, ?, 'queued', 'Fax proof approved')").bind(deliveryId, now).run(); } catch { /* The queue backstop still recovers an approved delivery. */ }
+  await enqueue(env, id, 'fax', deliveryId);
+  return reply({ status: 'queued' });
+}
+
+async function emailReviewContext(env, actor, id) {
+  if (!UUID.test(id)) return null;
+  const row = await env.DB.prepare('SELECT r.options_json, r.pdf_sha256, t.source_key, a.status FROM email_reviews r JOIN transmissions t ON t.id = r.transmission_id AND t.actor_id = r.actor_id JOIN email_attempts a ON a.transmission_id = r.transmission_id AND a.actor_id = r.actor_id WHERE r.transmission_id = ? AND r.actor_id = ?').bind(id, actor).first();
+  if (!row) return null;
+  const object = await env.FILES.get(row.source_key);
+  if (!object || await sha256Hex(new Uint8Array(await object.arrayBuffer())) !== row.pdf_sha256) return null;
+  const options = JSON.parse(row.options_json);
+  return { row, options, reviewHash: await sha256Hex(JSON.stringify({ transmissionId: id, options, pdfSha256: row.pdf_sha256 })) };
+}
+
+export async function reviewEmail(request, env, actor, id) {
+  if (request.method !== 'GET') return reply({ error: 'Method not allowed' }, 405);
+  if (!env.DB || !env.FILES) return reply({ error: 'Storage unavailable' }, 503);
+  const ctx = await emailReviewContext(env, actor, id);
+  if (!ctx) return reply({ error: 'Email proof unavailable' }, 404);
+  return reply({ ...ctx.options, status: ctx.row.status, reviewHash: ctx.reviewHash, pdfSha256: ctx.row.pdf_sha256, packetUrl: `/api/transmissions/${id}/document` });
+}
+
+export async function approveEmail(request, env, actor, id) {
+  if (request.method !== 'POST') return reply({ error: 'Method not allowed' }, 405);
+  if (!portalMutationOriginOK(request, env)) return reply({ error: 'Invalid origin' }, 403);
+  if (!env.DB || !env.FILES) return reply({ error: 'Storage unavailable' }, 503);
+  let body; try { body = await request.json(); } catch { return reply({ error: 'Invalid request' }, 400); }
+  if (!body || Object.keys(body).sort().join(',') !== 'confirmed,reviewHash' || body.confirmed !== true || !/^[a-f0-9]{64}$/.test(body.reviewHash ?? '')) return reply({ error: 'Review and confirm the email' }, 400);
+  const ctx = await emailReviewContext(env, actor, id);
+  if (!ctx) return reply({ error: 'Email proof unavailable' }, 404);
+  if (ctx.row.status !== 'pending' || body.reviewHash !== ctx.reviewHash) return reply({ error: 'Email review no longer matches' }, 409);
+  const origin = new URL(request.url).origin;
+  const send = new Request(`${origin}/api/transmissions/${id}/email`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify(ctx.options) });
+  return createEmailDelivery(send, env, actor, id, true, ctx.reviewHash);
 }
 
 async function mailContext(env, actor, id, deliveryId) {

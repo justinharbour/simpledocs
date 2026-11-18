@@ -96,6 +96,7 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
           <CardHeader><CardTitle>Email</CardTitle><CardDescription>The recipient receives a single-use link that expires after seven days.</CardDescription></CardHeader>
           <CardContent class="flex flex-col gap-4">
             <div class="flex flex-col gap-1.5"><Label for="email-recipient">Recipient email</Label><Input id="email-recipient" type="email" autocomplete="email" /></div>
+            <div class="flex flex-col gap-1.5"><label for="previous-email" class="text-sm">Use a previous email recipient</label><select id="previous-email" class="border-input rounded-md border p-2"><option value="">Choose a previous recipient</option></select><p class="text-muted-foreground text-sm">Only the email address is reused. Choose phone verification separately.</p></div>
             <div class="flex flex-col gap-1.5"><label for="email-pin" class="text-sm font-medium">Additional phone verification</label><select id="email-pin" class="border-border bg-background rounded-md border p-2"><option value="none">None</option><option value="sms">SMS code</option><option value="voice">Voice call code</option></select></div>
             <div id="email-phone-fields" hidden class="flex flex-col gap-1.5"><Label for="email-phone">Recipient phone number</Label><Input id="email-phone" type="tel" autocomplete="tel" /><p class="text-muted-foreground text-sm">The recipient must agree before the automated message or call is sent.</p></div>
           </CardContent>
@@ -109,6 +110,8 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
             <div class="flex flex-col gap-1.5">
               <Label for="fax-recipients">Fax numbers</Label>
               <Textarea id="fax-recipients" rows={3} placeholder="(512) 555-0100" inputmode="tel" />
+              <label for="previous-fax" class="text-sm">Add a previous fax recipient</label>
+              <select id="previous-fax" class="border-input rounded-md border p-2"><option value="">Choose a previous recipient</option></select>
             </div>
             <div class="flex items-center justify-between gap-4">
               <div>
@@ -146,6 +149,7 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
           </CardHeader>
           <CardContent class="flex flex-col gap-6">
             <AddressFields prefix="to" legend="Mail to" />
+            <div class="flex flex-col gap-1.5"><label for="previous-mail" class="text-sm">Use a previous mailing recipient</label><select id="previous-mail" class="border-input rounded-md border p-2"><option value="">Choose a previous recipient</option></select></div>
             <AddressFields prefix="from" legend="Return address" />
             <div class="grid gap-4 sm:grid-cols-3">
               <div class="flex items-center justify-between gap-3 sm:flex-col sm:items-start">
@@ -174,10 +178,12 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
 
     <section data-step="5" hidden aria-labelledby="s5">
       <h2 id="s5" tabindex="-1" class="mb-1 text-lg font-semibold">Review and confirm</h2>
-      <p class="text-muted-foreground mb-3 text-sm">Nothing is sent until you press Send.</p>
+      <p class="text-muted-foreground mb-3 text-sm">Prepare the packet, then review and approve each delivery separately. Preparing sends nothing.</p>
       <Card>
         <CardContent class="flex flex-col gap-4">
           <dl id="summary" class="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[8rem_1fr]"></dl>
+          <p id="estimate" class="text-muted-foreground text-sm"></p>
+          <p class="text-muted-foreground text-sm">Paper mail is rendered and printed by PostGrid; its physical output cannot be guaranteed by this local PDF proof.</p>
           <div id="mode-box" class="border-border flex flex-col gap-1.5 rounded-lg border p-4" data-select="mode">
             <span class="text-sm font-medium" id="mode-label">Paper mail mode</span>
             <Select defaultValue="test">
@@ -191,6 +197,13 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
           </div>
         </CardContent>
       </Card>
+    </section>
+
+    <section id="prepared" hidden aria-labelledby="prepared-title" class="mt-6">
+      <h2 id="prepared-title" class="mb-2 text-lg font-semibold">Review prepared deliveries</h2>
+      <p class="text-muted-foreground mb-3 text-sm">Each approval queues only that delivery. Open and inspect every proof before approving it.</p>
+      <div id="prepared-list" class="flex flex-col gap-4"></div>
+      <Button href="/records/" variant="outline" class="mt-4">Go to Records</Button>
     </section>
 
     <div class="mt-6 flex flex-wrap justify-between gap-3">
@@ -211,8 +224,7 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
 
   <script>
     import { normalizePhone } from "@/lib/phone";
-    import { watchTransmission, approveLetter } from "@/lib/detail";
-    import { api, formatBytes, h, skeletonRows, toast } from "@/lib/ui";
+    import { api, formatBytes, h, postJson, toast } from "@/lib/ui";
     import { MAX_DOCUMENTS, MAX_DOCUMENT_BYTES, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs";
     import { renderDocumentOrder } from "@/lib/document-order";
 
@@ -224,7 +236,7 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
     const totalBytes = () => documents.reduce((total, doc) => total + doc.file.size, 0);
     let loading = false;
     let step = 1;
-    let settings = { senderName: "", mailFrom: null as Record<string, string> | null, faxFrom: "+12134147728" };
+    let settings = { senderName: "", mailFrom: null as Record<string, string> | null, faxFrom: "+12134147728", faxEstimate: null as { rate: number; source: string; url: string | null } | null };
 
     const dropzone = $("dropzone"), input = $<HTMLInputElement>("file-input");
 
@@ -321,7 +333,7 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
       const indicator = bar.querySelector<HTMLElement>('[data-slot="progress-indicator"]');
       if (indicator) indicator.style.transform = `translateX(-${100 - percent}%)`;
       $("back").classList.toggle("invisible", step === 1);
-      $("next").textContent = step === 5 ? "Send" : "Next";
+      $("next").textContent = step === 5 ? "Prepare for review" : "Next";
       clearError(); sync();
       if (step === 1) renderFiles();
       if (step === 2) renderDocumentOrder($("document-order"), $("order-status"), documents);
@@ -416,10 +428,14 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
         add("Mail to", lines(to)); add("Return address", lines(from));
         add("Print", `${switchOn("color") ? "Color" : "Black and white"}, ${switchOn("duplex") ? "both sides" : "one side"}, ${selectValue("class") === "standard_class" ? "standard class" : "first class"}`);
       }
+      const count = new Set(faxNumbers().map((n) => normalizePhone(n))).size;
+      const pages = (pageCount() + (switchOn("cover") ? 1 : 0)) * count;
+      const rate = settings.faxEstimate;
+      $("estimate").textContent = channelOn("fax") ? `${rate ? `Fax page-fee estimate: $${(pages * rate.rate).toFixed(6)} for ${pages} pages at $${rate.rate}/page. ${rate.source}${rate.url ? ` (${rate.url})` : ""}.` : "Fax page-fee estimate unavailable."} This is only a component, not a total or quote: SIP transmission, destination tariffs, taxes, retries and account pricing are excluded or unknown.${channelOn("mail") ? " Paper-mail pricing is unavailable." : ""}` : channelOn("mail") ? "Paper-mail pricing is unavailable; PostGrid charges may apply. This is not a quote." : "";
       const hint = () => { $("mode-hint").textContent = selectValue("mode") === "live" ? "A real, paid letter will be mailed." : "Nothing will be printed or mailed. Use this to check the flow."; };
       hint();
       document.querySelector('[data-select="mode"]')!.addEventListener("click", () => setTimeout(hint, 50));
-      $("next").textContent = channelOn("mail") && selectValue("mode") === "live" ? "Send for real" : "Send";
+      $("next").textContent = "Prepare for review";
     }
 
     async function submit() {
@@ -433,24 +449,47 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
       const form = new FormData();
       // Cover numbering is also a required feature when selected: an older
       // Worker would accept the legacy field but silently ignore includeNumbers.
-      const numberedCover = channelOn("fax") && switchOn("cover") && $<HTMLInputElement>("cover-numbers").checked;
-      const pageNumbers = $<HTMLInputElement>("page-numbers").checked;
-      const field = channelOn("email") ? (pageNumbers ? "numberedEmailDocuments" : "emailDocuments") : pageNumbers ? "numberedDocuments" : documents.length === 1 && !numberedCover ? "document" : "documents";
+      // Older workers must reject preparation, never send before this review.
+      const field = $<HTMLInputElement>("page-numbers").checked ? "preparedNumberedDocuments" : "preparedDocuments";
       for (const { file } of documents) form.append(field, file);
       form.set("spec", JSON.stringify(spec));
       try {
-        const created = await api<{ id: string; deliveries: { id?: string; channel: string; status: string; error?: string }[] }>("/api/transmissions", { method: "POST", body: form });
-        $("wizard").hidden = true; $("result").hidden = false;
-        const body = $("result-body"); body.replaceChildren(skeletonRows(2, "h-24 w-full"));
-        const letter = created.deliveries.find((d) => d.channel === "mail");
-        const emailError = created.deliveries.find((d) => d.channel === "email" && d.error);
-        if (emailError) toast(emailError.error!, "error");
-        if (letter?.id) {
-          try { await approveLetter(created.id, letter.id, mode); }
-          catch (error) { toast(error instanceof Error ? error.message : "The letter could not be confirmed.", "error"); }
+        const created = await api<{ id: string; deliveries: { id: string; channel: string }[] }>("/api/transmissions", { method: "POST", body: form });
+        const list = $("prepared-list"); list.replaceChildren();
+        for (const delivery of created.deliveries) {
+          const base = `/api/transmissions/${created.id}/${delivery.channel}/${delivery.id}`;
+          const card = h("div", "border-border rounded-lg border p-4");
+          const status = h("p", "text-sm", "Loading review…"); card.append(status); list.append(card);
+          try {
+            if (delivery.channel === "fax") {
+              const review = await api<{ reviewHash: string; recipient: string; from: string; packetUrl: string }>(`${base}/review`);
+              status.textContent = `Fax from ${review.from} to ${review.recipient}`;
+              const frame = h("iframe", "border-border mt-3 h-[32rem] w-full rounded-lg border"); frame.src = review.packetUrl; frame.title = `Final fax packet for ${review.recipient}`; card.append(frame);
+              const link = h("a", "mt-2 block text-sm underline", "Open final fax packet"); link.href = review.packetUrl; link.target = "_blank"; link.rel = "noopener"; card.append(link);
+              const button = h("button", "mt-3 rounded border px-4 py-2", "Approve and send this fax"); button.type = "button"; card.append(button);
+              button.addEventListener("click", async () => { button.disabled = true; try { await postJson(`${base}/approve`, { confirmed: true, reviewHash: review.reviewHash }); status.textContent = `Fax to ${review.recipient} queued`; button.remove(); } catch (error) { status.textContent = error instanceof Error ? error.message : "Could not approve fax"; button.disabled = false; } });
+            } else if (delivery.channel === "email") {
+              const emailBase = `/api/transmissions/${created.id}/email`;
+              const review = await api<{ email: string; pinChannel: string; phone: string | null; reviewHash: string; packetUrl: string }>(`${emailBase}/review`);
+              status.textContent = `Secure portal invitation to ${review.email}; verification: ${review.pinChannel}${review.phone ? ` (${review.phone})` : ""}. The portal delivers this PDF.`;
+              const frame = h("iframe", "border-border mt-3 h-[32rem] w-full rounded-lg border"); frame.src = review.packetUrl; frame.title = "Email portal document proof"; card.append(frame);
+              const link = h("a", "mt-2 block text-sm underline", "Open email document"); link.href = review.packetUrl; link.target = "_blank"; link.rel = "noopener"; card.append(link);
+              const button = h("button", "mt-3 rounded border px-4 py-2", "Approve and send this email"); button.type = "button"; card.append(button);
+              button.addEventListener("click", async () => { button.disabled = true; try { const result = await postJson<{ status: string }>(`${emailBase}/approve`, { confirmed: true, reviewHash: review.reviewHash }); status.textContent = result.status === "accepted" ? "Email accepted for sending; delivery is not confirmed." : "Email outcome unknown. Check Records before trying again."; button.remove(); } catch (error) { status.textContent = error instanceof Error ? error.message : "Email outcome unknown; check Records before trying again."; button.remove(); } });
+            } else {
+              const review = await api<{ reviewHash: string; available: boolean; notice: string; summary: { to: Address; from: Address; color: boolean; doubleSided: boolean; mailingClass: string } }>(`${base}/review?mode=${mode}`);
+              status.textContent = `${mode === "live" ? "Live mail (paid)" : "Test mail (not mailed)"}. ${review.notice} Physical output is not guaranteed.`;
+              const address = (a: Address) => [a.firstName, a.lastName, a.addressLine1, a.addressLine2, a.city, a.provinceOrState, a.postalOrZip, a.countryCode].filter(Boolean).join(", ");
+              card.append(h("p", "mt-2 whitespace-pre-line text-sm", `To: ${address(review.summary.to)}\nReturn: ${address(review.summary.from)}\n${review.summary.color ? "Color" : "Black and white"}; ${review.summary.doubleSided ? "double-sided" : "single-sided"}; ${review.summary.mailingClass}`));
+              const frame = h("iframe", "border-border mt-3 h-[32rem] w-full rounded-lg border"); frame.src = `/api/transmissions/${created.id}/document`; frame.title = "Paper mail document proof"; card.append(frame);
+              const button = h("button", "mt-3 rounded border px-4 py-2", "Approve and send this letter"); button.type = "button"; button.disabled = !review.available; card.append(button);
+              if (!review.available) status.textContent += " This mail mode is unavailable.";
+              button.addEventListener("click", async () => { button.disabled = true; try { await postJson(`${base}/approve`, { confirmed: true, mode, reviewHash: review.reviewHash }); status.textContent = "Letter queued"; button.remove(); } catch (error) { status.textContent = error instanceof Error ? error.message : "Could not approve letter"; button.disabled = false; } });
+            }
+          } catch { status.textContent = "Review unavailable; nothing was approved. See Records."; }
         }
-        toast("Sent for delivery.", "success");
-        watchTransmission(body, created.id, false);
+        document.querySelectorAll<HTMLElement>("[data-step]").forEach((section) => { section.hidden = true; });
+        $("prepared").hidden = false; $("back").hidden = true; $("next").hidden = true;
         window.scrollTo({ top: 0 });
       } catch (error) {
         toast(error instanceof Error ? error.message : "Could not send. Nothing was sent.", "error");
@@ -468,6 +507,32 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
     document.addEventListener("click", () => setTimeout(sync, 0));
 
     api<typeof settings>("/api/settings").then((s) => { settings = s; }).catch(() => { /* defaults are fine */ });
+    api<{ fax: string[]; mail: Address[]; email?: string[] }>("/api/recipients").then(({ fax, mail, email = [] }) => {
+      const faxSelect = $<HTMLSelectElement>("previous-fax"), mailSelect = $<HTMLSelectElement>("previous-mail"), emailSelect = $<HTMLSelectElement>("previous-email");
+      fax.forEach((number) => faxSelect.add(new Option(number, number)));
+      mail.forEach((address, index) => mailSelect.add(new Option([address.firstName, address.lastName, address.addressLine1, address.city, address.provinceOrState].filter(Boolean).join(", "), String(index))));
+      email.forEach((address) => emailSelect.add(new Option(address, address)));
+      emailSelect.addEventListener("change", () => {
+        if (!emailSelect.value) return;
+        $<HTMLInputElement>("email-recipient").value = emailSelect.value;
+        $<HTMLSelectElement>("email-pin").value = "none";
+        $<HTMLInputElement>("email-phone").value = "";
+        $("email-phone-fields").hidden = true;
+        emailSelect.value = "";
+      });
+      faxSelect.addEventListener("change", () => {
+        if (!faxSelect.value) return;
+        const numbers = faxNumbers();
+        if (!numbers.some((number) => normalizePhone(number) === faxSelect.value)) $<HTMLTextAreaElement>("fax-recipients").value = [...numbers, faxSelect.value].join("\n");
+        faxSelect.value = ""; queueCover();
+      });
+      mailSelect.addEventListener("change", () => {
+        if (!mailSelect.value) return;
+        const address = mail[Number(mailSelect.value)];
+        for (const el of document.querySelectorAll<HTMLInputElement>('[data-address="to"] [data-field]')) el.value = address[el.dataset.field!] ?? "";
+        mailSelect.value = "";
+      });
+    }).catch(() => { /* Sending remains available if history cannot be loaded. */ });
     goto(1);
   </script>
 </AppLayout>

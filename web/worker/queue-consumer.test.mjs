@@ -4,7 +4,7 @@ import { PDFDocument } from 'pdf-lib';
 import { handleQueue, processDelivery, reconcileDeliveries } from './queue-consumer.mjs';
 import { applyOutboundFaxEvent } from './deliveries.mjs';
 import { approveMail, createTransmission, getTransmission, reviewMail } from './transmissions.mjs';
-import { address, jsonRequest, makeEnv, samplePdf, sendRequest } from './test-env.mjs';
+import { address, approveTestFax, jsonRequest, makeEnv, samplePdf, sendRequest } from './test-env.mjs';
 
 const actor = 'owner';
 const faxSpec = { title: 'Lease', fax: { recipients: ['5125550100'], cover: { enabled: true } } };
@@ -25,6 +25,7 @@ const message = (body, attempts = 1) => ({ body, attempts, acked: false, retried
 async function queuedFax() {
   const ctx = makeEnv();
   const { id, deliveries } = await (await createTransmission(await sendRequest(faxSpec, await samplePdf(2)), ctx.env, actor)).json();
+  await approveTestFax(ctx.env, actor, id, deliveries[0].id);
   return { ...ctx, body: { transmissionId: id, channel: 'fax', deliveryId: deliveries[0].id }, deliveryId: deliveries[0].id, id };
 }
 const status = (db, id) => db.prepare('SELECT status, provider_id, provider_status, error FROM dispatches WHERE id = ?').get(id);
@@ -116,7 +117,7 @@ test('delivered only comes from a provider-reported terminal status', async () =
   await applyOutboundFaxEvent(env, 'fax.failed', 'fax-provider-1');
   assert.equal(status(db, deliveryId).status, 'delivered', 'terminal rows do not change');
   const timeline = db.prepare('SELECT status, detail FROM timeline WHERE delivery_id = ? ORDER BY id').all(deliveryId);
-  assert.deepEqual([...new Set(timeline.map(r => r.status))], ['queued', 'accepted', 'delivered']);
+  assert.deepEqual([...new Set(timeline.map(r => r.status))], ['awaiting_approval', 'queued', 'accepted', 'delivered']);
   assert.ok(timeline.some(r => r.detail === 'sending.started'), 'provider progress is kept as detail');
 });
 
@@ -207,10 +208,12 @@ test('cron re-enqueues stale queued rows and re-polls open ones', async () => {
   await reconcileDeliveries(env, fetch, later + 25 * 60 * 60 * 1000);
 });
 
-test('create still succeeds when the queue is down; the cron picks the row up', async () => {
+test('approval still succeeds when the queue is down; the cron picks the row up', async () => {
   const ctx = makeEnv();
   ctx.queue.failNext = true;
   const response = await createTransmission(await sendRequest(faxSpec, await samplePdf(1)), ctx.env, actor);
   assert.equal(response.status, 202);
+  const { id, deliveries } = await response.json();
+  await approveTestFax(ctx.env, actor, id, deliveries[0].id);
   assert.equal(ctx.db.prepare("SELECT status FROM dispatches").get().status, 'queued');
 });
