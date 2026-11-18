@@ -54,8 +54,16 @@ extension StubbedSuites { @MainActor @Suite struct ConnectedModelTests {
     @Test func startsWithTheOwnersInstance() {
         let defaults = UserDefaults(suiteName: "simpledocs.tests." + UUID().uuidString)!
         let model = ConnectedModel(vault: MemoryVault(), defaults: defaults, anchor: Anchor())
-        #expect(model.instance == "https://simpledocs.justinharbour.dev")
+        #expect(model.instance == "https://simpledocs.justinharbour.com")
         #expect(model.issuer == "https://justinharbour.cloudflareaccess.com")
+        #expect(model.state == .signedOut)
+    }
+
+    @Test func preservesRememberedLegacyInstance() {
+        let defaults = UserDefaults(suiteName: "simpledocs.tests." + UUID().uuidString)!
+        defaults.set("https://simpledocs.justinharbour.dev", forKey: ConnectedModel.instanceKey)
+        let model = ConnectedModel(vault: MemoryVault(), defaults: defaults, anchor: Anchor())
+        #expect(model.instance == "https://simpledocs.justinharbour.dev")
         #expect(model.state == .signedOut)
     }
 
