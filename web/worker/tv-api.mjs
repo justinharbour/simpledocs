@@ -10,14 +10,12 @@ const reply = (body, status = 200) => Response.json(body, { status, headers });
 const PAGE = 50;
 const DOC = /^(t|f):([0-9a-f-]{36})$/i;
 const isoTime = value => (typeof value === 'string' && /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/.test(value) ? `${value.replace(' ', 'T')}Z` : value ?? null);
-const startOfToday = () => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); return d.toISOString(); };
-
 async function dashboard(env, actor) {
-  const since = startOfToday();
-  const calls = await env.DB.prepare('SELECT outcome, COUNT(*) AS n FROM calls WHERE started_at >= ? GROUP BY outcome').bind(since).all();
-  const byOutcome = Object.fromEntries((calls.results ?? []).map(r => [r.outcome, r.n]));
+  const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
   const faxAllowed = inboundFaxAllowed(actor, env.INBOUND_FAX_ALLOWED_SUBJECTS);
   const voiceAllowed = !env.VOICE_OWNER_SUBJECT || actor === env.VOICE_OWNER_SUBJECT;
+  const calls = voiceAllowed ? await env.DB.prepare('SELECT outcome, COUNT(*) AS n FROM calls WHERE started_at >= ? GROUP BY outcome').bind(since).all() : { results: [] };
+  const byOutcome = Object.fromEntries((calls.results ?? []).map(r => [r.outcome, r.n]));
   const unreadFax = faxAllowed ? (await env.DB.prepare("SELECT COUNT(*) AS n FROM inbound_fax_events WHERE event_type = 'fax.received' AND object_key IS NOT NULL AND NOT EXISTS (SELECT 1 FROM inbox_reads r WHERE r.kind = 'fax' AND r.id = inbound_fax_events.event_id)").first())?.n ?? 0 : 0;
   const unreadVoicemail = voiceAllowed ? (await env.DB.prepare("SELECT COUNT(*) AS n FROM voice_recordings WHERE kind = 'voicemail' AND heard_at IS NULL").first())?.n ?? 0 : 0;
   const pendingApprovals = (await env.DB.prepare("SELECT COUNT(*) AS n FROM dispatches d JOIN transmissions t ON t.id = d.transmission_id WHERE t.actor_id = ? AND d.status = 'awaiting_approval'").bind(actor).first())?.n ?? 0;
@@ -27,7 +25,7 @@ async function dashboard(env, actor) {
   return reply({
     generatedAt: new Date().toISOString(),
     phone: { online, availability: policy ? (availabilityOnline(policy) ? 'online' : 'offline') : 'unknown' },
-    calls: { today: { ringing: byOutcome.ringing ?? 0, answered: byOutcome.answered ?? 0, missed: byOutcome.missed ?? 0, voicemail: byOutcome.voicemail ?? 0 } },
+    calls: { last24h: { ringing: byOutcome.ringing ?? 0, answered: byOutcome.answered ?? 0, missed: byOutcome.missed ?? 0, voicemail: byOutcome.voicemail ?? 0 } },
     inbox: { unreadFax, unreadVoicemail },
     pendingApprovals,
     recentSends: (recentSends.results ?? []).map(r => ({ id: r.id, title: r.title, createdAt: r.created_at, channel: r.channel, status: r.status })),

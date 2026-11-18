@@ -105,6 +105,10 @@ test('publishes exact portal paths on the production destination only and preser
   assert.deepEqual(f.apps[0].destinations, [{ type: 'public', uri: old }, { type: 'public', uri: next, overrides }]);
   await configureAccess(f.api);
   assert.deepEqual(f.apps[0].destinations[1].overrides, overrides);
+  // A destination with the earlier portal-only set is upgraded on a plain redeploy.
+  f.apps[0].destinations[1].overrides = PORTAL_PATHS.map(path_pattern => ({ path_pattern, behavior: 'public' }));
+  await configureAccess(f.api);
+  assert.deepEqual(f.apps[0].destinations[1].overrides, overrides);
   f.apps[0].destinations[1].overrides = [{ path_pattern: '/portal/*', behavior: 'public' }];
   f.writes.length = 0;
   await assert.rejects(configureAccess(f.api, true), /Unexpected Access destinations/);
