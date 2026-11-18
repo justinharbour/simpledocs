@@ -56,7 +56,7 @@ for (const headers of [false, true]) test(`ordered fax and mail payloads ${heade
   const spec = { fax: { recipients: [faxSpec.fax.recipients[0]], cover: { includeNumbers: true } }, mail: { to: address, from: address } };
   // Duplicate filenames do not collapse distinct parts; order is not sorted by name or page count.
   const files = [await pdfFile('z.pdf', [612, 600], true), await pdfFile('a.pdf', [601], true), await pdfFile('a.pdf', [602])];
-  const response = await createTransmission(await sendRequest(spec, files, undefined, headers ? 'numberedDocuments' : 'documents'), env, actor);
+  const response = await createTransmission(await sendRequest(spec, files, undefined, headers ? 'preparedNumberedDocuments' : 'preparedDocuments'), env, actor);
   assert.equal(response.status, 202);
   const { id, envelopeNumber, documents, deliveries } = await response.json();
   assert.equal(envelopeNumber, '000001');

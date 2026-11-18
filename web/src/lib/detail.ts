@@ -3,13 +3,14 @@ import { api, channelLabels, h, isTerminal, postJson, statusBadge, statusLabel, 
 
 export type Delivery = {
   id: string;
-  channel: "fax" | "mail";
+  channel: "fax" | "mail" | "email";
   recipient: string;
   status: string;
   providerStatus: string | null;
   error: string | null;
   needsApproval: boolean;
   coverUrl: string | null;
+  canRevoke?: boolean;
   timeline: { at: string; status: string; detail: string | null }[];
 };
 export type Detail = {
@@ -50,12 +51,13 @@ function note(delivery: Delivery): string {
   if (delivery.needsApproval) return delivery.channel === "fax" ? "This fax has not been approved or sent. Start again from Send to review a new proof." : "This letter was not confirmed, so nothing was mailed. Start again from Send.";
   if (delivery.status === "queued") return "Waiting its turn. It has not been sent yet.";
   if (delivery.status === "accepted" && delivery.channel === "fax") return "Telnyx has the fax. It is not delivered until the receiving machine confirms.";
+  if (delivery.status === "accepted" && delivery.channel === "email") return "Email accepted for sending; delivery is not confirmed.";
   if (delivery.status === "accepted") return "PostGrid has the letter. It is not printed or mailed yet.";
   if (delivery.status === "completed") return "PostGrid reports the letter as completed. That is not a delivery confirmation.";
   return "";
 }
 
-function row(delivery: Delivery): HTMLElement {
+function row(delivery: Delivery, transmissionId: string, refresh: () => void): HTMLElement {
   const card = h("div", "border-border rounded-lg border p-4");
   const top = h("div", "flex flex-wrap items-center justify-between gap-2");
   const who = h("div", "flex flex-col");
@@ -71,11 +73,24 @@ function row(delivery: Delivery): HTMLElement {
     link.href = delivery.coverUrl; link.target = "_blank"; link.rel = "noopener";
     card.append(link);
   }
+  if (delivery.canRevoke) {
+    const revoke = h("button", "mt-3 text-sm underline underline-offset-4", "Revoke email link");
+    revoke.type = "button";
+    const result = h("p", "mt-2 text-sm");
+    result.setAttribute("role", "status");
+    revoke.onclick = async () => {
+      if (!window.confirm("Revoke this link? The recipient will no longer be able to download the document. Copies already downloaded cannot be recalled.")) return;
+      revoke.disabled = true;
+      try { await postJson(`/api/transmissions/${transmissionId}/email/${delivery.id}/revoke`, {}); refresh(); }
+      catch { result.textContent = "Could not revoke this link. Refresh the record and try again."; revoke.disabled = false; }
+    };
+    card.append(revoke, result);
+  }
   card.append(timeline(delivery));
   return card;
 }
 
-function info(detail: Detail): DocumentFragment {
+function info(detail: Detail, refresh: () => void): DocumentFragment {
   const frag = document.createDocumentFragment();
   const head = h("div", "flex flex-wrap items-baseline justify-between gap-2");
   head.append(h("h3", "text-lg font-semibold", detail.title), h("span", "text-muted-foreground text-sm", `${detail.pageCount} ${detail.pageCount === 1 ? "page" : "pages"}`));
@@ -89,7 +104,7 @@ function info(detail: Detail): DocumentFragment {
     frag.append(documents);
   }
   const list = h("div", "mt-4 flex flex-col gap-3");
-  for (const delivery of detail.deliveries) list.append(row(delivery));
+  for (const delivery of detail.deliveries) list.append(row(delivery, detail.id, refresh));
   frag.append(list);
   if (!detail.settled) frag.append(h("p", "text-muted-foreground mt-3 text-sm", "Checking for updates every few seconds."));
   return frag;
@@ -107,7 +122,7 @@ export function watchTransmission(target: HTMLElement, id: string, withPreview =
     try {
       const detail = await api<Detail>(`/api/transmissions/${id}`);
       if (stopped) return;
-      body.replaceChildren(info(detail));
+      body.replaceChildren(info(detail, () => { clearTimeout(timer); void tick(); }));
       if (!loaded && withPreview) {
         const frame = h("iframe", "border-border h-[28rem] w-full rounded-lg border");
         frame.src = detail.documentUrl; frame.title = `Preview of ${detail.title}`;
@@ -116,7 +131,7 @@ export function watchTransmission(target: HTMLElement, id: string, withPreview =
         preview.append(frame, link);
       }
       loaded = true;
-      if (detail.deliveries.every((d) => isTerminal(d.status) || d.needsApproval)) return;
+      if (detail.settled || detail.deliveries.every((d) => d.channel === "email" || isTerminal(d.status) || d.needsApproval)) return;
     } catch {
       if (!loaded) body.replaceChildren(h("div", alert({ variant: "error", class: "p-3 text-sm" }), "Could not load this record. Try again in a moment."));
     }

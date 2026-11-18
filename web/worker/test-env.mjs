@@ -51,10 +51,10 @@ export async function samplePdf(pages = 2) {
 
 export const address = { firstName: 'Ada', lastName: 'Lovelace', addressLine1: '1 Main St', city: 'Austin', provinceOrState: 'TX', postalOrZip: '78701', countryCode: 'US' };
 
-export async function sendRequest(spec, pdf, url = 'https://example.test/api/transmissions', field = 'documents') {
+export async function sendRequest(spec, pdf, url = 'https://example.test/api/transmissions', field = 'preparedDocuments') {
   const form = new FormData();
   if (Array.isArray(pdf)) for (const file of pdf) form.append(field, file);
-  else form.set('document', new File([pdf], 'lease.pdf', { type: 'application/pdf' }));
+  else form.set(field, new File([pdf], 'lease.pdf', { type: 'application/pdf' }));
   form.set('spec', JSON.stringify(spec));
   return new Request(url, { method: 'POST', body: form, headers: { origin: new URL(url).origin } });
 }

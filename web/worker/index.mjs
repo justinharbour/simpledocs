@@ -5,7 +5,7 @@ import { handleFaxSend } from './fax-send.mjs';
 import { handleInboundFax } from './inbound-fax.mjs';
 import { handleInboundFaxRead, inboundFaxAllowed } from './inbound-fax-read.mjs';
 import { handleQueue, reconcileDeliveries } from './queue-consumer.mjs';
-import { approveFax, approveMail, createTransmission, getTransmission, getTransmissionFile, handleCoverPreview, handleSettings, listRecipients, listRecords, listTransmissions, reviewFax, reviewMail } from './transmissions.mjs';
+import { approveEmail, approveFax, approveMail, createTransmission, getTransmission, getTransmissionFile, handleCoverPreview, handleSettings, listRecipients, listRecords, listTransmissions, reviewEmail, reviewFax, reviewMail } from './transmissions.mjs';
 import { listCalls, markHeard } from './voice-calls.mjs';
 import { handleFaxOperator } from './inbound-fax-operator.mjs';
 import { handleMail, listUnresolvedMail } from './mail-send.mjs';
@@ -17,6 +17,8 @@ import { handleInbox } from './inbox.mjs';
 import { handleVoicemailSettings } from './voicemail-config.mjs';
 import { sendPendingFaxAlert } from './inbound-fax-alert.mjs';
 import { handlePushDevices, notifyPush, withPush } from './push.mjs';
+import { cleanupPortal, createEmailDelivery, portal, revokeEmailDelivery } from './email-portal.mjs';
+import { PORTAL_PATHS } from './portal-paths.mjs';
 
 // Static Assets do not propagate ctx.access. Verify the Access assertion against
 // the configured team's keys instead; never trust an unverified identity header.
@@ -37,6 +39,7 @@ export function createWorker(resolveKeys = issuer => {
     if (result === 'unavailable') console.error('Pending fax alert unavailable');
     if (result === 'accepted') await notifyPush(env, { kind: 'fax-attention' });
     try { await reconcileDeliveries(withPush(env, ctx)); } catch { console.error('Delivery reconcile unavailable'); }
+    try { await cleanupPortal(env); } catch { console.error('Portal cleanup unavailable'); }
   },
   queue(batch, env, ctx) { return handleQueue(batch, withPush(env, ctx)); },
   async fetch(request, env, ctx) {
@@ -46,6 +49,8 @@ export function createWorker(resolveKeys = issuer => {
     // This one endpoint uses Telnyx's signature, not a browser Access JWT.
     if (url.pathname === '/api/webhooks/telnyx/voice') return handleVoiceWebhook(request, env);
     if (url.pathname === '/api/webhooks/telnyx/messaging') return handleSmsWebhook(request, env);
+    // These exact paths use recipient sessions rather than owner Access identity.
+    if (PORTAL_PATHS.includes(url.pathname) && url.origin === env.PORTAL_ORIGIN) return portal(request, env);
     const expected = env.ACCESS_AUDIENCE;
     const issuer = env.ACCESS_TEAM_DOMAIN;
     const token = request.headers.get('cf-access-jwt-assertion');
@@ -105,6 +110,10 @@ export function createWorker(resolveKeys = issuer => {
       if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
       return listRecords(env, actor, { inboundAllowed: inboundFaxAllowed(actor, env.INBOUND_FAX_ALLOWED_SUBJECTS), voiceAllowed: voiceOwner });
     }
+    const emailReview = /^\/api\/transmissions\/([^/]+)\/email\/(review|approve)$/.exec(url.pathname);
+    if (emailReview) return (emailReview[2] === 'review' ? reviewEmail : approveEmail)(request, env, actor, emailReview[1]);
+    const emailDelivery = /^\/api\/transmissions\/([^/]+)\/email(?:\/([^/]+)\/revoke)?$/.exec(url.pathname);
+    if (emailDelivery) return emailDelivery[2] ? revokeEmailDelivery(request, env, actor, emailDelivery[1], emailDelivery[2]) : createEmailDelivery(request, env, actor, emailDelivery[1]);
     const transmissionFile = /^\/api\/transmissions\/([^/]+)\/(document|cover|packet)(?:\/([^/]+))?$/.exec(url.pathname);
     if (transmissionFile) return request.method === 'GET' ? getTransmissionFile(env, actor, transmissionFile[1], transmissionFile[2], transmissionFile[3]) : new Response('Method not allowed', { status: 405 });
     const transmissionMail = /^\/api\/transmissions\/([^/]+)\/mail\/([^/]+)\/(review|approve)$/.exec(url.pathname);
