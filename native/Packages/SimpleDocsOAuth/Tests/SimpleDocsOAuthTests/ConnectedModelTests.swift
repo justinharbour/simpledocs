@@ -41,7 +41,7 @@ import SimpleDocsConnected
     func send(plan: WorkerPlan, bearer: String) async throws -> Data { Data("{}".utf8) }
 }
 
-@MainActor @Suite(.serialized) struct ConnectedModelTests {
+extension StubbedSuites { @MainActor @Suite struct ConnectedModelTests {
     private func make(_ adapter: ScriptedAdapter, vault: SessionVault = MemoryVault(), defaults: UserDefaults? = nil) -> (ConnectedModel, UserDefaults) {
         let defaults = defaults ?? UserDefaults(suiteName: "simpledocs.tests." + UUID().uuidString)!
         let model = ConnectedModel(vault: vault, defaults: defaults, anchor: Anchor(),
@@ -174,4 +174,5 @@ import SimpleDocsConnected
         #expect(isNotFound(APIError.server(status: 404, message: "x")))
         #expect(!isNotFound(APIError.unreachable))
     }
+}
 }

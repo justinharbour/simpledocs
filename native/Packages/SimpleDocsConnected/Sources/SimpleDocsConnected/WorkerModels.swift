@@ -239,7 +239,7 @@ public struct VoicePreset: Sendable, Hashable, Identifiable {
 public struct WorkerErrorBody: Decodable, Sendable { public let error: String? }
 
 extension String {
-    var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
+    public var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
 }
 
 /// The Worker sends ISO 8601 for most fields and "YYYY-MM-DD HH:MM:SS" (UTC) for archived recordings.

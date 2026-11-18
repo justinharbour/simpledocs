@@ -20,6 +20,9 @@ struct Seen: Sendable {
     var body: Data
 }
 
+/// StubProtocol keeps shared static state, so every suite that uses it nests here and runs serially.
+@Suite(.serialized) enum StubbedSuites {}
+
 /// Routes by "METHOD path" so each test can script its own answers and read back what was sent.
 final class StubProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var routes: [String: [Stub]] = [:]
@@ -83,7 +86,7 @@ private func api(_ stored: StoredSession, vault: SessionVault = MemoryVault(), n
     try WorkerAPI(session: stored, vault: vault, protocolClasses: [StubProtocol.self], now: now)
 }
 
-@Suite(.serialized) struct WorkerAPITests {
+extension StubbedSuites { @Suite struct WorkerAPITests {
     @Test func readsRecordsWithBearerAndNoCookie() async throws {
         StubProtocol.reset(["GET /api/records": [json(#"{"records":[{"type":"transmission","id":"t1","title":"Lease","createdAt":"2026-11-16T10:00:00Z","channels":[{"id":"d1","channel":"fax","status":"queued"}]}]}"#)]])
         let records = try await api(session()).records()
@@ -224,4 +227,5 @@ private func api(_ stored: StoredSession, vault: SessionVault = MemoryVault(), n
         bad.instance = "http://one.example.com"
         #expect(throws: APIError.invalidResponse) { try WorkerAPI(session: bad, vault: MemoryVault()) }
     }
+}
 }
