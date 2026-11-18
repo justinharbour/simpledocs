@@ -79,6 +79,15 @@ public actor WorkerAPI {
         _ = try await send("POST", "/api/transmissions/\(transmissionID)/fax/\(deliveryID)/approve", body: body, contentType: "application/json")
     }
 
+    public func emailReview(transmissionID: String) async throws -> EmailReview {
+        try await get("/api/transmissions/\(transmissionID)/email/review", as: EmailReview.self)
+    }
+
+    public func approveEmail(transmissionID: String, reviewHash: String) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["confirmed": true, "reviewHash": reviewHash])
+        _ = try await send("POST", "/api/transmissions/\(transmissionID)/email/approve", body: body, contentType: "application/json")
+    }
+
     public func transmission(id: String) async throws -> TransmissionDetail {
         try await get("/api/transmissions/\(id)", as: TransmissionDetail.self)
     }

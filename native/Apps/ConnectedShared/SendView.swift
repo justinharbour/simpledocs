@@ -157,6 +157,18 @@ struct SendView: View {
                     Text(model.draft.mode.detail).font(.footnote).foregroundStyle(.secondary)
                 }
             }
+            if model.draft.channels == .email {
+                Section("Secure email") {
+                    TextField("Recipient email", text: $model.draft.emailAddress)
+                    Picker("Phone verification", selection: $model.draft.emailVerification) {
+                        Text("None").tag("none")
+                        Text("Text message").tag("sms")
+                        Text("Voice call").tag("voice")
+                    }
+                    if model.draft.emailVerification != "none" { TextField("Recipient phone", text: $model.draft.emailPhone) }
+                    Text("The email and document require a separate review and explicit approval before the invitation is sent.").font(.footnote)
+                }
+            }
 
             Section {
                 ForEach(model.problems, id: \.self) { problem in
@@ -285,6 +297,13 @@ struct SendView: View {
                         .foregroundStyle(model.draft.mode == .live ? Color.orange : Color.secondary)
                 }
             }
+            if model.draft.channels == .email {
+                Section("Secure email") {
+                    LabeledContent("Recipient", value: model.draft.emailAddress)
+                    LabeledContent("Phone verification", value: model.draft.emailVerification == "none" ? "None" : "\(model.draft.emailVerification) · \(model.draft.emailPhone)")
+                    Text("Create a prepared record only; review the exact PDF and approve the invitation separately.").font(.footnote)
+                }
+            }
             if let error = model.error {
                 Section { ErrorBanner(message: error) }
             }
@@ -316,7 +335,7 @@ struct SendView: View {
         VStack(spacing: 16) {
             Image(systemName: summary.letterProblem == nil ? "checkmark.circle" : "exclamationmark.triangle")
                 .font(.system(size: 44)).foregroundStyle(summary.letterProblem == nil ? Color.green : Color.orange).accessibilityHidden(true)
-            Text(summary.faxAwaitingReview > 0 || summary.letterProblem != nil ? "Review deliveries in the record" : "Transmission created").font(.title2.bold())
+            Text(summary.faxAwaitingReview > 0 || summary.letterProblem != nil || model.draft.channels == .email ? "Review deliveries in the record" : "Transmission created").font(.title2.bold())
             if let number = summary.envelopeNumber { Text("Envelope \(number)").foregroundStyle(.secondary) }
             VStack(alignment: .leading, spacing: 6) {
                 if summary.faxCount > 0 {
@@ -334,6 +353,7 @@ struct SendView: View {
                     Label("The letter was created but not confirmed, so nothing was mailed. \(problem)", systemImage: "envelope.badge")
                         .foregroundStyle(.orange)
                 }
+                if model.draft.channels == .email { Label("The email invitation requires separate review and approval in the record.", systemImage: "envelope.badge") }
             }
             .font(.callout)
             .frame(maxWidth: 460, alignment: .leading)

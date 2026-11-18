@@ -1,5 +1,15 @@
 import Foundation
 
+public struct EmailReview: Decodable, Sendable {
+    public let email: String
+    public let pinChannel: String
+    public let phone: String?
+    public let status: String
+    public let reviewHash: String
+    public let pdfSha256: String
+    public let packetUrl: String
+}
+
 /// Codable shapes of the owner Worker's JSON API. Nothing here performs I/O.
 public enum RecordType: String, Codable, Sendable {
     case transmission, inboundFax = "inbound_fax", recording, other

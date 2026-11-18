@@ -140,6 +140,7 @@ struct TransmissionView: View {
                 if delivery.channel == "fax" { faxApproval(delivery) }
                 else if delivery.channel == "mail" { approval(delivery) }
             }
+            if delivery.channel == "email" && (delivery.needsApproval || delivery.status == "unknown") { emailApproval(delivery) }
             ForEach(Array(delivery.timeline.enumerated()), id: \.offset) { _, step in
                 HStack(alignment: .firstTextBaseline) {
                     Text(DeliveryStatus.label(step.status)).font(.callout)
@@ -153,6 +154,28 @@ struct TransmissionView: View {
         } header: {
             Text("\(DeliveryStatus.channelLabel(delivery.channel)) · \(delivery.channel == "fax" ? PhoneNumber.display(delivery.recipient) : delivery.recipient)")
         }
+    }
+
+    @ViewBuilder private func emailApproval(_ delivery: DeliveryDetail) -> some View {
+        if let shown = model.emailReview, shown.review.email == delivery.recipient {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Review this secure email invitation").font(.headline)
+                LabeledContent("Recipient", value: shown.review.email)
+                LabeledContent("Phone verification", value: shown.review.pinChannel == "none" ? "None" : "\(shown.review.pinChannel) · \(shown.review.phone ?? "")")
+                Text("The recipient receives a seven-day portal invitation. Acceptance is not delivery confirmation. The portal is not end-to-end encrypted.").font(.footnote)
+                Text("PDF SHA-256: \(shown.review.pdfSha256)").font(.caption).textSelection(.enabled)
+                PDFKitView(url: shown.url).frame(minHeight: 400)
+                HStack {
+                    Button("Cancel") { model.cancelEmailReview() }.disabled(model.approvingID != nil)
+                    Spacer()
+                    Button("Approve and send email") { Task { await model.approveEmail(delivery); onChange() } }
+                        .buttonStyle(.borderedProminent).disabled(model.approvingID != nil)
+                }
+            }
+        } else {
+            Button("Review secure email") { Task { await model.reviewEmail(delivery) } }.disabled(model.approvingID != nil)
+        }
+        if let error = model.approvalError { Text(error).font(.footnote).foregroundStyle(.orange) }
     }
 
     @ViewBuilder private func faxApproval(_ delivery: DeliveryDetail) -> some View {

@@ -96,6 +96,44 @@ import SimpleDocsConnected
     /// Local review of the exact letter for one mode. Nothing is mailed until `approve` runs.
     public private(set) var mailReview: (deliveryID: String, review: MailReview)?
     public private(set) var faxReview: (deliveryID: String, review: FaxReview, url: URL)?
+    public private(set) var emailReview: (review: EmailReview, url: URL)?
+
+    public func reviewEmail(_ delivery: DeliveryDetail) async {
+        guard approvingID == nil else { return }
+        approvalError = nil; approvingID = delivery.id; emailReview = nil
+        defer { approvingID = nil }
+        do {
+            let id = self.id
+            let review = try await session.call { try await $0.emailReview(transmissionID: id) }
+            let path = "/api/transmissions/\(id)/document"
+            guard review.status == "pending", review.email == delivery.recipient, review.packetUrl == path,
+                  ["none", "sms", "voice"].contains(review.pinChannel),
+                  review.pdfSha256.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil,
+                  review.reviewHash.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil else { throw APIError.invalidResponse }
+            let url = try await session.call { try await $0.download(path: path, filename: "Email document.pdf") }
+            let digest = SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined()
+            guard digest == review.pdfSha256 else { try? FileManager.default.removeItem(at: url); throw APIError.invalidResponse }
+            emailReview = (review, url)
+        } catch is CancellationError {
+        } catch { approvalError = "Email proof unavailable or invalid. This instance may not support prepared email. \(describe(error))" }
+    }
+
+    public func cancelEmailReview() { emailReview = nil; approvalError = nil }
+
+    public func approveEmail(_ delivery: DeliveryDetail) async {
+        guard approvingID == nil, let shown = emailReview, shown.review.email == delivery.recipient else { return }
+        approvalError = nil; approvingID = delivery.id
+        emailReview = nil
+        defer { approvingID = nil }
+        do {
+            let (id, hash) = (self.id, shown.review.reviewHash)
+            try await session.call { try await $0.approveEmail(transmissionID: id, reviewHash: hash) }
+            await load(quiet: true)
+        } catch {
+            approvalError = "Email outcome could not be confirmed. Check the record before taking any further action. \(describe(error))"
+            await load(quiet: true)
+        }
+    }
 
     public func reviewFax(_ delivery: DeliveryDetail) async {
         guard approvingID == nil else { return }
