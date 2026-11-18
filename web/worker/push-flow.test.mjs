@@ -5,7 +5,7 @@ import { processDelivery, reconcileDeliveries } from './queue-consumer.mjs';
 import { applyOutboundFaxEvent } from './deliveries.mjs';
 import { createTransmission, approveMail, reviewMail } from './transmissions.mjs';
 import { resetPushCache } from './push.mjs';
-import { address, jsonRequest, makeEnv, samplePdf, sendRequest } from './test-env.mjs';
+import { address, approveTestFax, jsonRequest, makeEnv, samplePdf, sendRequest } from './test-env.mjs';
 
 const realFetch = globalThis.fetch;
 let pushes;
@@ -76,6 +76,7 @@ test('a plain recording that is not a voicemail does not push', async () => {
 // Outgoing failures: pushed once, when the delivery itself becomes failed.
 async function queuedFax(ctx) {
   const { id, deliveries } = await (await createTransmission(await sendRequest({ title: 'Lease', fax: { recipients: ['5125550100'], cover: { enabled: false } } }, await samplePdf(1)), ctx.env, 'owner')).json();
+  await approveTestFax(ctx.env, 'owner', id, deliveries[0].id);
   return { transmissionId: id, channel: 'fax', deliveryId: deliveries[0].id };
 }
 const telnyx = (upload = 200) => async url => String(url).endsWith('/v2/media')

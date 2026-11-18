@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { PDFDocument, PDFName, degrees, decodePDFRawStream } from 'pdf-lib';
 import { createWorker } from './index.mjs';
 import { processDelivery } from './queue-consumer.mjs';
-import { approveMail, createTransmission, getTransmission, getTransmissionFile, listRecords, listTransmissions, reviewMail } from './transmissions.mjs';
-import { address, jsonRequest, makeEnv, samplePdf, sendRequest } from './test-env.mjs';
+import { approveFax, approveMail, createTransmission, getTransmission, getTransmissionFile, listRecords, listRecipients, listTransmissions, reviewFax, reviewMail } from './transmissions.mjs';
+import { address, approveTestFax, jsonRequest, makeEnv, samplePdf, sendRequest } from './test-env.mjs';
 
 const actor = 'owner';
 const faxSpec = { title: 'Lease', fax: { recipients: ['(512) 555-0100', '512.555.0101'], cover: { enabled: true, to: 'Ada', message: 'Hello' } } };
@@ -26,12 +26,37 @@ async function pdfFile(name, widths, populated = false) {
 const pageContents = page => Buffer.from(decodePDFRawStream(page.node.Contents().lookup(0)).decode()).toString('ascii');
 const hex = value => Buffer.from(value).toString('hex').toUpperCase();
 
+test('fax proof is actor-scoped, approval bound, and packet tampering fails closed', async () => {
+  const { env, db, objects, queue } = makeEnv();
+  const { id, deliveries } = await (await createTransmission(await sendRequest(faxSpec, await samplePdf(1)), env, actor)).json();
+  const deliveryId = deliveries[0].id;
+  const review = await (await reviewFax(new Request('https://example.test/x'), env, actor, id, deliveryId)).json();
+  assert.equal((await reviewFax(new Request('https://example.test/x'), env, 'other', id, deliveryId)).status, 404);
+  assert.equal((await getTransmissionFile(env, 'other', id, 'packet', deliveryId)).status, 404);
+  assert.equal((await approveFax(jsonRequest('/x', { confirmed: true, reviewHash: 'f'.repeat(64) }), env, actor, id, deliveryId)).status, 409);
+  assert.equal(queue.sent.length, 0);
+  const packet = JSON.parse(db.prepare('SELECT options_json FROM dispatches WHERE id = ?').get(deliveryId).options_json);
+  const original = objects.get(packet.packetKey);
+  objects.set(packet.packetKey, new Uint8Array([1]));
+  assert.equal((await approveFax(jsonRequest('/x', { confirmed: true, reviewHash: review.reviewHash }), env, actor, id, deliveryId)).status, 404);
+  objects.set(packet.packetKey, original);
+  assert.equal((await approveFax(jsonRequest('/x', { confirmed: true, reviewHash: review.reviewHash }), env, actor, id, deliveryId)).status, 200);
+  assert.equal((await approveFax(jsonRequest('/x', { confirmed: true, reviewHash: review.reviewHash }), env, actor, id, deliveryId)).status, 409);
+  assert.equal(queue.sent.length, 1);
+  objects.set(packet.packetKey, new Uint8Array([2]));
+  assert.equal(await processDelivery(env, queue.sent[0], 1, () => { throw Error('must not contact provider'); }), 'ack');
+  assert.equal(db.prepare('SELECT status FROM dispatches WHERE id = ?').get(deliveryId).status, 'failed');
+  const recipients = await (await listRecipients(new Request('https://example.test/x'), env, actor)).json();
+  assert.equal(recipients.fax.length, 2);
+  assert.deepEqual(await (await listRecipients(new Request('https://example.test/x'), env, 'other')).json(), { fax: [], mail: [], email: [] });
+});
+
 for (const headers of [false, true]) test(`ordered fax and mail payloads ${headers ? 'with' : 'without'} page headers`, async () => {
   const { env, objects, queue } = makeEnv();
   const spec = { fax: { recipients: [faxSpec.fax.recipients[0]], cover: { includeNumbers: true } }, mail: { to: address, from: address } };
   // Duplicate filenames do not collapse distinct parts; order is not sorted by name or page count.
   const files = [await pdfFile('z.pdf', [612, 600], true), await pdfFile('a.pdf', [601], true), await pdfFile('a.pdf', [602])];
-  const response = await createTransmission(await sendRequest(spec, files, undefined, headers ? 'numberedDocuments' : 'documents'), env, actor);
+  const response = await createTransmission(await sendRequest(spec, files, undefined, headers ? 'preparedNumberedDocuments' : 'preparedDocuments'), env, actor);
   assert.equal(response.status, 202);
   const { id, envelopeNumber, documents, deliveries } = await response.json();
   assert.equal(envelopeNumber, '000001');
@@ -75,7 +100,8 @@ for (const headers of [false, true]) test(`ordered fax and mail payloads ${heade
   }
   const doc = await getTransmissionFile(env, actor, id, 'document');
   assert.deepEqual(new Uint8Array(await doc.arrayBuffer()), source);
-  assert.equal(queue.sent.length, 1);
+  assert.equal(queue.sent.length, 0);
+  await approveTestFax(env, actor, id, deliveries.find(d => d.channel === 'fax').id);
 
   const mailId = deliveries.find(d => d.channel === 'mail').id;
   const review = await (await reviewMail(new Request('https://example.test/x?mode=test'), env, actor, id, mailId)).json();
@@ -201,7 +227,7 @@ test('legacy records remain readable by UUID and are not renumbered', async () =
   assert.deepEqual(new Uint8Array(await (await getTransmissionFile(env, actor, id, 'document')).arrayBuffer()), bytes);
 });
 
-test('create writes the envelope, queued fax rows and one message per fax channel', async () => {
+test('create prepares fax rows without queuing', async () => {
   const { env, db, objects, queue } = makeEnv();
   const response = await createTransmission(await sendRequest(faxSpec, await samplePdf(2)), env, actor);
   assert.equal(response.status, 202);
@@ -211,9 +237,8 @@ test('create writes the envelope, queued fax rows and one message per fax channe
   assert.equal([...objects.keys()].filter(k => k.startsWith(`covers/${id}/`)).length, 2);
   const tx = db.prepare('SELECT title, page_count FROM transmissions WHERE id = ?').get(id);
   assert.deepEqual({ ...tx }, { title: 'Lease', page_count: 2 });
-  assert.deepEqual(db.prepare('SELECT DISTINCT status FROM dispatches').all().map(r => r.status), ['queued']);
-  assert.equal(queue.sent.length, 2);
-  assert.deepEqual(Object.keys(queue.sent[0]).sort(), ['channel', 'deliveryId', 'transmissionId']);
+  assert.deepEqual(db.prepare('SELECT DISTINCT status FROM dispatches').all().map(r => r.status), ['awaiting_approval']);
+  assert.equal(queue.sent.length, 0);
   assert.equal(db.prepare('SELECT count(*) AS n FROM fax_intents').get().n, 0, 'nothing is submitted by the POST');
 });
 
@@ -241,7 +266,7 @@ test('list and detail are per actor, include the timeline and serve stored PDFs'
   const detail = await (await getTransmission(env, actor, id)).json();
   assert.equal(detail.title, 'Lease');
   assert.equal(detail.settled, false);
-  assert.equal(detail.deliveries[0].timeline[0].status, 'queued');
+  assert.equal(detail.deliveries[0].timeline[0].status, 'awaiting_approval');
   assert.ok(detail.deliveries[0].coverUrl);
   assert.equal((await getTransmission(env, 'someone-else', id)).status, 404);
   const doc = await getTransmissionFile(env, actor, id, 'document');

@@ -1,5 +1,6 @@
 import { decryptPortalDocument, encryptPortalDocument, importPortalKey, newPortalAccessCode, newPortalToken, portalInvitationHash, portalTokenHash, portalExchangeSession, portalKeyId, portalDecryptionKey } from './portal-crypto.mjs';
 import { normalizePhone } from './phone.mjs';
+import { sha256Hex } from './deliveries.mjs';
 
 const csp = "default-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'";
 const security = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Content-Security-Policy': csp };
@@ -49,7 +50,7 @@ async function session(r, env) {
 }
 
 // Owner API is called only after the Worker has verified its Access JWT.
-export async function createEmailDelivery(r, env, actor, transmissionId, fromTransmission = false) {
+export async function createEmailDelivery(r, env, actor, transmissionId, fromTransmission = false, approvedHash = null) {
   if (r.method !== 'POST') return fail(405);
   if (!env.DB) return fail(503);
   if (!portalMutationOriginOK(r, env)) return fail(403);
@@ -60,6 +61,12 @@ export async function createEmailDelivery(r, env, actor, transmissionId, fromTra
   if (!uuid(transmissionId)) return fail(400);
   const tx = await env.DB.prepare('SELECT source_key FROM transmissions WHERE id = ? AND actor_id = ?').bind(transmissionId, actor).first();
   if (!tx) return fail();
+  const prepared = await env.DB.prepare('SELECT options_json, pdf_sha256 FROM email_reviews WHERE transmission_id = ? AND actor_id = ?').bind(transmissionId, actor).first();
+  if (prepared) {
+    const options = JSON.parse(prepared.options_json);
+    const hash = await sha256Hex(JSON.stringify({ transmissionId, options, pdfSha256: prepared.pdf_sha256 }));
+    if (!fromTransmission || approvedHash !== hash || b.email !== options.email || b.pinChannel !== options.pinChannel || (b.pinChannel === 'none' ? null : normalizePhone(b.phone)) !== options.phone) return json({ error: 'Review and approve this email before sending.' }, 409);
+  }
   const recipient = typeof b?.email === 'string' ? b.email.slice(0, 254) : '';
   const claimed = fromTransmission
     ? await env.DB.prepare("UPDATE email_attempts SET status = 'preparing' WHERE transmission_id = ? AND actor_id = ? AND status = 'pending'").bind(transmissionId, actor).run()
@@ -74,6 +81,7 @@ export async function createEmailDelivery(r, env, actor, transmissionId, fromTra
   const source = await env.FILES.get(tx.source_key); if (!source) return reject('The source document is unavailable.');
   if (source.size > 5 * 1024 * 1024) return reject('The source document exceeds 5 MB.', 400);
   const bytes = new Uint8Array(await source.arrayBuffer()); if (bytes.length > 5 * 1024 * 1024) return reject('The source document exceeds 5 MB.', 400);
+  if (prepared && await sha256Hex(bytes) !== prepared.pdf_sha256) return reject('The document changed after review.', 409);
   let key; try { key = await importPortalKey(env.PORTAL_KEY); } catch { return reject('PORTAL_KEY must be a 32-byte base64url secret.'); }
   const id = crypto.randomUUID(), token = newPortalToken(), accessCode = newPortalAccessCode(), now = Date.now();
   const encrypted = await encryptPortalDocument(key, bytes, id, 'source');

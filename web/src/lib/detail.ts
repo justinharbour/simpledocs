@@ -48,7 +48,7 @@ function timeline(delivery: Delivery): HTMLElement {
 }
 
 function note(delivery: Delivery): string {
-  if (delivery.needsApproval) return "This letter was not confirmed, so nothing was mailed. Start again from Send.";
+  if (delivery.needsApproval) return delivery.channel === "fax" ? "This fax has not been approved or sent. Start again from Send to review a new proof." : "This letter was not confirmed, so nothing was mailed. Start again from Send.";
   if (delivery.status === "queued") return "Waiting its turn. It has not been sent yet.";
   if (delivery.status === "accepted" && delivery.channel === "fax") return "Telnyx has the fax. It is not delivered until the receiving machine confirms.";
   if (delivery.status === "accepted" && delivery.channel === "email") return "Email accepted for sending; delivery is not confirmed.";
