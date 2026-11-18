@@ -66,6 +66,19 @@ public actor WorkerAPI {
         try await get("/api/records", as: RecordsResponse.self).records
     }
 
+    public func recentRecipients() async throws -> RecentRecipients {
+        try await get("/api/recipients", as: RecentRecipients.self)
+    }
+
+    public func faxReview(transmissionID: String, deliveryID: String) async throws -> FaxReview {
+        try await get("/api/transmissions/\(transmissionID)/fax/\(deliveryID)/review", as: FaxReview.self)
+    }
+
+    public func approveFax(transmissionID: String, deliveryID: String, reviewHash: String) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["confirmed": true, "reviewHash": reviewHash])
+        _ = try await send("POST", "/api/transmissions/\(transmissionID)/fax/\(deliveryID)/approve", body: body, contentType: "application/json")
+    }
+
     public func transmission(id: String) async throws -> TransmissionDetail {
         try await get("/api/transmissions/\(id)", as: TransmissionDetail.self)
     }

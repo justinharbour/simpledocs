@@ -136,7 +136,10 @@ struct TransmissionView: View {
             if let provider = delivery.providerStatus, !provider.isEmpty {
                 LabeledContent("Provider reported", value: provider)
             }
-            if delivery.needsApproval { approval(delivery) }
+            if delivery.needsApproval {
+                if delivery.channel == "fax" { faxApproval(delivery) }
+                else if delivery.channel == "mail" { approval(delivery) }
+            }
             ForEach(Array(delivery.timeline.enumerated()), id: \.offset) { _, step in
                 HStack(alignment: .firstTextBaseline) {
                     Text(DeliveryStatus.label(step.status)).font(.callout)
@@ -152,11 +155,43 @@ struct TransmissionView: View {
         }
     }
 
+    @ViewBuilder private func faxApproval(_ delivery: DeliveryDetail) -> some View {
+        if let shown = model.faxReview, shown.deliveryID == delivery.id {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Review this exact fax packet").font(.headline)
+                LabeledContent("From", value: shown.review.from)
+                LabeledContent("To", value: shown.review.recipient)
+                Text("Packet SHA-256: \(shown.review.packetSha256)").font(.caption).textSelection(.enabled)
+                Text("Pricing is unavailable from this instance. Approval queues this fax and may incur charges.").font(.footnote)
+                PDFKitView(url: shown.url).frame(minHeight: 400)
+                HStack {
+                    Button("Cancel") { model.cancelFaxReview() }.disabled(model.approvingID != nil)
+                    Spacer()
+                    Button("Approve and queue fax") { Task { await model.approveFax(delivery); onChange() } }
+                        .buttonStyle(.borderedProminent).disabled(model.approvingID != nil)
+                }
+            }
+        } else {
+            Button("Review fax packet") { Task { await model.reviewFax(delivery) } }
+                .disabled(model.approvingID != nil)
+        }
+        if let error = model.approvalError { Text(error).font(.footnote).foregroundStyle(.orange) }
+    }
+
     @ViewBuilder private func approval(_ delivery: DeliveryDetail) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             if let shown = model.mailReview, shown.deliveryID == delivery.id {
                 Text("Review for \(shown.review.mode) mode").font(.subheadline.weight(.medium))
                 Text(shown.review.notice).font(.footnote).foregroundStyle(.secondary)
+                if let summary = shown.review.summary {
+                    LabeledContent("To", value: summary.to.oneLine)
+                    LabeledContent("From", value: summary.from.oneLine)
+                    LabeledContent("Print", value: "\(summary.color ? "Color" : "Black and white"), \(summary.doubleSided ? "double-sided" : "single-sided")")
+                    LabeledContent("Mail class", value: summary.mailingClass)
+                } else {
+                    Text("This instance did not return its server-side address and print summary. Review the record and document before confirming.").font(.footnote)
+                }
+                Text("An exact provider-rendered envelope proof and cost estimate are not available.").font(.footnote)
                 Text(MailMode(rawValue: shown.review.mode)?.detail ?? "").font(.footnote)
                 HStack {
                     Button("Cancel") { model.cancelReview() }
