@@ -36,6 +36,7 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_EMAIL_READ_TOKEN: ${{ secrets.CLOUDFLARE_EMAIL_READ_TOKEN }}
           PORTAL_KEY: ${{ secrets.PORTAL_KEY }}
           PORTAL_PREVIOUS_KEY: ${{ secrets.PORTAL_PREVIOUS_KEY }}
           TELNYX_API_TOKEN: ${{ secrets.TELNYX_API_TOKEN }}
@@ -93,6 +94,7 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_EMAIL_READ_TOKEN: ${{ secrets.CLOUDFLARE_EMAIL_READ_TOKEN }}
           PORTAL_KEY: ${{ secrets.PORTAL_KEY }}
           TELNYX_API_TOKEN: ${{ secrets.TELNYX_API_TOKEN }}
           TELNYX_VERIFY_PROFILE_ID: ${{ vars.TELNYX_VERIFY_PROFILE_ID }}
