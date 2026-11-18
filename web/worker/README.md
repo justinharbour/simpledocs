@@ -15,6 +15,7 @@ their Ed25519 signature instead.
 | `GET /api/records` | Envelopes, inbound faxes and recordings, newest first. |
 | `GET /api/voice/calls`, `GET /api/voice/recordings`, `POST /api/voice/recordings/:id/heard` | Call log and voicemail. |
 | `GET`/`PUT /api/settings` | Sender name and mail return address. |
+| `GET`/`PUT /api/settings/voicemail` | Voicemail `{greeting, voice, service_level}` with effective defaults, stored in the `settings` table and read at call time. `VOICEMAIL_GREETING` is the fallback greeting; the default voice is `Telnyx.KokoroTTS.af`. |
 
 Status is honest: `delivered` is only set from a provider-reported terminal
 status. PostGrid `completed` is shown as "Completed by PostGrid". Provider

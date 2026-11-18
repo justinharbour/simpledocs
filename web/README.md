@@ -2,7 +2,7 @@
 
 The static front end for simpledocs, built with [Astro](https://astro.build) 7 and [Starwind UI](https://starwind.dev) 3.
 
-Pages: **Send** (one PDF, fax and/or paper mail, four steps ending on a confirmation page), **Calls** (softphone, call log, voicemail with transcript), **Records** (everything sent and received, with per-channel status) and **Settings** (sender name and return address). The Worker in `worker/` serves the API; see [`worker/README.md`](worker/README.md).
+Pages: **Send** (one PDF, fax and/or paper mail, four steps ending on a confirmation page), **Calls** (softphone, call log, voicemail with transcript), **Records** (everything sent and received, with per-channel status) and **Settings** (sender name, return address, voicemail greeting and voice). The Worker in `worker/` serves the API; see [`worker/README.md`](worker/README.md).
 
 ## Requirements
 
