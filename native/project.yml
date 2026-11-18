@@ -4,6 +4,7 @@ options:
   deploymentTarget:
     macOS: "14.0"
     iOS: "17.0"
+  tvOS: "17.0"
   createIntermediateGroups: true
 settings:
   base:
@@ -134,6 +135,22 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Config/Share-iOS.entitlements
         GENERATE_INFOPLIST_FILE: "YES"
         APPLICATION_EXTENSION_API_ONLY: "YES"
+  SimpleDocsTV:
+    type: application
+    platform: tvOS
+    sources: [Apps/TV]
+    info:
+      path: Config/TV-Info.plist
+      properties:
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.justinharbour.simpledocs
+        PRODUCT_NAME: SimpleDocsTV
+        TARGETED_DEVICE_FAMILY: "3"
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_KEY_CFBundleDisplayName: SimpleDocs
   SimpleDocsSignInTests:
     type: bundle.unit-test
     platform: macOS
@@ -155,6 +172,8 @@ schemes:
     build: {targets: {SimpleDocsMacConnected: all}}
   SimpleDocsiOS:
     build: {targets: {SimpleDocsiOS: all}}
+  SimpleDocsTV:
+    build: {targets: {SimpleDocsTV: all}}
   SimpleDocsSignInTests:
     build: {targets: {SimpleDocsMacConnected: all, SimpleDocsSignInTests: [test]}}
     test: {targets: [SimpleDocsSignInTests]}
