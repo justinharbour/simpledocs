@@ -30,6 +30,28 @@ CI. If organizational policy requires it, allow Actions to create pull requests.
 Rotate and restrict this credential. The token is used only in the release job;
 Apple secrets are used only by the explicitly dispatched main-branch jobs, never PR jobs.
 
+The GitHub API reported no classic branch protection or repository rulesets on
+`main` or `develop` during review. This is a release security risk: configure
+effective branch/ruleset protection requiring reviewed PRs and `pr-gate`,
+restrict pushes and workflow modification, and prohibit bypasses before storing
+these credentials or promoting releases. The workflow's branch/ref and ancestry
+checks cannot replace protected branches. Verify any inherited policy separately.
+
+The unified app defaults to `https://simpledocs.justinharbour.com` and its Access
+team to `https://justinharbour.cloudflareaccess.com`. The compatible protected
+Worker and its migrations, notably `0030_push_devices.sql` and
+`0044_push_device_bundle.sql`, must already be deployed before distributing
+this app. Push requires separately configured Worker secrets `APNS_KEY_P8`,
+`APNS_KEY_ID`, and `APNS_TEAM_ID`; they are not the App Store Connect API key.
+The release build registers the production APNs environment and
+`com.justinharbour.simpledocs`, which the compatible Worker accepts for both
+platforms. No live hostname, backend deployment, APNs configuration, or push
+delivery is verified by this repository check. See `push.md` for older topics.
+The prepared-fax contract depends on PR #72's compatible backend; #68 has adopted
+that contract, but #72 was not merged into this branch. Coordinate and verify
+the deployed backend contract before distributing a build; otherwise fax review
+cannot be assumed functional.
+
 `version.txt` and `.release-please-manifest.json` start at 0.0.0, not a claim
 that a version was shipped. Confirm existing GitHub tags and App Store Connect
 versions before first release; bootstrap or update the manifest/version to the
