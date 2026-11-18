@@ -6,7 +6,7 @@ import { PORTAL_PATHS } from './portal-paths.mjs';
 const old = 'simpledocs.justinharbour.dev', next = 'simpledocs.justinharbour.com';
 const paths = ['/webhooks/telnyx/fax', '/api/webhooks/telnyx/voice', '/api/webhooks/telnyx/messaging'];
 function fixture() {
-  const apps = [{ id: 'owner', name: 'Simpledocs', type: 'self_hosted', domain: old, destinations: [{ type: 'public', uri: old }], allowed_idps: ['bc4cede3-4ee0-4bd6-9393-34c10ca6a6d8'], aud: 'a'.repeat(64), oauth_configuration: { enabled: true, dynamic_client_registration: { enabled: true, allowed_uris: ['dev.justinharbour.simpledocs:/oauth/callback'] } }, policies: [{ id: '36ee1f67-a91a-494c-b503-94bf48820ffa', precedence: 1 }] }, ...paths.map((path, i) => ({ id: `b${i}`, name: `Simpledocs Telnyx webhook ${path}`, type: 'self_hosted', domain: old + path, destinations: [{ type: 'public', uri: old + path }], policies: [{ id: `p${i}`, precedence: 1 }] }))];
+  const apps = [{ id: 'owner', name: 'Simpledocs', type: 'self_hosted', domain: old, destinations: [{ type: 'public', uri: old }], allowed_idps: ['bc4cede3-4ee0-4bd6-9393-34c10ca6a6d8'], aud: 'a'.repeat(64), oauth_configuration: { enabled: true, dynamic_client_registration: { enabled: true, allowed_uris: ['dev.justinharbour.simpledocs:/oauth/callback'] } }, policies: [{ id: '36ee1f67-a91a-494c-b503-94bf48820ffa', precedence: 1 }], updated_at: 't0' }, ...paths.map((path, i) => ({ id: `b${i}`, name: `Simpledocs Telnyx webhook ${path}`, type: 'self_hosted', domain: old + path, destinations: [{ type: 'public', uri: old + path }], policies: [{ id: `p${i}`, precedence: 1 }] }))];
   const policies = { owner: [{ id: '36ee1f67-a91a-494c-b503-94bf48820ffa', decision: 'allow' }] };
   paths.forEach((_, i) => { policies[`b${i}`] = [{ decision: 'bypass', include: [{ everyone: {} }], exclude: [], require: [] }]; });
   const writes = [];
@@ -15,7 +15,7 @@ function fixture() {
     if (!id) return { result: structuredClone(apps), result_info: { total_pages: 1 } };
     if (path.includes('/policies')) return { result: structuredClone(policies[id]), result_info: { total_pages: 1 } };
     const index = apps.findIndex(a => a.id === id);
-    if (options.method === 'PUT') { writes.push(id); apps[index] = JSON.parse(options.body); }
+    if (options.method === 'PUT') { writes.push(id); apps[index] = { ...JSON.parse(options.body), updated_at: `t${writes.length}` }; }
     return { result: structuredClone(apps[index]) };
   }
   return { apps, policies, writes, api };
