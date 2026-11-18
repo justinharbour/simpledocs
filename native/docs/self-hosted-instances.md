@@ -8,7 +8,7 @@ Other people deploy their own simpledocs instance to their own Cloudflare accoun
 
 ## What the foundation now does
 
-- The connected edition is `connectedInstance` (was `ownerBackend`). The macOS target is `SimpleDocsMacConnected` with the provisional identifier `dev.justinharbour.simpledocs.mac.connected`. The direct-provider edition and its identifier are unchanged.
+- The connected edition is `connectedInstance` (was `ownerBackend`). The macOS target is `SimpleDocsMacConnected` with identifier `com.justinharbour.simpledocs.mac.connected`; the direct-provider identifier is `com.justinharbour.simpledocs.mac.direct`. See the native README for migration and signing implications.
 - A "Your instance" screen shows the planned onboarding steps, each labelled not implemented, not published or not decided. The Connect button is disabled.
 - The address field only checks format (https origin, no credentials, path, query or fragment). It does not save or contact the address, and the UI says a valid format does not show a simpledocs instance exists.
 - Tests assert that no owner host name appears in app text.

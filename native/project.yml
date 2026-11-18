@@ -1,6 +1,6 @@
 name: SimpleDocs
 options:
-  bundleIdPrefix: dev.justinharbour.simpledocs
+  bundleIdPrefix: com.justinharbour.simpledocs
   deploymentTarget:
     macOS: "14.0"
     iOS: "17.0"
@@ -32,7 +32,7 @@ targets:
       path: Config/MacConnected-Info.plist
       properties:
         CFBundleURLTypes:
-          - CFBundleURLSchemes: [dev.justinharbour.simpledocs]
+          - CFBundleURLSchemes: [com.justinharbour.simpledocs]
     dependencies:
       - package: SimpleDocsKit
         product: SimpleDocsCore
@@ -44,8 +44,8 @@ targets:
         product: SimpleDocsOAuth
     settings:
       base:
-        # Provisional identifiers; confirm before any signing.
-        PRODUCT_BUNDLE_IDENTIFIER: dev.justinharbour.simpledocs.mac.connected
+        # Confirm App IDs and provisioning with the Apple Developer account before signing.
+        PRODUCT_BUNDLE_IDENTIFIER: com.justinharbour.simpledocs.mac.connected
         PRODUCT_NAME: simpledocs
         CODE_SIGN_ENTITLEMENTS: Config/MacConnected.entitlements
         ENABLE_HARDENED_RUNTIME: "YES"
@@ -63,7 +63,7 @@ targets:
         product: SimpleDocsViews
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.justinharbour.simpledocs.mac.direct
+        PRODUCT_BUNDLE_IDENTIFIER: com.justinharbour.simpledocs.mac.direct
         PRODUCT_NAME: simpledocs Direct
         CODE_SIGN_ENTITLEMENTS: Config/MacDirect.entitlements
         ENABLE_HARDENED_RUNTIME: "YES"
@@ -78,7 +78,7 @@ targets:
       path: Config/iOS-Info.plist
       properties:
         CFBundleURLTypes:
-          - CFBundleURLSchemes: [dev.justinharbour.simpledocs]
+          - CFBundleURLSchemes: [com.justinharbour.simpledocs]
     dependencies:
       - package: SimpleDocsKit
         product: SimpleDocsCore
@@ -90,7 +90,7 @@ targets:
         product: SimpleDocsOAuth
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.justinharbour.simpledocs.ios
+        PRODUCT_BUNDLE_IDENTIFIER: com.justinharbour.simpledocs.ios
         CODE_SIGN_ENTITLEMENTS: Config/iOS.entitlements
         PRODUCT_NAME: simpledocs
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -112,7 +112,7 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: "YES"
-        PRODUCT_BUNDLE_IDENTIFIER: dev.justinharbour.simpledocs.signintests
+        PRODUCT_BUNDLE_IDENTIFIER: com.justinharbour.simpledocs.signintests
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/simpledocs.app/Contents/MacOS/simpledocs"
         BUNDLE_LOADER: "$(TEST_HOST)"
 schemes:

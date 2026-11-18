@@ -56,32 +56,32 @@ describe('APNs sender', () => {
       const urls = calls.map(c => c.url).sort();
       assert.deepEqual(urls, [`https://api.push.apple.com/3/device/${hex('b')}`, `https://api.sandbox.push.apple.com/3/device/${hex('a')}`]);
       const sandbox = calls.find(c => c.url.includes('sandbox'));
-      assert.equal(sandbox.init.headers['apns-topic'], 'dev.justinharbour.simpledocs.ios');
-      assert.equal(calls.find(c => !c.url.includes('sandbox')).init.headers['apns-topic'], 'dev.justinharbour.simpledocs.mac.connected');
+      assert.equal(sandbox.init.headers['apns-topic'], 'com.justinharbour.simpledocs.ios');
+      assert.equal(calls.find(c => !c.url.includes('sandbox')).init.headers['apns-topic'], 'com.justinharbour.simpledocs.mac.connected');
       assert.equal(sandbox.init.headers['apns-push-type'], 'alert');
       assert.equal(sandbox.init.headers['apns-priority'], '10');
       assert.match(sandbox.init.headers.authorization, /^bearer [\w-]+\.[\w-]+\.[\w-]+$/);
       const payload = JSON.parse(sandbox.init.body);
       assert.deepEqual(payload, { aps: { alert: { title: 'New voicemail', body: 'A voicemail was saved.' }, sound: 'default', 'thread-id': 'voicemail' }, kind: 'voicemail', id: 'rec-1' });
-      const overridden = await notifyPush({ ...env, APNS_TOPIC: 'custom.topic' }, { kind: 'fax', id: 'x' }, { fetcher: async (_u, init) => { assert.ok(['custom.topic', 'dev.justinharbour.simpledocs.mac.connected'].includes(init.headers['apns-topic'])); return new Response(null); } });
+      const overridden = await notifyPush({ ...env, APNS_TOPIC: 'custom.topic' }, { kind: 'fax', id: 'x' }, { fetcher: async (_u, init) => { assert.ok(['custom.topic', 'com.justinharbour.simpledocs.mac.connected'].includes(init.headers['apns-topic'])); return new Response(null); } });
       assert.equal(overridden, 'sent');
     } finally { await mf.dispose(); }
   });
 
-  it('removes a device on 410 or BadDeviceToken and keeps it on other failures', async () => {
+  it('retains devices on APNs failures because the stored topic is unknown', async () => {
     const { mf, db } = await database();
     try {
       const { pem } = await makeP8();
       const env = { DB: db, APNS_KEY_P8: pem, APNS_KEY_ID: 'KEYID', APNS_TEAM_ID: 'TEAMID' };
       await insert(db, hex('1'), 'ios', 'production');
       assert.equal(await notifyPush(env, { kind: 'fax', id: 'a' }, { fetcher: async () => Response.json({ reason: 'Unregistered' }, { status: 410 }) }), 'failed');
-      assert.equal(await count(db), 0);
+      assert.equal(await count(db), 1);
       await insert(db, hex('2'), 'ios', 'production');
       await notifyPush(env, { kind: 'fax', id: 'a' }, { fetcher: async () => Response.json({ reason: 'BadDeviceToken' }, { status: 400 }) });
-      assert.equal(await count(db), 0);
+      assert.equal(await count(db), 2);
       await insert(db, hex('3'), 'ios', 'production');
       assert.equal(await notifyPush(env, { kind: 'fax', id: 'a' }, { fetcher: async () => Response.json({ reason: 'InternalServerError' }, { status: 500 }) }), 'failed');
-      assert.equal(await count(db), 1);
+      assert.equal(await count(db), 3);
       assert.equal(await notifyPush(env, { kind: 'fax', id: 'a' }, { fetcher: async () => { throw new Error('network'); } }), 'failed');
     } finally { await mf.dispose(); }
   });

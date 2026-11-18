@@ -21,7 +21,7 @@
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>dev.justinharbour.simpledocs</string>
+				<string>com.justinharbour.simpledocs</string>
 			</array>
 		</dict>
 	</array>

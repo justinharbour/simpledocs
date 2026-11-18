@@ -1,5 +1,6 @@
 // Provision the owner's Access application before attaching the Worker hostname.
 // Existing applications are never modified or adopted implicitly.
+import { supportsNativeCallbacks } from './access-oauth.mjs';
 const account = process.env.CLOUDFLARE_ACCOUNT_ID;
 const token = process.env.CLOUDFLARE_API_TOKEN;
 const hostname = 'simpledocs.justinharbour.dev';
@@ -42,18 +43,10 @@ if (app.name !== 'Simpledocs' || app.type !== 'self_hosted' || app.domain !== ho
     typeof app.aud !== 'string' || !/^[a-f0-9]{64}$/i.test(app.aud)) {
   throw new Error('Access application does not match the expected policy; refusing deployment');
 }
-// Managed OAuth lets the native apps sign in through the same Access policy.
-const oauth = {
-  enabled: true,
-  dynamic_client_registration: { enabled: true, allowed_uris: ['dev.justinharbour.simpledocs:/oauth/callback'] },
-  grant: { access_token_lifetime: '15m', session_duration: '720h' },
-};
-const updated = await api(`${base}/${app.id}`, { method: 'PUT', body: JSON.stringify({
-  ...app, policies: app.policies.map(p => ({ id: p.id, precedence: p.precedence })), oauth_configuration: oauth,
-}) });
-const confirmed = (await api(`${base}/${app.id}`)).result.oauth_configuration;
-console.log('Managed OAuth:', JSON.stringify({ put: updated.result.oauth_configuration, read: confirmed }));
-if (!confirmed?.enabled) throw new Error('Managed OAuth did not enable');
+// Never replace live OAuth settings: an owner must add both callbacks before deployment.
+if (!supportsNativeCallbacks(app.oauth_configuration)) {
+  throw new Error('Managed OAuth must be enabled with both current and legacy Simpledocs callback URIs; configure it explicitly before deployment');
+}
 // Telnyx cannot authenticate through Access; these paths verify Telnyx's
 // Ed25519 signature in the Worker instead. Everything else stays behind Access.
 for (const path of ['/webhooks/telnyx/fax', '/api/webhooks/telnyx/voice', '/api/webhooks/telnyx/messaging']) {

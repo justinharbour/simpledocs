@@ -2,7 +2,7 @@
 // content or phone numbers. Never log tokens, keys, or provider payloads.
 // Sending never throws: a push failure must not break the primary flow.
 const HOSTS = { production: 'https://api.push.apple.com', sandbox: 'https://api.sandbox.push.apple.com' };
-const TOPICS = { ios: 'dev.justinharbour.simpledocs.ios', macos: 'dev.justinharbour.simpledocs.mac.connected' };
+const TOPICS = { ios: 'com.justinharbour.simpledocs.ios', macos: 'com.justinharbour.simpledocs.mac.connected' };
 const TOKEN = /^[0-9a-f]{64,200}$/;
 const JWT_MAX_AGE_MS = 50 * 60 * 1000;
 const MESSAGES = {
@@ -65,10 +65,8 @@ async function sendOne(env, device, jwt, body, fetcher) {
   if (response.ok) return 'sent';
   let reason = '';
   try { reason = (await response.json())?.reason ?? ''; } catch { /* Reason is optional. */ }
-  if (response.status === 410 || reason === 'Unregistered' || reason === 'BadDeviceToken') {
-    await env.DB.prepare('DELETE FROM push_devices WHERE token = ?').bind(device.token).run();
-    return 'removed';
-  }
+  // Existing registrations do not record their bundle ID. A rejection for the
+  // new topic cannot prove that a legacy token is no longer valid for its topic.
   console.error('APNs rejected a notification', response.status, String(reason).slice(0, 64));
   return 'failed';
 }
