@@ -431,7 +431,10 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
       if (mail) spec.mail = { to: readAddress("to"), from: readAddress("from"), color: switchOn("color"), doubleSided: switchOn("duplex"), mailingClass: selectValue("class") || "first_class" };
       if (channelOn("email")) spec.email = { email: value("email-recipient"), pinChannel: value("email-pin"), phone: value("email-phone") };
       const form = new FormData();
-      const field = $<HTMLInputElement>("page-numbers").checked ? "numberedDocuments" : documents.length === 1 ? "document" : "documents";
+      // Cover numbering is also a required feature when selected: an older
+      // Worker would accept the legacy field but silently ignore includeNumbers.
+      const numberedCover = channelOn("fax") && switchOn("cover") && $<HTMLInputElement>("cover-numbers").checked;
+      const field = $<HTMLInputElement>("page-numbers").checked ? "numberedDocuments" : documents.length === 1 && !numberedCover ? "document" : "documents";
       for (const { file } of documents) form.append(field, file);
       form.set("spec", JSON.stringify(spec));
       try {
