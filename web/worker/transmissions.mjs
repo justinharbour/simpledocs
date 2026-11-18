@@ -95,9 +95,10 @@ export async function createTransmission(request, env, actor) {
   catch { return reply({ error: 'Upload PDFs totaling up to 5 MB' }, 400); }
   // The plural field is intentionally distinct so old Workers reject a new
   // multi-file request rather than silently sending only its first file.
-  const legacy = form.getAll('document'), ordered = form.getAll('documents');
-  if (legacy.length > 1 || (legacy.length && ordered.length)) return reply({ error: 'Use one document part or ordered documents parts, not both' }, 400);
-  const files = ordered.length ? ordered : legacy;
+  const legacy = form.getAll('document'), ordered = form.getAll('documents'), numbered = form.getAll('numberedDocuments');
+  if (legacy.length > 1 || [legacy, ordered, numbered].filter(parts => parts.length).length > 1) return reply({ error: 'Use only one document upload field' }, 400);
+  // Opt-in uses its own field so a Worker without header support fails closed.
+  const files = numbered.length ? numbered : ordered.length ? ordered : legacy;
   if (!files.length || files.length > MAX_DOCUMENTS || files.some(file => !(file instanceof File) || !file.size) || files.reduce((size, file) => size + file.size, 0) > MAX_DOCUMENT_BYTES) {
     return reply({ error: `Upload 1 to ${MAX_DOCUMENTS} nonempty PDFs totaling up to 5 MB` }, 400);
   }
@@ -127,9 +128,9 @@ export async function createTransmission(request, env, actor) {
   if (!faxNumbers.length && !mail) return reply({ error: 'Choose at least one way to send' }, 400);
 
   let assembled;
-  try { assembled = await assembleEnvelope(files, faxNumbers.length > 0 && spec.fax.cover?.enabled !== false); }
+  try { assembled = await assembleEnvelope(files, faxNumbers.length > 0 && spec.fax.cover?.enabled !== false, numbered.length > 0); }
   catch (error) { return reply({ error: error instanceof Error ? error.message : 'The PDFs could not be read' }, 400); }
-  const { bytes, pages, documents } = assembled;
+  const { pages, documents } = assembled;
   const title = str(spec.title, 200) || documents[0].name.replace(/\.pdf$/i, '') || 'Untitled document';
 
   const id = crypto.randomUUID();
@@ -137,6 +138,11 @@ export async function createTransmission(request, env, actor) {
   if (!allocation) return reply({ error: 'Envelope numbering is exhausted. Contact the instance administrator.' }, 503);
   const envelopeNumber = formatEnvelopeNumber(allocation.number);
   const manifest = documents.map((document, i) => ({ ...document, position: i + 1, number: formatDocumentNumber(envelopeNumber, i + 1) }));
+  let bytes = assembled.bytes;
+  if (assembled.stamp) {
+    try { bytes = await assembled.stamp(envelopeNumber); }
+    catch (error) { return reply({ error: error.message }, 400); }
+  }
   const now = new Date().toISOString();
   const settings = await getSettings(env.DB);
   const sourceKey = `outbound/${id}/document.pdf`;

@@ -54,6 +54,11 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
       <p class="text-muted-foreground mb-3 text-sm">Drag a document or use Move up and Move down. Fax and paper mail follow this order.</p>
       <ol id="document-order" class="flex list-decimal flex-col gap-2 pl-6"></ol>
       <p id="order-status" role="status" class="sr-only"></p>
+      <div class="mt-4 flex items-center gap-2">
+        <input type="checkbox" id="page-numbers" class="border-input text-primary size-4 rounded" aria-describedby="page-numbers-hint" />
+        <Label for="page-numbers">Put the document number at the top of each page</Label>
+      </div>
+      <p id="page-numbers-hint" class="text-muted-foreground mt-1 text-sm">Recipients will see the number on every document page sent by fax or paper mail. The original page is scaled slightly to make room. This does not change the fax cover.</p>
     </section>
 
     <section data-step="3" hidden aria-labelledby="s3">
@@ -379,6 +384,7 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
       const dl = $("summary"); dl.replaceChildren();
       const add = (term: string, text: string) => { dl.append(h("dt", "text-muted-foreground", term), h("dd", "font-medium whitespace-pre-line", text)); };
       add("Document order", documents.map(({ file, pages }, i) => `${i + 1}. ${file.name} (${pages} ${pages === 1 ? "page" : "pages"})`).join("\n"));
+      add("Page headers", $<HTMLInputElement>("page-numbers").checked ? "Print each document number on all its pages" : "None");
       if (channelOn("fax")) {
         const list = faxNumbers().map((n) => normalizePhone(n)!);
         add("Fax to", list.join("\n"));
@@ -405,7 +411,8 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
       if (channelOn("fax")) spec.fax = { recipients: faxNumbers().map((n) => normalizePhone(n)), cover: switchOn("cover") ? { enabled: true, includeNumbers: $<HTMLInputElement>("cover-numbers").checked, to: value("cover-to"), from: value("cover-from"), subject: value("cover-subject"), message: value("cover-message"), date: value("cover-date") } : { enabled: false } };
       if (mail) spec.mail = { to: readAddress("to"), from: readAddress("from"), color: switchOn("color"), doubleSided: switchOn("duplex"), mailingClass: selectValue("class") || "first_class" };
       const form = new FormData();
-      for (const { file } of documents) form.append(documents.length === 1 ? "document" : "documents", file);
+      const field = $<HTMLInputElement>("page-numbers").checked ? "numberedDocuments" : documents.length === 1 ? "document" : "documents";
+      for (const { file } of documents) form.append(field, file);
       form.set("spec", JSON.stringify(spec));
       try {
         const created = await api<{ id: string; deliveries: { id: string; channel: string }[] }>("/api/transmissions", { method: "POST", body: form });
