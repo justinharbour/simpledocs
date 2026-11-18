@@ -1,5 +1,5 @@
 import { formatDocumentNumber, formatEnvelopeNumber, MAX_DOCUMENT_BYTES, MAX_DOCUMENTS } from '../shared/envelope.mjs';
-import { buildCoverPage, DEFAULT_FROM_NUMBER, DEFAULT_SENDER_NAME } from './cover-page.mjs';
+import { buildCoverPage, prependCover, DEFAULT_FROM_NUMBER, DEFAULT_SENDER_NAME } from './cover-page.mjs';
 import { enqueue, isTerminal, mailReviewHash, mark, refreshDelivery, sha256Hex, UUID } from './deliveries.mjs';
 import { assembleEnvelope } from './envelope-pdf.mjs';
 import { contact, mailApiKey } from './mail-send.mjs';
@@ -179,6 +179,7 @@ export async function createTransmission(request, env, actor) {
   for (const number of faxNumbers) {
     const deliveryId = crypto.randomUUID();
     const options = {};
+    let packet = bytes;
     if (spec.fax.cover?.enabled !== false) {
       const coverKey = `covers/${id}/${deliveryId}.pdf`;
       const fields = await coverFields(env, settings, spec.fax.cover, title, number, pages);
@@ -186,9 +187,14 @@ export async function createTransmission(request, env, actor) {
       const cover = await buildCoverPage(fields);
       await env.FILES.put(coverKey, cover, { httpMetadata: { contentType: 'application/pdf' } });
       options.coverKey = coverKey;
+      packet = await prependCover(cover, bytes);
     }
-    addDelivery(deliveryId, 'fax', number, options, 'queued');
-    created.push({ id: deliveryId, channel: 'fax', status: 'queued' });
+    options.packetKey = `outbound/${id}/fax/${deliveryId}.pdf`;
+    options.packetSha256 = await sha256Hex(packet);
+    options.from = env.TELNYX_FAX_FROM;
+    await env.FILES.put(options.packetKey, packet, { httpMetadata: { contentType: 'application/pdf' } });
+    addDelivery(deliveryId, 'fax', number, options, 'awaiting_approval');
+    created.push({ id: deliveryId, channel: 'fax', status: 'awaiting_approval' });
   }
   if (mail) {
     const deliveryId = crypto.randomUUID();
@@ -198,7 +204,6 @@ export async function createTransmission(request, env, actor) {
     created.push({ id: deliveryId, channel: 'mail', status: 'awaiting_approval' });
   }
   await env.DB.batch(statements);
-  for (const item of created) if (item.channel === 'fax') await enqueue(env, id, 'fax', item.id);
   return reply({ id, envelopeNumber, documents: manifest, deliveries: created }, 202);
 }
 
@@ -207,6 +212,7 @@ const deliveryView = (row, transmissionId, timeline) => ({
   createdAt: row.created_at, updatedAt: row.updated_at, submittedAt: row.submitted_at, finishedAt: row.finished_at,
   needsApproval: row.status === 'awaiting_approval',
   coverUrl: row.channel === 'fax' && JSON.parse(row.options_json).coverKey ? `/api/transmissions/${transmissionId}/cover/${row.id}` : null,
+  packetUrl: row.channel === 'fax' && JSON.parse(row.options_json).packetKey ? `/api/transmissions/${transmissionId}/packet/${row.id}` : null,
   timeline,
 });
 
@@ -257,8 +263,46 @@ export async function getTransmissionFile(env, actor, id, kind, deliveryId) {
   if (kind === 'document') return pdfResponse(env, tx.source_key, 'document.pdf');
   if (!UUID.test(deliveryId ?? '')) return reply({ error: 'Not found' }, 404);
   const row = await env.DB.prepare("SELECT options_json FROM dispatches WHERE id = ? AND transmission_id = ? AND channel = 'fax'").bind(deliveryId, id).first();
-  const key = row ? JSON.parse(row.options_json).coverKey : null;
-  return key ? pdfResponse(env, key, 'cover.pdf') : reply({ error: 'Not found' }, 404);
+  const key = row ? JSON.parse(row.options_json)[kind === 'packet' ? 'packetKey' : 'coverKey'] : null;
+  return key ? pdfResponse(env, key, kind === 'packet' ? 'fax-packet.pdf' : 'cover.pdf') : reply({ error: 'Not found' }, 404);
+}
+
+async function faxContext(env, actor, id, deliveryId) {
+  if (!UUID.test(id) || !UUID.test(deliveryId)) return null;
+  const row = await env.DB.prepare("SELECT d.* FROM dispatches d JOIN transmissions t ON t.id = d.transmission_id WHERE d.id = ? AND d.transmission_id = ? AND t.actor_id = ? AND d.channel = 'fax'").bind(deliveryId, id, actor).first();
+  if (!row) return null;
+  const options = JSON.parse(row.options_json);
+  if (!options.packetKey || !options.packetSha256 || !options.from) return null;
+  const object = await env.FILES.get(options.packetKey);
+  if (!object || await sha256Hex(new Uint8Array(await object.arrayBuffer())) !== options.packetSha256) return null;
+  const reviewHash = await sha256Hex(JSON.stringify({ id, deliveryId, recipient: row.recipient, from: options.from, packetSha256: options.packetSha256 }));
+  return { row, options, reviewHash };
+}
+
+export async function reviewFax(request, env, actor, id, deliveryId) {
+  if (request.method !== 'GET') return reply({ error: 'Method not allowed' }, 405);
+  if (!env.DB || !env.FILES) return reply({ error: 'Storage unavailable' }, 503);
+  const ctx = await faxContext(env, actor, id, deliveryId);
+  if (!ctx) return reply({ error: 'Fax proof unavailable' }, 404);
+  return reply({ recipient: ctx.row.recipient, from: ctx.options.from, status: ctx.row.status, reviewHash: ctx.reviewHash, packetSha256: ctx.options.packetSha256, packetUrl: `/api/transmissions/${id}/packet/${deliveryId}` });
+}
+
+export async function approveFax(request, env, actor, id, deliveryId) {
+  if (request.method !== 'POST') return reply({ error: 'Method not allowed' }, 405);
+  if (!sameOrigin(request)) return reply({ error: 'Invalid origin' }, 403);
+  if (!env.DB || !env.FILES || !env.DELIVERIES) return reply({ error: 'Storage unavailable' }, 503);
+  let body; try { body = await request.json(); } catch { return reply({ error: 'Invalid request' }, 400); }
+  if (!body || Object.keys(body).sort().join(',') !== 'confirmed,reviewHash' || body.confirmed !== true || !/^[a-f0-9]{64}$/.test(body.reviewHash ?? '')) return reply({ error: 'Review and confirm the fax' }, 400);
+  const ctx = await faxContext(env, actor, id, deliveryId);
+  if (!ctx) return reply({ error: 'Fax proof unavailable' }, 404);
+  if (ctx.row.status !== 'awaiting_approval' || ctx.reviewHash !== body.reviewHash) return reply({ error: 'Fax review no longer matches' }, 409);
+  if (env.FAX_ENABLED !== 'true' || !env.TELNYX_API_TOKEN || !env.TELNYX_FAX_CONNECTION_ID || env.TELNYX_FAX_FROM !== ctx.options.from) return reply({ error: 'Fax configuration changed or is unavailable; prepare a new fax' }, 503);
+  const now = new Date().toISOString();
+  const changed = await env.DB.prepare("UPDATE dispatches SET status = 'queued', updated_at = ? WHERE id = ? AND status = 'awaiting_approval' AND options_json = ?").bind(now, deliveryId, ctx.row.options_json).run();
+  if (changed.meta.changes !== 1) return reply({ error: 'Fax already approved or changed' }, 409);
+  await env.DB.prepare("INSERT INTO timeline (delivery_id, at, status, detail) VALUES (?, ?, 'queued', 'Fax proof approved')").bind(deliveryId, now).run();
+  await enqueue(env, id, 'fax', deliveryId);
+  return reply({ status: 'queued' });
 }
 
 async function mailContext(env, actor, id, deliveryId) {

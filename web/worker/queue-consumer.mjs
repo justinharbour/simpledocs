@@ -37,11 +37,18 @@ async function sendFax(env, row, fetcher) {
   const config = { enabled: env.FAX_ENABLED === 'true', token: env.TELNYX_API_TOKEN, connectionId: env.TELNYX_FAX_CONNECTION_ID, from: env.TELNYX_FAX_FROM };
   if (!config.enabled || !config.token || !config.connectionId || !E164.test(config.from ?? '')) throw new Permanent('Fax sending is not configured');
   const options = JSON.parse(row.options_json);
-  const source = await readObject(env, row.source_key);
-  let bytes = source;
-  if (options.coverKey) {
-    try { bytes = await prependCover(await readObject(env, options.coverKey), source); }
-    catch (error) { if (error instanceof Transient || error instanceof Permanent) throw error; throw new Permanent('The document could not be combined with the cover page'); }
+  let bytes;
+  if (options.packetKey) {
+    if (options.from !== config.from) throw new Permanent('Fax sender changed after review; prepare a new fax');
+    bytes = await readObject(env, options.packetKey);
+    if (await sha256Hex(bytes) !== options.packetSha256) throw new Permanent('Fax packet no longer matches the approved proof');
+  } else {
+    // Preserve already-queued deliveries from before packet proofs existed.
+    bytes = await readObject(env, row.source_key);
+    if (options.coverKey) {
+      try { bytes = await prependCover(await readObject(env, options.coverKey), bytes); }
+      catch (error) { if (error instanceof Transient || error instanceof Permanent) throw error; throw new Permanent('The document could not be combined with the cover page'); }
+    }
   }
   const mediaName = `simpledocs-${row.id}.pdf`;
   if (!existing) await prepareFax(env.DB, { id: row.id, actor: row.actor_id, destination: row.recipient, mediaName });
@@ -153,9 +160,9 @@ export async function reconcileDeliveries(env, fetcher = fetch, now = Date.now()
   const open = await env.DB.prepare("SELECT * FROM dispatches WHERE status IN ('submitting', 'accepted') AND updated_at < ? ORDER BY updated_at LIMIT 25").bind(cutoff).all();
   for (const row of open.results ?? []) await refreshDelivery(env, row, fetcher);
   if (!env.DELIVERIES) return;
-  const queued = await env.DB.prepare("SELECT id, transmission_id, channel, created_at FROM dispatches WHERE status = 'queued' AND updated_at < ? ORDER BY updated_at LIMIT 25").bind(cutoff).all();
+  const queued = await env.DB.prepare("SELECT id, transmission_id, channel, updated_at FROM dispatches WHERE status = 'queued' AND updated_at < ? ORDER BY updated_at LIMIT 25").bind(cutoff).all();
   for (const row of queued.results ?? []) {
-    if (now - Date.parse(row.created_at) > GIVE_UP_MS) { await mark(env, row.id, 'failed', { error: 'Could not be submitted within a day; nothing was sent' }); continue; }
+    if (now - Date.parse(row.updated_at) > GIVE_UP_MS) { await mark(env, row.id, 'failed', { error: 'Could not be submitted within a day; nothing was sent' }); continue; }
     await enqueue(env, row.transmission_id, row.channel, row.id);
   }
 }

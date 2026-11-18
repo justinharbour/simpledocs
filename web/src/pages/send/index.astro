@@ -166,12 +166,12 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
 
     <section data-step="5" hidden aria-labelledby="s5">
       <h2 id="s5" tabindex="-1" class="mb-1 text-lg font-semibold">Review and confirm</h2>
-      <p class="text-muted-foreground mb-3 text-sm">Nothing is sent until you press Send.</p>
+      <p class="text-muted-foreground mb-3 text-sm">Prepare the packet, then review and approve each delivery separately. Preparing sends nothing.</p>
       <Card>
         <CardContent class="flex flex-col gap-4">
           <dl id="summary" class="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[8rem_1fr]"></dl>
-          <p class="text-muted-foreground text-sm">Cost estimate unavailable. Provider charges may apply; this is not a provider quote.</p>
-          <p class="text-muted-foreground text-sm">The cover preview is preliminary, not a proof of the final numbered packet. Paper mail is rendered by PostGrid.</p>
+          <p id="estimate" class="text-muted-foreground text-sm"></p>
+          <p class="text-muted-foreground text-sm">Paper mail is rendered and printed by PostGrid; its physical output cannot be guaranteed by this local PDF proof.</p>
           <div id="mode-box" class="border-border flex flex-col gap-1.5 rounded-lg border p-4" data-select="mode">
             <span class="text-sm font-medium" id="mode-label">Paper mail mode</span>
             <Select defaultValue="test">
@@ -185,6 +185,13 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
           </div>
         </CardContent>
       </Card>
+    </section>
+
+    <section id="prepared" hidden aria-labelledby="prepared-title" class="mt-6">
+      <h2 id="prepared-title" class="mb-2 text-lg font-semibold">Review prepared deliveries</h2>
+      <p class="text-muted-foreground mb-3 text-sm">Each approval queues only that delivery. Open and inspect every proof before approving it.</p>
+      <div id="prepared-list" class="flex flex-col gap-4"></div>
+      <Button href="/records/" variant="outline" class="mt-4">Go to Records</Button>
     </section>
 
     <div class="mt-6 flex flex-wrap justify-between gap-3">
@@ -205,8 +212,7 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
 
   <script>
     import { normalizePhone } from "@/lib/phone";
-    import { watchTransmission, approveLetter } from "@/lib/detail";
-    import { api, formatBytes, h, skeletonRows, toast } from "@/lib/ui";
+    import { api, formatBytes, h, postJson, toast } from "@/lib/ui";
     import { MAX_DOCUMENTS, MAX_DOCUMENT_BYTES, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs";
     import { renderDocumentOrder } from "@/lib/document-order";
 
@@ -313,7 +319,7 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
       const indicator = bar.querySelector<HTMLElement>('[data-slot="progress-indicator"]');
       if (indicator) indicator.style.transform = `translateX(-${100 - percent}%)`;
       $("back").classList.toggle("invisible", step === 1);
-      $("next").textContent = step === 5 ? "Send" : "Next";
+      $("next").textContent = step === 5 ? "Prepare for review" : "Next";
       clearError(); sync();
       if (step === 1) renderFiles();
       if (step === 2) renderDocumentOrder($("document-order"), $("order-status"), documents);
@@ -402,10 +408,13 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
         add("Mail to", lines(to)); add("Return address", lines(from));
         add("Print", `${switchOn("color") ? "Color" : "Black and white"}, ${switchOn("duplex") ? "both sides" : "one side"}, ${selectValue("class") === "standard_class" ? "standard class" : "first class"}`);
       }
+      const count = new Set(faxNumbers().map((n) => normalizePhone(n))).size;
+      const pages = (pageCount() + (switchOn("cover") ? 1 : 0)) * count;
+      $("estimate").textContent = channelOn("fax") ? `Fax page-fee estimate: $${(pages * 0.007).toFixed(3)} for ${pages} pages at Telnyx's published $0.007/page list rate (telnyx.com/pricing/fax, checked November 2026). This is only a component, not a total or quote: SIP transmission, destination tariffs, taxes, retries and account pricing are excluded or unknown.${channelOn("mail") ? " Paper-mail pricing is unavailable." : ""}` : "Paper-mail pricing is unavailable; PostGrid charges may apply. This is not a quote.";
       const hint = () => { $("mode-hint").textContent = selectValue("mode") === "live" ? "A real, paid letter will be mailed." : "Nothing will be printed or mailed. Use this to check the flow."; };
       hint();
       document.querySelector('[data-select="mode"]')!.addEventListener("click", () => setTimeout(hint, 50));
-      $("next").textContent = channelOn("mail") && selectValue("mode") === "live" ? "Send for real" : "Send";
+      $("next").textContent = "Prepare for review";
     }
 
     async function submit() {
@@ -424,15 +433,33 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
       form.set("spec", JSON.stringify(spec));
       try {
         const created = await api<{ id: string; deliveries: { id: string; channel: string }[] }>("/api/transmissions", { method: "POST", body: form });
-        $("wizard").hidden = true; $("result").hidden = false;
-        const body = $("result-body"); body.replaceChildren(skeletonRows(2, "h-24 w-full"));
-        const letter = created.deliveries.find((d) => d.channel === "mail");
-        if (letter) {
-          try { await approveLetter(created.id, letter.id, mode); }
-          catch (error) { toast(error instanceof Error ? error.message : "The letter could not be confirmed.", "error"); }
+        const list = $("prepared-list"); list.replaceChildren();
+        for (const delivery of created.deliveries) {
+          const base = `/api/transmissions/${created.id}/${delivery.channel}/${delivery.id}`;
+          const card = h("div", "border-border rounded-lg border p-4");
+          const status = h("p", "text-sm", "Loading review…"); card.append(status); list.append(card);
+          try {
+            if (delivery.channel === "fax") {
+              const review = await api<{ reviewHash: string; recipient: string; from: string; packetUrl: string }>(`${base}/review`);
+              status.textContent = `Fax from ${review.from} to ${review.recipient}`;
+              const frame = h("iframe", "border-border mt-3 h-[32rem] w-full rounded-lg border"); frame.src = review.packetUrl; frame.title = `Final fax packet for ${review.recipient}`; card.append(frame);
+              const link = h("a", "mt-2 block text-sm underline", "Open final fax packet"); link.href = review.packetUrl; link.target = "_blank"; link.rel = "noopener"; card.append(link);
+              const button = h("button", "mt-3 rounded border px-4 py-2", "Approve and send this fax"); button.type = "button"; card.append(button);
+              button.addEventListener("click", async () => { button.disabled = true; try { await postJson(`${base}/approve`, { confirmed: true, reviewHash: review.reviewHash }); status.textContent = `Fax to ${review.recipient} queued`; button.remove(); } catch (error) { status.textContent = error instanceof Error ? error.message : "Could not approve fax"; button.disabled = false; } });
+            } else {
+              const review = await api<{ reviewHash: string; available: boolean; notice: string; summary: { to: Address; from: Address; color: boolean; doubleSided: boolean; mailingClass: string } }>(`${base}/review?mode=${mode}`);
+              status.textContent = `${mode === "live" ? "Live mail (paid)" : "Test mail (not mailed)"}. ${review.notice} Physical output is not guaranteed.`;
+              const address = (a: Address) => [a.firstName, a.lastName, a.addressLine1, a.addressLine2, a.city, a.provinceOrState, a.postalOrZip, a.countryCode].filter(Boolean).join(", ");
+              card.append(h("p", "mt-2 whitespace-pre-line text-sm", `To: ${address(review.summary.to)}\nReturn: ${address(review.summary.from)}\n${review.summary.color ? "Color" : "Black and white"}; ${review.summary.doubleSided ? "double-sided" : "single-sided"}; ${review.summary.mailingClass}`));
+              const frame = h("iframe", "border-border mt-3 h-[32rem] w-full rounded-lg border"); frame.src = `/api/transmissions/${created.id}/document`; frame.title = "Paper mail document proof"; card.append(frame);
+              const button = h("button", "mt-3 rounded border px-4 py-2", "Approve and send this letter"); button.type = "button"; button.disabled = !review.available; card.append(button);
+              if (!review.available) status.textContent += " This mail mode is unavailable.";
+              button.addEventListener("click", async () => { button.disabled = true; try { await postJson(`${base}/approve`, { confirmed: true, mode, reviewHash: review.reviewHash }); status.textContent = "Letter queued"; button.remove(); } catch (error) { status.textContent = error instanceof Error ? error.message : "Could not approve letter"; button.disabled = false; } });
+            }
+          } catch { status.textContent = "Review unavailable; nothing was approved. See Records."; }
         }
-        toast("Sent for delivery.", "success");
-        watchTransmission(body, created.id, false);
+        document.querySelectorAll<HTMLElement>("[data-step]").forEach((section) => { section.hidden = true; });
+        $("prepared").hidden = false; $("back").hidden = true; $("next").hidden = true;
         window.scrollTo({ top: 0 });
       } catch (error) {
         toast(error instanceof Error ? error.message : "Could not send. Nothing was sent.", "error");

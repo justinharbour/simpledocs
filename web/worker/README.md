@@ -7,7 +7,10 @@ their Ed25519 signature instead.
 
 | Route | Purpose |
 | --- | --- |
-| `POST /api/transmissions` | Multipart `document` (PDF, up to 5 MB) and `spec` JSON. Writes the envelope and one `dispatches` row per channel and recipient, queues fax rows, and returns 202 immediately. |
+| `POST /api/transmissions` | Multipart ordered PDFs and `spec` JSON. Prepares the numbered envelope and recipient-specific fax packets; every delivery awaits approval and nothing is queued. Returns 202. |
+| `GET /api/transmissions/:id/fax/:deliveryId/review` | Actor-scoped review with recipient, sender, SHA-256, proof URL and review hash. |
+| `GET /api/transmissions/:id/packet/:deliveryId` | Exact stored PDF submitted for this fax. |
+| `POST /api/transmissions/:id/fax/:deliveryId/approve` | Same-origin JSON `{ "confirmed": true, "reviewHash": "..." }`; queues only this fax after verifying its stored proof and sender. |
 | `GET /api/recipients` | Recent fax and mailing recipients derived from the authenticated actor's last 200 dispatches. No separate address book or migration is required; deleting the underlying records removes them from this history. |
 | `GET /api/transmissions`, `GET /api/transmissions/:id` | List, and detail with per-channel status and timeline. The UI polls the detail. |
 | `GET /api/transmissions/:id/document` | The stored PDF. |
