@@ -17,7 +17,7 @@ export async function submitFax({ token, connectionId, from, to, mediaName, inte
   let response;
   try {
     response = await fetcher('https://api.telnyx.com/v2/faxes', {
-      method: 'POST', redirect: 'error',
+      method: 'POST', redirect: 'manual',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify(payload),
     });

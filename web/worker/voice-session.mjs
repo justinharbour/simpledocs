@@ -13,7 +13,7 @@ export async function handleVoiceSession(request, env, actor, fetcher = fetch) {
   }
   try {
     const response = await fetcher(`https://api.telnyx.com/v2/telephony_credentials/${env.TELNYX_WEBRTC_CREDENTIAL_ID}/token`, {
-      method: 'POST', redirect: 'error', headers: { Authorization: `Bearer ${env.TELNYX_API_TOKEN}`, Accept: 'text/plain' },
+      method: 'POST', redirect: 'manual', headers: { Authorization: `Bearer ${env.TELNYX_API_TOKEN}`, Accept: 'text/plain' },
     });
     if (response.status !== 201) return json({ error: 'Softphone unavailable' }, 502);
     const text = await response.text();

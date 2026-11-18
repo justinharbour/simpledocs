@@ -14,7 +14,7 @@ export async function handleFaxStatus(request, env, actor, id, fetcher = fetch) 
   if (row.status === 'accepted' && row.provider_id && env.TELNYX_API_TOKEN) {
     try {
       const response = await fetcher(`https://api.telnyx.com/v2/faxes/${encodeURIComponent(row.provider_id)}`, {
-        headers: { Authorization: `Bearer ${env.TELNYX_API_TOKEN}`, Accept: 'application/json' }, redirect: 'error',
+        headers: { Authorization: `Bearer ${env.TELNYX_API_TOKEN}`, Accept: 'application/json' }, redirect: 'manual',
       });
       if (response.ok) {
         const data = (await response.json())?.data;

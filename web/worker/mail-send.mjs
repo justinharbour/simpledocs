@@ -96,7 +96,7 @@ export async function handleMail(request, env, actor, id, action, fetcher = fetc
   if (claim.meta.changes !== 1) return reply({ error: 'Draft changed, already claimed, or an unresolved order exists; check unresolved orders' }, 409);
   let status = 'unknown'; let providerId = null;
   try {
-    const response = await fetcher('https://api.postgrid.com/print-mail/v1/letters', { method: 'POST', headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' }, body: payloadJson, redirect: 'error' });
+    const response = await fetcher('https://api.postgrid.com/print-mail/v1/letters', { method: 'POST', headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' }, body: payloadJson, redirect: 'manual' });
     if (response.status === 201) {
       const result = await response.json();
       if (result?.object === 'letter' && typeof result.id === 'string' && /^letter_[a-zA-Z0-9]+$/.test(result.id)) { status = 'accepted'; providerId = result.id; }
