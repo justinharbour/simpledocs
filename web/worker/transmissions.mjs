@@ -269,10 +269,10 @@ export async function listRecords(env, actor, { inboundAllowed, voiceAllowed }) 
     for (const f of faxes.results ?? []) items.push({ type: 'inbound_fax', id: f.event_id, title: 'Inbound fax', createdAt: f.received_at, updatedAt: f.received_at, channels: [{ channel: 'fax', status: 'received' }], previewUrl: `/api/inbound-faxes/${f.event_id}/pdf?inline=1`, previewType: 'pdf' });
   }
   if (voiceAllowed) {
-    const recs = await env.DB.prepare('SELECT recording_id, archived_at, kind, direction, from_number, to_number, duration_secs, heard_at FROM voice_recordings ORDER BY archived_at DESC, recording_id DESC LIMIT 100').bind().all();
+    const recs = await env.DB.prepare('SELECT recording_id, archived_at, kind, direction, from_number, to_number, duration_secs, heard_at, transcript FROM voice_recordings ORDER BY archived_at DESC, recording_id DESC LIMIT 100').bind().all();
     for (const r of recs.results ?? []) {
       const at = isoTime(r.archived_at);
-      items.push({ type: 'recording', id: r.recording_id, title: r.kind === 'voicemail' ? 'Voicemail' : 'Call recording', createdAt: at, updatedAt: r.heard_at ? isoTime(r.heard_at) : at, channels: [{ channel: 'voice', status: r.heard_at ? 'heard' : 'unheard' }], kind: r.kind, direction: r.direction, fromNumber: r.from_number, toNumber: r.to_number, durationSecs: r.duration_secs, previewUrl: `/api/voice/recordings/${r.recording_id}`, previewType: 'audio' });
+      items.push({ type: 'recording', id: r.recording_id, title: r.kind === 'voicemail' ? 'Voicemail' : 'Call recording', createdAt: at, updatedAt: r.heard_at ? isoTime(r.heard_at) : at, channels: [{ channel: 'voice', status: r.heard_at ? 'heard' : 'unheard' }], kind: r.kind, direction: r.direction, fromNumber: r.from_number, toNumber: r.to_number, durationSecs: r.duration_secs, transcript: r.transcript, previewUrl: `/api/voice/recordings/${r.recording_id}`, previewType: 'audio' });
     }
   }
   items.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));

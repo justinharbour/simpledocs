@@ -22,7 +22,7 @@ export async function processVoicemail(env, event, payload, fetcher = fetch) {
   } else if (event.event_type === 'call.speak.ended' && payload.client_state === marker) {
     const speak = await env.DB.prepare("SELECT outcome FROM voicemail_commands WHERE call_control_id = ? AND action = 'speak'").bind(id).first();
     if (!speak) return;
-    action = 'record_start'; body = { client_state: btoa(`simpledocs-voicemail-recording:${voicemail.marker}`), format: 'mp3', channels: 'single', play_beep: true, max_length: 120 };
+    action = 'record_start'; body = { client_state: btoa(`simpledocs-voicemail-recording:${voicemail.marker}`), format: 'mp3', channels: 'single', play_beep: true, max_length: 120, transcription: true, transcription_engine: 'A', transcription_language: 'en-US' };
   } else return;
   const ended = await env.DB.prepare("SELECT event_id FROM voice_events WHERE call_control_id = ? AND event_type = 'call.hangup' LIMIT 1").bind(id).first();
   if (ended) return;

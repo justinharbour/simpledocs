@@ -16,7 +16,7 @@ async function signed(body, ts = timestamp) {
 }
 function setup() {
   const db = new DatabaseSync(':memory:');
-  for (const name of ['0008_voice_webhooks.sql', '0012_transmissions.sql']) db.exec(readFileSync(new URL(`../../backend/core/migrations/${name}`, import.meta.url), 'utf8'));
+  for (const name of ['0008_voice_webhooks.sql', '0012_transmissions.sql', '0013_transcripts.sql']) db.exec(readFileSync(new URL(`../../backend/core/migrations/${name}`, import.meta.url), 'utf8'));
   const DB = { prepare(sql) { return { async all() { return { results: db.prepare(sql).all() }; }, bind(...args) { return { async first() { return db.prepare(sql).get(...args); }, async run() { return db.prepare(sql).run(...args); } }; } }; } };
   const objects = new Map();
   const FILES = { async put(key, value) { objects.set(key, value); }, async get(key) { const value = objects.get(key); return value ? { body: value } : null; } };
@@ -89,6 +89,10 @@ test('voicemail answers only dedicated incoming calls, greets then records and c
   assert.equal(commands.length, 2);
   await send('call.speak.ended', 'spoken', { client_state: marker });
   assert.match(commands[2].url, /\/record_start$/);
+  assert.equal(commands[2].body.transcription, true);
+  assert.equal(commands[2].body.transcription_engine, 'A');
+  assert.equal(commands[2].body.transcription_language, 'en-US');
+  assert.equal(commands.slice(0, 2).some(c => 'transcription' in c.body), false);
   await send('call.recording.saved', 'recorded', { client_state: commands[2].body.client_state });
   assert.equal(db.prepare('SELECT kind FROM voice_recordings').get().kind, 'voicemail');
 });
