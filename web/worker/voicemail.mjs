@@ -3,6 +3,7 @@
 // the original (still unanswered) leg. When the phone is offline voicemail answers immediately.
 import { fallbackConfig, isLegacyVoice, voicemailConfig } from './voicemail-config.mjs';
 import { phoneOnline } from './voice-presence.mjs';
+import { availabilityOnline, loadAvailability } from './availability-policy.mjs';
 
 const RING_SECS = 20;
 const RING = 'simpledocs-ring:';
@@ -28,7 +29,7 @@ const auth = env => ({ Authorization: `Bearer ${env.TELNYX_API_TOKEN}`, 'Content
 
 // Returns true when the softphone is being rung (or already was), so voicemail must wait for the outcome.
 async function ring(env, id, marker, payload, fetcher) {
-  try { if (!env.TELNYX_WEBRTC_CREDENTIAL_ID || !await phoneOnline(env.DB)) return false; } catch { return false; }
+  try { if (!env.TELNYX_WEBRTC_CREDENTIAL_ID || !availabilityOnline(await loadAvailability(env.DB)) || !await phoneOnline(env.DB)) return false; } catch { return false; }
   const claim = await env.DB.prepare("INSERT OR IGNORE INTO voicemail_rings (call_control_id, outcome) VALUES (?, 'claimed')").bind(id).run();
   if ((claim.meta?.changes ?? claim.changes) !== 1) return true;
   let outcome = 'rejected';

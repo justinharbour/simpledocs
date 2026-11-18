@@ -21,6 +21,9 @@ const select = input({ size: "sm" });
       </div>
     </div>
     <p id="phone-detail" class="text-muted-foreground min-h-5 text-sm" role="status" aria-live="polite"></p>
+    <label for="availability" class="text-sm font-medium">Incoming calls</label>
+    <select id="availability" class={select} disabled><option value="online">Online</option><option value="offline">Offline</option><option value="schedule">Use schedule</option></select>
+    <p class="text-muted-foreground text-xs">Calls ring only while this phone is connected. Configure hours in Settings.</p>
 
     <div id="incall" hidden class="border-border flex flex-col gap-3 rounded-lg border p-4">
       <p id="incall-number" class="text-xl font-semibold break-all"></p>
@@ -88,7 +91,7 @@ const select = input({ size: "sm" });
     import { button } from "@/components/starwind/button/variants";
     import { table, tableBody, tableCell, tableHead, tableHeader, tableRow } from "@/components/starwind/table/variants";
     import { item, itemActions, itemContent, itemDescription, itemTitle } from "@/components/starwind/item/variants";
-    import { api, ago, badgeEl, duration, h, skeletonRows, toast, when } from "@/lib/ui";
+    import { api, postJson, ago, badgeEl, duration, h, skeletonRows, toast, when } from "@/lib/ui";
 
     type Call = ReturnType<TelnyxRTC["newCall"]>;
     type Recording = { recording_id: string; archived_at: string; kind: string; direction: string | null; from_number: string | null; to_number: string | null; duration_secs: number | null; heard_at: string | null; transcript: string | null };
@@ -97,6 +100,17 @@ const select = input({ size: "sm" });
     const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
     const number = el<HTMLInputElement>("dial-number"), dialError = el("dial-error"), remoteAudio = el<HTMLAudioElement>("remote-audio");
     const status = el("phone-status"), detail = el("phone-detail"), reconnect = el("reconnect");
+    type Availability = { mode: string; timezone: string; intervals: { day: number; start: string; end: string }[] };
+    const availability = el<HTMLSelectElement>("availability");
+    let availabilityPolicy: Availability | null = null;
+    api<Availability>("/api/voice/availability").then(value => { availabilityPolicy = value; availability.value = value.mode; availability.disabled = false; }).catch(() => toast("Availability could not be loaded.", "error"));
+    availability.addEventListener("change", async () => {
+      if (!availabilityPolicy) return;
+      availability.disabled = true;
+      try { availabilityPolicy = await postJson<Availability>("/api/voice/availability", { ...availabilityPolicy, mode: availability.value }, "PUT"); toast("Incoming call availability saved.", "success"); }
+      catch { availability.value = availabilityPolicy.mode; toast("Availability could not be saved.", "error"); }
+      finally { availability.disabled = false; }
+    });
     const label = (node: HTMLElement, name: IconName, text: string) => node.replaceChildren(icon(name), document.createTextNode(text));
 
     let client: TelnyxRTC | null = null;
