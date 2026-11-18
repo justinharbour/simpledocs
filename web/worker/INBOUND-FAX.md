@@ -35,7 +35,7 @@ The exact `/webhooks/telnyx/fax` path is outside interactive Access in the
 Worker and uses Telnyx Ed25519 signatures over timestamp and exact raw bytes,
 with a five-minute window. It fails closed unless the `TELNYX_INBOUND_FAX_ENABLED`
 string is `true`, `TELNYX_PUBLIC_KEY`, `TELNYX_FAX_CONNECTION_ID`,
-`TELNYX_FAX_NUMBER`, D1 `DB`, and private R2 `FAX_MEDIA` are configured. No
+`TELNYX_FAX_NUMBER`, D1 `DB`, and private R2 `FILES` are configured. No
 bindings or enablement are added here. Other routes still require Access; an
 external Access policy must separately allow this exact webhook path without
 opening app routes. Verify this boundary in the deployed environment.

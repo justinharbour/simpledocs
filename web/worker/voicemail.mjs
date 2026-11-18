@@ -2,7 +2,7 @@
 // is not a timeout/fallback implementation and must not compete with a phone.
 export async function processVoicemail(env, event, payload, fetcher = fetch) {
   if (env.VOICEMAIL_ENABLED !== 'true' || env.VOICE_INBOUND_ENABLED !== 'true' ||
-      !env.VOICE_RECORDINGS || !env.TELNYX_API_TOKEN || !/^\+[1-9]\d{1,14}$/.test(env.VOICEMAIL_NUMBER ?? '') ||
+      !env.FILES || !env.TELNYX_API_TOKEN || !/^\+[1-9]\d{1,14}$/.test(env.VOICEMAIL_NUMBER ?? '') ||
       typeof env.VOICEMAIL_GREETING !== 'string' || !env.VOICEMAIL_GREETING.trim() || env.VOICEMAIL_GREETING.length > 1000) return;
   const id = payload.call_control_id;
   if (event.event_type === 'call.initiated') {

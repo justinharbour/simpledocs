@@ -16,11 +16,11 @@ async function signed(body, ts = timestamp) {
 }
 function setup() {
   const db = new DatabaseSync(':memory:');
-  db.exec(readFileSync(new URL('../../backend/core/migrations/0008_voice_webhooks.sql', import.meta.url), 'utf8'));
+  for (const name of ['0008_voice_webhooks.sql', '0012_transmissions.sql']) db.exec(readFileSync(new URL(`../../backend/core/migrations/${name}`, import.meta.url), 'utf8'));
   const DB = { prepare(sql) { return { async all() { return { results: db.prepare(sql).all() }; }, bind(...args) { return { async first() { return db.prepare(sql).get(...args); }, async run() { return db.prepare(sql).run(...args); } }; } }; } };
   const objects = new Map();
-  const VOICE_RECORDINGS = { async put(key, value) { objects.set(key, value); }, async get(key) { const value = objects.get(key); return value ? { body: value } : null; } };
-  return { env: { DB, VOICE_RECORDINGS, TELNYX_PUBLIC_KEY: publicKey, TELNYX_VOICE_CONNECTION_ID: 'connection' }, db, objects };
+  const FILES = { async put(key, value) { objects.set(key, value); }, async get(key) { const value = objects.get(key); return value ? { body: value } : null; } };
+  return { env: { DB, FILES, TELNYX_PUBLIC_KEY: publicKey, TELNYX_VOICE_CONNECTION_ID: 'connection' }, db, objects };
 }
 
 test('authenticates, durably records, archives privately and deduplicates', async () => {
@@ -62,7 +62,7 @@ test('storage failure returns retryable response and later retry archives', asyn
 });
 
 test('lifecycle event requires no recording storage and conflicts are rejected', async () => {
-  const { env } = setup(); delete env.VOICE_RECORDINGS;
+  const { env } = setup(); delete env.FILES;
   assert.equal((await handleVoiceWebhook(await signed(JSON.stringify(event('call.hangup'))), env, fetch, now)).status, 200);
   assert.equal((await handleVoiceWebhook(await signed(JSON.stringify(event('call.answered'))), env, fetch, now)).status, 409);
 });

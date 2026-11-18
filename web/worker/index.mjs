@@ -3,7 +3,10 @@ import { handleDraft } from './drafts.mjs';
 import { handleFaxStatus } from './fax-status.mjs';
 import { handleFaxSend } from './fax-send.mjs';
 import { handleInboundFax } from './inbound-fax.mjs';
-import { handleInboundFaxRead } from './inbound-fax-read.mjs';
+import { handleInboundFaxRead, inboundFaxAllowed } from './inbound-fax-read.mjs';
+import { handleQueue, reconcileDeliveries } from './queue-consumer.mjs';
+import { approveMail, createTransmission, getTransmission, getTransmissionFile, handleCoverPreview, handleSettings, listRecords, listTransmissions, reviewMail } from './transmissions.mjs';
+import { listCalls, markHeard } from './voice-calls.mjs';
 import { handleFaxOperator } from './inbound-fax-operator.mjs';
 import { handleMail, listUnresolvedMail } from './mail-send.mjs';
 import { handleVoiceWebhook, handleVoiceRecording, listVoiceRecordings } from './voice-webhook.mjs';
@@ -27,7 +30,9 @@ export function createWorker(resolveKeys = issuer => {
     const result = await sendPendingFaxAlert(env);
     // Operational status only; never log provider errors or fax data.
     if (result === 'unavailable') console.error('Pending fax alert unavailable');
+    try { await reconcileDeliveries(env); } catch { console.error('Delivery reconcile unavailable'); }
   },
+  queue(batch, env) { return handleQueue(batch, env); },
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/webhooks/telnyx/fax') return handleInboundFax(request, env);
@@ -64,12 +69,29 @@ export function createWorker(resolveKeys = issuer => {
     const mail = /^\/api\/mail-drafts\/([^/]+)\/(review|send|status|acknowledge)$/.exec(url.pathname);
     if (mail) return handleMail(request, env, actor, mail[1], mail[2]);
     if (url.pathname === '/api/voice/session') return handleVoiceSession(request, env, actor);
-    if (url.pathname === '/api/voice/recordings' || url.pathname.startsWith('/api/voice/recordings/')) {
-      if (env.VOICE_OWNER_SUBJECT && actor !== env.VOICE_OWNER_SUBJECT) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+    const voiceOwner = !env.VOICE_OWNER_SUBJECT || actor === env.VOICE_OWNER_SUBJECT;
+    if ((url.pathname === '/api/voice/recordings' || url.pathname.startsWith('/api/voice/recordings/') || url.pathname === '/api/voice/calls') && !voiceOwner) {
+      return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
     }
+    if (url.pathname === '/api/voice/calls') return listCalls(request, env);
     if (url.pathname === '/api/voice/recordings') return listVoiceRecordings(request, env);
+    const heard = /^\/api\/voice\/recordings\/([^/]+)\/heard$/.exec(url.pathname);
+    if (heard) return markHeard(request, env, heard[1]);
     const recording = /^\/api\/voice\/recordings\/([^/]+)$/.exec(url.pathname);
     if (recording) return handleVoiceRecording(request, env, recording[1]);
+    if (url.pathname === '/api/settings') return handleSettings(request, env, actor);
+    if (url.pathname === '/api/cover-preview') return handleCoverPreview(request, env);
+    if (url.pathname === '/api/transmissions') return request.method === 'POST' ? createTransmission(request, env, actor) : request.method === 'GET' ? listTransmissions(env, actor) : new Response('Method not allowed', { status: 405 });
+    if (url.pathname === '/api/records') {
+      if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
+      return listRecords(env, actor, { inboundAllowed: inboundFaxAllowed(actor, env.INBOUND_FAX_ALLOWED_SUBJECTS), voiceAllowed: voiceOwner });
+    }
+    const transmissionFile = /^\/api\/transmissions\/([^/]+)\/(document|cover)(?:\/([^/]+))?$/.exec(url.pathname);
+    if (transmissionFile) return request.method === 'GET' ? getTransmissionFile(env, actor, transmissionFile[1], transmissionFile[2], transmissionFile[3]) : new Response('Method not allowed', { status: 405 });
+    const transmissionMail = /^\/api\/transmissions\/([^/]+)\/mail\/([^/]+)\/(review|approve)$/.exec(url.pathname);
+    if (transmissionMail) return (transmissionMail[3] === 'review' ? reviewMail : approveMail)(request, env, actor, transmissionMail[1], transmissionMail[2]);
+    const transmission = /^\/api\/transmissions\/([^/]+)$/.exec(url.pathname);
+    if (transmission) return request.method === 'GET' ? getTransmission(env, actor, transmission[1]) : new Response('Method not allowed', { status: 405 });
     const fax = /^\/api\/faxes\/([^/]+)$/.exec(url.pathname);
     if (fax) return request.method === 'POST' ? handleFaxSend(request, env, actor, fax[1]) : handleFaxStatus(request, env, actor, fax[1]);
     const draft = /^\/api\/mail-drafts\/([^/]+)$/.exec(url.pathname);
