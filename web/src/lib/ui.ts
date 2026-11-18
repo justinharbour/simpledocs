@@ -53,6 +53,17 @@ export function when(value: string | null | undefined): string {
   return Number.isFinite(date.getTime()) ? date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "";
 }
 
+// "5 min ago" for recent times, otherwise the short date. Pair it with `when` as the exact time.
+export function ago(value: string | null | undefined): string {
+  const date = new Date(value ?? "");
+  if (!Number.isFinite(date.getTime())) return "";
+  const minutes = Math.round((Date.now() - date.getTime()) / 60000);
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 60 * 24) return `${Math.round(minutes / 60)} h ago`;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 export function duration(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined) return "";
   const m = Math.floor(seconds / 60), s = seconds % 60;

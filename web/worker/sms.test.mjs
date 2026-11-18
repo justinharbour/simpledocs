@@ -89,7 +89,8 @@ test('a provider error marks the message failed with the carrier reason and no s
   const fetcher = async () => Response.json({ errors: [{ code: '40010', title: 'Not 10DLC registered', detail: 'Register the number.' }] }, { status: 400 });
   const response = await handleSms(jsonRequest('/api/sms/messages', { to: PEER, text: 'hi' }), env, fetcher);
   assert.equal(response.status, 502);
-  const { message } = await response.json();
+  const { message, error } = await response.json();
+  assert.match(error, /10DLC|Register/);
   assert.equal(message.status, 'failed'); assert.equal(message.errorCode, '40010');
   assert.match(message.errorText, /10DLC/);
   const row = db.prepare('SELECT status, provider_id FROM sms_messages').get();

@@ -34,12 +34,21 @@ describe.skipIf(!built)("built site (run `pnpm build` first)", () => {
     for (const target of own) expect(target).toBe(href);
   });
 
-  it("provides a disconnected softphone with explicit call confirmation", () => {
+  it("provides a softphone that connects on open, with a dial pad and no confirmation checkbox", () => {
     const doc = html('/calls/');
-    expect(doc).toContain('Disconnected.');
-    expect(doc).toContain('id="call-confirm"');
-    expect(doc).toContain('id="call" disabled');
-    expect(doc).toContain('Do not use this phone for emergency calls');
+    expect(doc).toContain('id="phone-status"');
+    expect(doc).toContain('id="pad"');
+    expect(doc).toContain('id="dial-number"');
+    expect(doc).toContain('id="incoming"');
+    expect(doc).toContain('Not for emergency calls');
+    expect(doc).not.toContain('id="call-confirm"');
+    expect(doc).not.toContain('Disconnected.');
+  });
+
+  it("serves the inbox at the home page and a messages page", () => {
+    expect(html('/')).toContain('id="filters"');
+    expect(html('/')).toContain('id="detail-pane"');
+    expect(html('/messages/')).toContain('id="threads"');
   });
 
   it("ships a 404 page that links home", () => {

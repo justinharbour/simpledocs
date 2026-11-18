@@ -5,9 +5,10 @@ export type NavItem = {
 };
 
 export const primaryNav: readonly NavItem[] = [
-  { label: "Overview", href: "/", description: "Where to start." },
+  { label: "Inbox", href: "/", description: "Faxes, voicemail, missed calls and texts that need you." },
   { label: "Send", href: "/send/", description: "Send one PDF by fax, paper mail, or both." },
   { label: "Calls", href: "/calls/", description: "Phone, call log and voicemail." },
+  { label: "Messages", href: "/messages/", description: "Text messages." },
   { label: "Records", href: "/records/", description: "Everything sent and received." },
 ];
 

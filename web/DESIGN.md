@@ -48,3 +48,11 @@ Skip link to `#main`, `aria-current="page"` on the current link, labelled primar
 - Live status is polled from the transmission detail endpoint every few seconds until every channel is terminal.
 - Starwind's checkbox points its `<label for>` at `data-id`, which is not an element id. Name checkboxes with `aria-label` or `aria-labelledby` pointing at a real element instead.
 - Hidden table columns must not hide content: the detail also appears inline in the first cell below `md`.
+
+## Pattern: inbox, softphone and messages
+
+- Inbox is the home page (`/`). Filter tabs (All, Unread, Faxes, Voicemail, Calls, Messages) sit above a list; a row shows a kind icon with its text label, the sender, a snippet and a relative time with the exact time in the `title`. Unread is bold plus an "Unread" badge, never colour alone. The detail opens beside the list on desktop and full-screen with a Back button below `md`. Opening an item marks it read; "Mark unread" and "Mark all read" undo and bulk it. The nav badge and the tab title carry the unread count (`src/lib/unread.ts`).
+- Softphone connects on page open. The status badge is shape plus text (Connecting, Ready, Offline); Offline shows a Reconnect button. The dial pad is 12 keys, at least 44px, centered at up to 20rem. During a call the same pad sends DTMF and a local tone plays. The in-call panel shows the number, a timer, the state in words, and Mute, Hold, Keypad, speaker and microphone pickers, and End call (error variant). An incoming call is a banner at the top with Answer and Decline and a WebAudio ringtone; browser notifications are enabled only from an explicit button.
+- Messages is two panes (conversations and one thread), one pane with Back on phones. Bubbles show the last status Telnyx reported: "Sending" means accepted, not delivered. A failed message shows the carrier reason and Retry. The composer counts GSM-7 or UCS-2 segments. `createThread()` in `src/lib/sms.ts` is shared by Messages and the Inbox detail.
+- Icons come from `src/lib/icons.ts` (Tabler SVGs bundled at build time) so scripts can draw them without innerHTML of user data.
+

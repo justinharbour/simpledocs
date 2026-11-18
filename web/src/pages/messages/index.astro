@@ -1,0 +1,172 @@
+---
+import AppLayout from "@/layouts/AppLayout.astro";
+import PageHeader from "@/components/PageHeader.astro";
+import { Button } from "@/components/starwind/button";
+import { Input } from "@/components/starwind/input";
+---
+
+<AppLayout title="Messages" description="Text messages.">
+  <PageHeader title="Messages" summary="Text messages sent from and received on the voice number." />
+
+  <div id="sms-error" hidden class="mb-4"></div>
+  <div class="grid gap-6 md:grid-cols-[18rem_minmax(0,1fr)]">
+    <section id="thread-pane" aria-labelledby="threads-heading" class="flex min-w-0 flex-col gap-3">
+      <div class="flex items-center justify-between gap-2">
+        <h2 id="threads-heading" class="text-lg font-semibold">Conversations</h2>
+        <Button id="new-message" type="button" variant="primary" size="sm">New message</Button>
+      </div>
+      <form id="new-form" hidden class="border-border flex flex-col gap-2 rounded-lg border p-3" novalidate>
+        <label for="new-number" class="text-sm font-medium">Phone number</label>
+        <Input id="new-number" type="tel" inputmode="tel" autocomplete="off" placeholder="(202) 555-0142" aria-describedby="new-error" />
+        <p id="new-error" role="alert" class="text-error min-h-4 text-sm"></p>
+        <div class="flex gap-2">
+          <Button type="submit" variant="primary" size="sm">Start</Button>
+          <Button id="new-cancel" type="button" variant="ghost" size="sm">Cancel</Button>
+        </div>
+      </form>
+      <div id="threads" aria-live="polite"></div>
+    </section>
+
+    <section id="conversation-pane" hidden aria-labelledby="conversation-heading" class="flex min-h-[28rem] min-w-0 flex-col md:h-[calc(100dvh-14rem)]">
+      <div class="border-border flex items-center gap-2 border-b pb-3">
+        <Button id="back" type="button" variant="ghost" size="sm" class="md:hidden">Back to conversations</Button>
+        <h2 id="conversation-heading" class="text-lg font-semibold"></h2>
+        <a id="call-peer" class="ml-auto text-sm underline underline-offset-4" href="/calls/">Call</a>
+      </div>
+      <div id="conversation" class="min-h-0 flex-1"></div>
+    </section>
+    <div id="no-selection" class="border-border text-muted-foreground hidden items-center justify-center rounded-lg border border-dashed p-8 text-center text-sm md:flex">Select a conversation or start a new message.</div>
+  </div>
+
+  <div id="notify" class="mt-6"></div>
+
+  <script>
+    import { api, ago, badgeEl, h, skeletonRows, toast, when } from "@/lib/ui";
+    import { createThread, threadHref } from "@/lib/sms";
+    import { notifyControl } from "@/lib/notify";
+    import { normalizePhone } from "@/lib/phone";
+    import { refreshCount } from "@/lib/unread";
+    import { alert } from "@/components/starwind/alert/variants";
+    import { button } from "@/components/starwind/button/variants";
+
+    type Thread = { peer: string; body: string; direction: "inbound" | "outbound"; status: string; at: string; unread: number };
+    const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+    const list = el<HTMLElement>("threads"), pane = el<HTMLElement>("conversation-pane"), noSelection = el<HTMLElement>("no-selection");
+    const threadPane = el<HTMLElement>("thread-pane");
+    let threads: Thread[] = [];
+    let current: string | null = null;
+    let thread: ReturnType<typeof createThread> | null = null;
+    let loaded = false;
+    const known = new Map<string, string>();
+    const phone = window.matchMedia("(max-width: 767px)");
+
+    el("notify").append(notifyControl("Enable message notifications"));
+
+    function problem(show: boolean) {
+      const box = el<HTMLElement>("sms-error");
+      box.hidden = !show;
+      if (!show) return box.replaceChildren();
+      const node = h("div", alert({ variant: "error" }));
+      node.setAttribute("role", "alert");
+      const retry = h("button", button({ variant: "outline", size: "sm", class: "ml-3" }), "Retry");
+      retry.type = "button"; retry.addEventListener("click", () => void loadThreads());
+      node.append(document.createTextNode("Conversations could not be loaded."), retry);
+      box.replaceChildren(node);
+    }
+
+    function layout() {
+      // On a phone exactly one pane shows; on a desktop both do.
+      const open = current !== null;
+      threadPane.hidden = phone.matches && open;
+      pane.hidden = !open;
+      noSelection.classList.toggle("md:flex", !open);
+    }
+
+    function renderThreads() {
+      if (!loaded) return;
+      list.replaceChildren();
+      if (!threads.length) {
+        const empty = h("div", "border-border flex flex-col gap-1 rounded-lg border border-dashed px-4 py-6 text-center");
+        empty.append(h("p", "font-medium", "No conversations yet"), h("p", "text-muted-foreground text-sm", "Texts to the voice number appear here. Use New message to write the first one."));
+        return void list.append(empty);
+      }
+      const ul = h("ul", "flex flex-col gap-1");
+      for (const t of threads) {
+        const li = h("li");
+        const a = h("a", `hover:bg-muted focus-visible:ring-outline/50 flex min-h-11 flex-col gap-0.5 rounded-md px-3 py-2 outline-none focus-visible:ring-3 ${t.peer === current ? "bg-muted" : ""}`);
+        a.href = threadHref(t.peer);
+        if (t.peer === current) a.setAttribute("aria-current", "true");
+        const top = h("span", "flex items-center justify-between gap-2");
+        top.append(h("span", `${t.unread ? "font-semibold" : "font-medium"}`, t.peer));
+        if (t.unread) top.append(badgeEl(`${t.unread} unread`, "info"));
+        const preview = `${t.direction === "outbound" ? "You: " : ""}${t.body}`;
+        const meta = h("span", "text-muted-foreground flex items-center justify-between gap-2 text-sm");
+        meta.append(h("span", "truncate", preview));
+        const time = h("time", "shrink-0 text-xs", ago(t.at)); time.dateTime = t.at; time.title = when(t.at);
+        meta.append(time);
+        const state = t.direction === "outbound" && t.status === "failed" ? h("span", "text-error text-xs", "Failed to send") : null;
+        a.append(top, meta); if (state) a.append(state);
+        a.addEventListener("click", (event) => { event.preventDefault(); open(t.peer, true); });
+        li.append(a); ul.append(li);
+      }
+      list.append(ul);
+    }
+
+    async function loadThreads() {
+      try {
+        const data = await api<{ threads: Thread[] }>("/api/sms/threads");
+        problem(false);
+        const first = !loaded;
+        for (const t of data.threads) {
+          if (!first && t.direction === "inbound" && t.peer !== current && known.get(t.peer) !== t.at && t.unread > 0) toast(`New message from ${t.peer}`, "info");
+          known.set(t.peer, t.at);
+        }
+        threads = data.threads; loaded = true; renderThreads();
+      } catch { if (!loaded) { list.replaceChildren(); problem(true); } }
+    }
+
+    function open(peer: string, push: boolean) {
+      thread?.stop();
+      current = peer;
+      el("conversation-heading").textContent = peer;
+      el<HTMLAnchorElement>("call-peer").href = `/calls/?dial=${encodeURIComponent(peer)}`;
+      const created = createThread(peer, { onChange: () => void loadThreads() });
+      thread = created;
+      el("conversation").replaceChildren(created.el);
+      if (push) history.pushState({ peer }, "", threadHref(peer));
+      layout(); renderThreads();
+      if (!phone.matches) created.focus();
+      void refreshCount();
+    }
+    function close(push: boolean) {
+      thread?.stop(); thread = null; current = null;
+      if (push) history.pushState({}, "", "/messages/");
+      layout(); renderThreads();
+    }
+
+    el("back").addEventListener("click", () => close(true));
+    window.addEventListener("popstate", () => { const peer = new URL(location.href).searchParams.get("peer"); if (peer) open(peer, false); else close(false); });
+    phone.addEventListener("change", layout);
+
+    const form = el<HTMLFormElement>("new-form"), number = el<HTMLInputElement>("new-number"), error = el("new-error");
+    el("new-message").addEventListener("click", () => { form.hidden = false; number.focus(); });
+    el("new-cancel").addEventListener("click", () => { form.hidden = true; error.textContent = ""; number.value = ""; });
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const peer = normalizePhone(number.value);
+      if (!peer) { error.textContent = "Enter a valid phone number, for example (202) 555-0142."; number.setAttribute("aria-invalid", "true"); return; }
+      error.textContent = ""; number.removeAttribute("aria-invalid"); number.value = ""; form.hidden = true;
+      open(peer, true);
+    });
+
+    list.replaceChildren(skeletonRows(4, "h-14 w-full"));
+    layout();
+    void loadThreads().then(() => {
+      const peer = new URL(location.href).searchParams.get("peer");
+      const normalized = peer ? normalizePhone(peer) : null;
+      if (normalized) open(normalized, false);
+    });
+    setInterval(() => { if (!document.hidden) void loadThreads(); }, 15000);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) void loadThreads(); });
+  </script>
+</AppLayout>

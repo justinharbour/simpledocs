@@ -14,6 +14,12 @@ their Ed25519 signature instead.
 | `POST /api/cover-preview` | Fax cover page (pdf-lib) for the preview. The same generator is prepended to the document before Telnyx. |
 | `GET /api/records` | Envelopes, inbound faxes and recordings, newest first. |
 | `GET /api/voice/calls`, `GET /api/voice/recordings`, `POST /api/voice/recordings/:id/heard` | Call log and voicemail. |
+| `POST /api/voice/presence` | Softphone heartbeat (`{online}`), about every 30 s while the page is connected. Stored under settings key `phone_online`; counts as online for 90 s. Voice owner only. |
+| `GET /api/sms/threads`, `GET /api/sms/threads/:peer`, `POST /api/sms/threads/:peer/read` | SMS conversations derived from `sms_messages`, one thread per E.164 peer. Voice owner only. |
+| `POST /api/sms/messages` | `{to, text}` (1 to 1600 characters). Writes a row, sends through Telnyx with an `Idempotency-Key`, and stores the provider id. A provider rejection returns 502 with the failed message. |
+| `POST /api/webhooks/telnyx/messaging` | Signed Telnyx events: `message.received`, `message.sent`, `message.finalized`. Status only moves forward; delivered and failed are final. Outside Access (see `access-app.mjs`). |
+| `GET /api/inbox?type=&filter=unread&limit=`, `GET /api/inbox/count` | Faxes, voicemail, missed calls and SMS threads merged newest first, and unread counts by kind. Fax items follow the inbound-fax allow list, voice and SMS the voice owner. |
+| `POST /api/inbox/:kind/:id/read`, `.../unread`, `POST /api/inbox/read-all[?kind=]` | Read state. Faxes and missed calls use `inbox_reads`, voicemail `heard_at`, SMS `read_at`. Existing items start unread; use "Mark all read" once. |
 | `GET`/`PUT /api/settings` | Sender name and mail return address. |
 | `GET`/`PUT /api/settings/voicemail` | Voicemail `{greeting, voice, service_level}` with effective defaults, stored in the `settings` table and read at call time. `VOICEMAIL_GREETING` is the fallback greeting; the default voice is `Telnyx.KokoroTTS.af`. |
 
@@ -126,3 +132,9 @@ and double-sided, and metadata) occur in the current schema. See
 https://docs.postgrid.com/ and recheck before release. This is schema inspection,
 not provider execution, address validation, a rendering guarantee, or proof that
 the intended account supports every choice. No live or sandbox order was made.
+
+### SMS and ring-then-voicemail
+
+`SMS_NUMBER` (wrangler var, `+12134587846`) is the sending and receiving number. Sending reuses `TELNYX_API_TOKEN`; the messaging webhook reuses `TELNYX_PUBLIC_KEY`. The number needs a Telnyx messaging profile, 10DLC registration, and the webhook URL `https://simpledocs.justinharbour.dev/api/webhooks/telnyx/messaging`. MMS is not handled; a media message is stored as "(media message not shown)".
+
+When the softphone page is online and `TELNYX_WEBRTC_CREDENTIAL_ID` is set, an incoming call to `VOICEMAIL_NUMBER` is first transferred to the softphone (`sip:<sip_username>@sip.telnyx.com`, 20 s). If that leg ends without an answer, voicemail answers the original call. A rejected transfer or failed credential lookup answers voicemail at once; an unknown outcome waits and is never retried. Migrations: `0014_sms`, `0015_inbox_reads`, `0016_voicemail_rings`.

@@ -1,30 +1,73 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import PageHeader from "@/components/PageHeader.astro";
+import { Button } from "@/components/starwind/button";
+import { Input } from "@/components/starwind/input";
+import { input } from "@/components/starwind/input/variants";
+const select = input({ size: "sm" });
 ---
-<AppLayout title="Calls" description="Browser phone and recordings.">
-  <PageHeader title="Calls" summary="Connect this browser to make and receive calls." />
-  <p class="text-sm text-muted-foreground">Calls may incur charges. Do not use this phone for emergency calls. Microphone permission and a configured Telnyx connection are required.</p>
-  <section class="mt-8 max-w-xl" aria-labelledby="phone-heading">
-    <h2 id="phone-heading" class="text-lg font-semibold">Browser phone</h2>
-    <p id="phone-status" role="status" aria-live="polite" class="mt-2 text-sm">Disconnected.</p>
-    <div class="mt-4 flex flex-wrap gap-3">
-      <button id="connect" type="button" class="rounded-md bg-primary px-4 py-2 text-primary-foreground">Connect phone</button>
-      <button id="disconnect" type="button" disabled class="rounded-md border border-input px-4 py-2 disabled:opacity-50">Disconnect</button>
+
+<AppLayout title="Calls" description="Browser phone, call log and voicemail.">
+  <PageHeader title="Calls" summary="Make and receive calls in this browser while this page is open." />
+
+  <div id="incoming" hidden class="sticky top-2 z-40 mx-auto mb-4 w-full max-w-md"></div>
+
+  <section class="mx-auto flex w-full max-w-xs flex-col gap-4" aria-labelledby="phone-heading">
+    <div class="flex items-center justify-between gap-2">
+      <h2 id="phone-heading" class="text-lg font-semibold">Phone</h2>
+      <div class="flex items-center gap-2">
+        <span id="phone-status" role="status" aria-live="polite"></span>
+        <Button id="reconnect" type="button" variant="outline" size="sm" hidden>Reconnect</Button>
+      </div>
     </div>
-    <form id="call-form" class="mt-6 flex flex-col gap-3">
-      <label for="call-number">Phone number <span class="text-sm text-muted-foreground">Include country code, for example +12025550102.</span></label>
-      <input id="call-number" type="tel" autocomplete="tel" inputmode="tel" required class="rounded-md border border-input bg-background px-3 py-2" />
-      <label class="flex items-start gap-2"><input id="call-confirm" type="checkbox" required class="mt-1" /> I confirm this call is authorized and may incur charges.</label>
-      <button id="call" disabled type="submit" class="self-start rounded-md bg-primary px-4 py-2 text-primary-foreground disabled:opacity-50">Call</button>
+    <p id="phone-detail" class="text-muted-foreground min-h-5 text-sm" role="status" aria-live="polite"></p>
+
+    <div id="incall" hidden class="border-border flex flex-col gap-3 rounded-lg border p-4">
+      <p id="incall-number" class="text-xl font-semibold break-all"></p>
+      <p id="incall-state" class="text-muted-foreground text-sm" role="status" aria-live="polite"></p>
+      <p id="incall-sent" class="text-muted-foreground min-h-5 text-sm tracking-widest" aria-label="Digits sent"></p>
+      <div class="grid grid-cols-3 gap-2">
+        <Button id="mute" type="button" variant="outline" size="md" class="px-2" />
+        <Button id="hold" type="button" variant="outline" size="md" class="px-2" />
+        <Button id="keypad" type="button" variant="outline" size="md" class="px-2" aria-expanded="false" aria-controls="pad-wrap" />
+      </div>
+      <div id="devices" hidden class="flex flex-col gap-2">
+        <div id="out-box" hidden class="flex flex-col gap-1">
+          <label for="out-device" class="text-sm font-medium">Speaker</label>
+          <select id="out-device" class={select}></select>
+        </div>
+        <div id="in-box" hidden class="flex flex-col gap-1">
+          <label for="in-device" class="text-sm font-medium">Microphone</label>
+          <select id="in-device" class={select}></select>
+        </div>
+      </div>
+      <Button id="end" type="button" variant="error" size="md" class="h-12 w-full" />
+    </div>
+
+    <form id="dial-form" class="flex flex-col gap-3" novalidate>
+      <div id="dial-top" class="flex flex-col gap-1">
+        <div class="flex gap-2">
+          <label for="dial-number" class="sr-only">Phone number</label>
+          <Input id="dial-number" type="tel" inputmode="tel" autocomplete="off" placeholder="(202) 555-0142" aria-describedby="dial-error" size="lg" class="text-center" />
+          <Button id="backspace" type="button" variant="outline" size="icon-lg" aria-label="Delete last digit" />
+        </div>
+        <p id="dial-error" role="alert" class="text-error min-h-5 text-sm"></p>
+      </div>
+      <div id="pad-wrap">
+        <div id="pad" class="mx-auto grid w-full grid-cols-3 gap-3"></div>
+      </div>
+      <Button id="call" type="submit" variant="success" size="md" class="h-14 w-full text-base" />
     </form>
-    <div class="mt-4 flex flex-wrap gap-3">
-      <button id="answer" type="button" disabled class="rounded-md border border-input px-4 py-2 disabled:opacity-50">Answer</button>
-      <button id="hangup" type="button" disabled class="rounded-md border border-input px-4 py-2 disabled:opacity-50">Hang up / decline</button>
-      <button id="mute" type="button" disabled class="rounded-md border border-input px-4 py-2 disabled:opacity-50">Mute</button>
+    <p class="text-muted-foreground text-xs">Calls may incur charges. Not for emergency calls.</p>
+    <div id="notify"></div>
+
+    <div class="flex flex-col gap-2">
+      <h3 class="text-base font-semibold">Recent calls</h3>
+      <div id="recent" aria-live="polite"></div>
     </div>
     <audio id="remote-audio" autoplay></audio>
   </section>
+
   <section class="mt-10" aria-labelledby="voicemail-heading">
     <h2 id="voicemail-heading" class="text-lg font-semibold">Voicemail and recordings</h2>
     <div id="recordings" class="mt-3 flex flex-col gap-3" aria-live="polite"></div>
@@ -33,106 +76,365 @@ import PageHeader from "@/components/PageHeader.astro";
     <h2 id="log-heading" class="text-lg font-semibold">Call log</h2>
     <div id="call-log" class="mt-3" aria-live="polite"></div>
   </section>
+
   <script>
-    import { TelnyxRTC } from '@telnyx/webrtc';
-    import { normalizePhone } from '@/lib/phone';
-    const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-    const status = el<HTMLElement>('phone-status');
-    const connect = el<HTMLButtonElement>('connect'), disconnect = el<HTMLButtonElement>('disconnect');
-    const callButton = el<HTMLButtonElement>('call'), answer = el<HTMLButtonElement>('answer'), hangup = el<HTMLButtonElement>('hangup'), mute = el<HTMLButtonElement>('mute');
-    const remoteAudio = el<HTMLAudioElement>('remote-audio');
-    let client: TelnyxRTC | null = null;
-    let call: ReturnType<TelnyxRTC['newCall']> | null = null;
-    let callerNumber = '', ready = false, answered = false, muted = false;
-    const controls = () => { connect.disabled = !!client; disconnect.disabled = !client; callButton.disabled = !ready || !!call; answer.disabled = !call || call.direction !== 'inbound' || call.state !== 'ringing' || answered; hangup.disabled = !call; mute.disabled = !call || call.state !== 'active'; };
-    async function token() {
-      const response = await fetch('/api/voice/session', { method: 'POST', headers: { 'X-Requested-With': 'simpledocs' }, cache: 'no-store' });
-      if (!response.ok) throw new Error('unavailable');
-      return await response.json() as { loginToken: string; callerNumber: string };
-    }
-    connect.addEventListener('click', async () => {
-      connect.disabled = true; status.textContent = 'Connecting…';
-      try {
-        const session = await token(); callerNumber = session.callerNumber;
-        const next = new TelnyxRTC({ login_token: session.loginToken }); client = next;
-        next.on('telnyx.ready', () => { if (client !== next) return; ready = true; status.textContent = 'Connected. Ready for calls.'; controls(); });
-        next.on('telnyx.error', () => { if (client !== next) return; status.textContent = 'Phone connection error. Disconnect and try again.'; ready = false; controls(); });
-        next.on('telnyx.warning', (warning: { code?: number }) => { if (client === next && warning.code === 34001) status.textContent = 'Session is expiring. After your call, disconnect and reconnect.'; });
-        next.on('telnyx.notification', (notification: { type: string; call?: ReturnType<TelnyxRTC['newCall']> }) => {
-          if (client !== next || notification.type !== 'callUpdate' || !notification.call) return;
-          const update = notification.call;
-          if (call && call.id !== update.id) return;
-          call = update;
-          status.textContent = update.state === 'ringing' && update.direction === 'inbound' ? 'Incoming call.' : `Call: ${update.state}.`;
-          if (update.state === 'destroyed' || update.state === 'hangup') { call = null; answered = false; muted = false; mute.textContent = 'Mute'; }
-          controls();
-        });
-        next.connect(); controls();
-      } catch { client = null; ready = false; status.textContent = 'Phone unavailable. Check configuration or try again.'; controls(); }
-    });
-    disconnect.addEventListener('click', () => { if (call) void call.hangup(); client?.disconnect(); client = null; call = null; ready = false; answered = false; muted = false; mute.textContent = 'Mute'; status.textContent = 'Disconnected.'; controls(); });
-    el<HTMLFormElement>('call-form').addEventListener('submit', event => {
-      event.preventDefault(); if (!ready || !client || call) return;
-      const destination = normalizePhone(el<HTMLInputElement>('call-number').value);
-      if (!destination || !el<HTMLInputElement>('call-confirm').checked) return;
-      try { call = client.newCall({ destinationNumber: destination, callerNumber, audio: true, remoteElement: remoteAudio }); status.textContent = 'Calling…'; controls(); }
-      catch { status.textContent = 'Unable to start the call. Check your microphone and connection.'; }
-    });
-    answer.addEventListener('click', () => { if (!call || answered || call.state !== 'ringing' || call.direction !== 'inbound') return; answered = true; controls(); void Promise.resolve(call.answer({ remoteElement: remoteAudio })).catch(() => { status.textContent = 'Unable to answer. Check your microphone.'; }); });
-    hangup.addEventListener('click', () => { if (call) void call.hangup(); });
-    mute.addEventListener('click', () => { if (!call) return; if (muted) call.unmuteAudio(); else call.muteAudio(); muted = !muted; mute.textContent = muted ? 'Unmute' : 'Mute'; });
-    window.addEventListener('beforeunload', () => { client?.disconnect(); });
-    import { api, badgeEl, duration, h, skeletonRows, toast, when } from '@/lib/ui';
-    import { table, tableBody, tableCell, tableHead, tableHeader, tableRow } from '@/components/starwind/table/variants';
-    import { item, itemActions, itemContent, itemDescription, itemTitle } from '@/components/starwind/item/variants';
+    import { TelnyxRTC } from "@telnyx/webrtc";
+    import { normalizePhone } from "@/lib/phone";
+    import { icon, type IconName } from "@/lib/icons";
+    import { playDtmf, startRingtone, stopRingtone, unlockAudio } from "@/lib/tones";
+    import { notifyControl, setTitleFlag } from "@/lib/notify";
+    import { refreshCount } from "@/lib/unread";
+    import { alert } from "@/components/starwind/alert/variants";
+    import { button } from "@/components/starwind/button/variants";
+    import { table, tableBody, tableCell, tableHead, tableHeader, tableRow } from "@/components/starwind/table/variants";
+    import { item, itemActions, itemContent, itemDescription, itemTitle } from "@/components/starwind/item/variants";
+    import { api, ago, badgeEl, duration, h, skeletonRows, toast, when } from "@/lib/ui";
+
+    type Call = ReturnType<TelnyxRTC["newCall"]>;
     type Recording = { recording_id: string; archived_at: string; kind: string; direction: string | null; from_number: string | null; to_number: string | null; duration_secs: number | null; heard_at: string | null; transcript: string | null };
-    type CallRow = { id: string; direction: 'inbound' | 'outbound'; from: string | null; to: string | null; startedAt: string; durationSecs: number | null; outcome: string };
-    const empty = (title: string, body: string) => { const box = h('div', 'border-border rounded-lg border border-dashed px-6 py-8 text-center'); box.append(h('p', 'font-medium', title), h('p', 'text-muted-foreground mt-1 text-sm', body)); return box; };
-    const other = (direction: string | null, from: string | null, to: string | null) => (direction === 'outbound' ? to : from) || 'Unknown number';
+    type CallRow = { id: string; direction: "inbound" | "outbound"; from: string | null; to: string | null; startedAt: string; durationSecs: number | null; outcome: string };
+
+    const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+    const number = el<HTMLInputElement>("dial-number"), dialError = el("dial-error"), remoteAudio = el<HTMLAudioElement>("remote-audio");
+    const status = el("phone-status"), detail = el("phone-detail"), reconnect = el("reconnect");
+    const label = (node: HTMLElement, name: IconName, text: string) => node.replaceChildren(icon(name), document.createTextNode(text));
+
+    let client: TelnyxRTC | null = null;
+    let callerNumber = "";
+    let ready = false, connecting = false, pendingReconnect = false;
+    let current: Call | null = null, incoming: Call | null = null;
+    let startedAt = 0, ticker: ReturnType<typeof setInterval> | undefined, heartbeat: ReturnType<typeof setInterval> | undefined;
+    let padOpen = false, sent = "", devicesFor = "";
+
+    // ---- presence: tells the Worker this browser can take a call, so voicemail waits for it first ----
+    const beat = (online: boolean, keepalive = false) =>
+      void fetch("/api/voice/presence", { method: "POST", keepalive, headers: { "Content-Type": "application/json", "X-Requested-With": "simpledocs" }, body: JSON.stringify({ online }) }).catch(() => {});
+    function startPresence() { stopPresence(); beat(true); heartbeat = setInterval(() => beat(true), 30000); }
+    function stopPresence() { if (heartbeat !== undefined) clearInterval(heartbeat); heartbeat = undefined; }
+
+    // ---- connection ----
+    function setStatus(kind: "connecting" | "ready" | "offline", message = "") {
+      const view = { connecting: ["Connecting", "secondary", "loader"], ready: ["Ready", "success", "circleCheck"], offline: ["Offline", "warning", "wifiOff"] } as const;
+      const [text, variant, iconName] = view[kind];
+      const badge = badgeEl(text, variant);
+      badge.prepend(icon(iconName, "size-3.5"));
+      status.replaceChildren(badge);
+      detail.textContent = message;
+      reconnect.hidden = kind !== "offline";
+    }
+    function goOffline(message: string) {
+      ready = false; connecting = false;
+      stopPresence(); beat(false, true);
+      setStatus("offline", message);
+    }
+    function dropClient() { const old = client; client = null; ready = false; try { old?.disconnect(); } catch { /* already closed */ } }
+
+    async function token() {
+      const response = await fetch("/api/voice/session", { method: "POST", headers: { "X-Requested-With": "simpledocs" }, cache: "no-store" });
+      if (!response.ok) throw new Error("unavailable");
+      return (await response.json()) as { loginToken: string; callerNumber: string };
+    }
+
+    async function connect() {
+      if (connecting) return;
+      connecting = true; pendingReconnect = false;
+      dropClient();
+      setStatus("connecting");
+      try {
+        const session = await token();
+        callerNumber = session.callerNumber;
+        const next = new TelnyxRTC({ login_token: session.loginToken });
+        client = next;
+        next.on("telnyx.ready", () => { if (client !== next) return; ready = true; connecting = false; setStatus("ready"); startPresence(); });
+        next.on("telnyx.error", () => { if (client === next) goOffline("The phone connection failed."); });
+        next.on("telnyx.socket.close", () => { if (client === next && !connecting) goOffline("The phone connection closed."); });
+        next.on("telnyx.warning", (warning: { code?: number }) => {
+          if (client !== next || warning.code !== 34001) return;
+          if (current || incoming) pendingReconnect = true; else void connect();
+        });
+        next.on("telnyx.notification", (note: { type: string; call?: Call }) => { if (client === next) onNotification(note); });
+        next.connect();
+        setTimeout(() => { if (client === next && !ready) goOffline("The phone did not connect in time."); }, 15000);
+      } catch {
+        connecting = false; client = null;
+        goOffline("The phone is unavailable. Check the configuration, then reconnect.");
+      }
+    }
+    reconnect.addEventListener("click", () => void connect());
+
+    // ---- calls ----
+    const ended = (state: string) => state === "hangup" || state === "destroy" || state === "purge";
+    const callNumber = (call: Call) => call.options?.remoteCallerNumber || call.options?.destinationNumber || "Unknown number";
+
+    function onNotification(note: { type: string; call?: Call }) {
+      if (note.type !== "callUpdate" || !note.call) return;
+      const call = note.call, state = call.state;
+      if (current?.id === call.id) { current = call; if (ended(state)) finish(); else render(); return; }
+      if (incoming?.id === call.id) { incoming = call; if (ended(state)) clearIncoming(); return; }
+      if (ended(state)) return;
+      if (call.direction === "inbound" && state === "ringing") {
+        // One call at a time: a second caller is declined, which sends them to voicemail.
+        if (current || incoming) return void call.hangup();
+        incoming = call; showIncoming(call);
+      } else if (call.direction !== "inbound" && !current) { current = call; render(); }
+    }
+
+    function showIncoming(call: Call) {
+      const who = callNumber(call);
+      const box = el("incoming");
+      const banner = h("div", alert({ variant: "info", class: "bg-background shadow-lg" }));
+      banner.setAttribute("role", "alert");
+      const row = h("div", "flex flex-wrap items-center gap-3");
+      const text = h("p", "min-w-0 flex-1 font-medium break-all");
+      text.append(icon("phoneIncoming", "mr-2 inline size-4"), document.createTextNode(`Incoming call from ${who}`));
+      const answerButton = h("button", button({ variant: "success", size: "md" }));
+      answerButton.type = "button"; label(answerButton, "phone", "Answer");
+      const decline = h("button", button({ variant: "error", size: "md" }));
+      decline.type = "button"; label(decline, "phoneOff", "Decline");
+      answerButton.addEventListener("click", () => answer());
+      decline.addEventListener("click", () => { void call.hangup(); clearIncoming(); });
+      row.append(text, answerButton, decline);
+      banner.append(row);
+      box.replaceChildren(banner); box.hidden = false;
+      setTitleFlag("Incoming call");
+      startRingtone();
+      if (document.hidden && typeof Notification !== "undefined" && Notification.permission === "granted") {
+        const note = new Notification("Incoming call", { body: who, tag: "incoming-call", requireInteraction: true });
+        note.onclick = () => { window.focus(); note.close(); };
+      }
+    }
+    function clearIncoming() {
+      incoming = null; stopRingtone(); setTitleFlag("");
+      const box = el("incoming"); box.hidden = true; box.replaceChildren();
+    }
+    function answer() {
+      const call = incoming;
+      if (!call) return;
+      current = call; clearIncoming(); render();
+      void Promise.resolve(call.answer({ remoteElement: remoteAudio })).catch(() => toast("Could not answer. Check your microphone permission.", "error"));
+    }
+
+    function finish() {
+      current = null; startedAt = 0; sent = ""; padOpen = false; devicesFor = "";
+      if (ticker !== undefined) clearInterval(ticker);
+      ticker = undefined;
+      render();
+      setTimeout(() => void loadCalls(), 3000);
+      if (pendingReconnect) void connect();
+    }
+
+    const STATE: Record<string, string> = { new: "Dialing", requesting: "Dialing", trying: "Dialing", recovering: "Reconnecting", ringing: "Ringing", early: "Ringing", answering: "Connecting", active: "Connected", held: "On hold" };
+    const clock = () => { const s = Math.floor((Date.now() - startedAt) / 1000); return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; };
+
+    function render() {
+      const call = current;
+      el("incall").hidden = !call;
+      el("dial-top").hidden = !!call;
+      el("call").hidden = !!call;
+      el("pad-wrap").hidden = !!call && !padOpen;
+      if (!call) return;
+      const live = call.state === "active" || call.state === "held";
+      if (live && !startedAt) { startedAt = Date.now(); ticker = setInterval(render, 1000); }
+      el("incall-number").textContent = callNumber(call);
+      el("incall-state").textContent = `${STATE[call.state] ?? "Connecting"}${startedAt ? ` · ${clock()}` : ""}`;
+      el("incall-sent").textContent = sent;
+      label(el("mute"), call.isAudioMuted ? "micOff" : "mic", call.isAudioMuted ? "Unmute" : "Mute");
+      label(el("hold"), call.state === "held" ? "play" : "pause", call.state === "held" ? "Resume" : "Hold");
+      label(el("keypad"), "dialpad", padOpen ? "Hide keypad" : "Keypad");
+      el("keypad").setAttribute("aria-expanded", String(padOpen));
+      label(el("end"), "phoneOff", "End call");
+      if (live && devicesFor !== call.id) { devicesFor = call.id; void fillDevices(call); }
+    }
+
+    function fill(select: HTMLSelectElement, box: HTMLElement, devices: MediaDeviceInfo[]) {
+      box.hidden = devices.length === 0;
+      select.replaceChildren(...devices.map((d, i) => { const o = h("option", "", d.label || `Device ${i + 1}`); o.value = d.deviceId; return o; }));
+    }
+    async function fillDevices(call: Call) {
+      if (!client) return;
+      try {
+        const [outs, ins] = await Promise.all([client.getAudioOutDevices(), client.getAudioInDevices()]);
+        if (current?.id !== call.id) return;
+        fill(el<HTMLSelectElement>("out-device"), el("out-box"), outs);
+        fill(el<HTMLSelectElement>("in-device"), el("in-box"), ins);
+        el("devices").hidden = outs.length === 0 && ins.length === 0;
+      } catch { el("devices").hidden = true; }
+    }
+    el("out-device").addEventListener("change", (e) => { void current?.setAudioOutDevice((e.target as HTMLSelectElement).value).catch(() => toast("Could not switch the speaker.", "error")); });
+    el("in-device").addEventListener("change", (e) => { void current?.setAudioInDevice((e.target as HTMLSelectElement).value).catch(() => toast("Could not switch the microphone.", "error")); });
+
+    el("mute").addEventListener("click", () => { if (!current) return; if (current.isAudioMuted) current.unmuteAudio(); else current.muteAudio(); render(); });
+    el("hold").addEventListener("click", () => { if (!current) return; void Promise.resolve(current.state === "held" ? current.unhold() : current.hold()).catch(() => toast("Could not change hold.", "error")); });
+    el("keypad").addEventListener("click", () => { padOpen = !padOpen; render(); });
+    el("end").addEventListener("click", () => { void current?.hangup(); });
+
+    // ---- dial pad ----
+    function setNumber(value: string) { number.value = value; dialError.textContent = ""; number.removeAttribute("aria-invalid"); }
+    function insert(text: string) { number.focus(); number.setRangeText(text, number.selectionStart ?? number.value.length, number.selectionEnd ?? number.value.length, "end"); dialError.textContent = ""; }
+    function press(digit: string) {
+      unlockAudio(); playDtmf(digit);
+      if (current) {
+        if (current.state !== "active" && current.state !== "held") return;
+        current.dtmf(digit); sent += digit; render();
+      } else insert(digit);
+    }
+    function backspace() {
+      const start = number.selectionStart ?? number.value.length, end = number.selectionEnd ?? number.value.length;
+      if (start !== end) number.setRangeText("", start, end, "end");
+      else if (start > 0) number.setRangeText("", start - 1, start, "end");
+      number.focus();
+    }
+
+    const pad = el("pad");
+    for (const key of "123456789*0#") {
+      const b = h("button", button({ variant: "outline", size: "md", class: "h-14 text-xl font-medium" }), key);
+      b.type = "button"; b.setAttribute("aria-label", key === "*" ? "Star" : key === "#" ? "Pound" : key);
+      if (key === "0") {
+        // Long-press 0 gives "+" while dialing; in a call it is just the digit.
+        let timer: ReturnType<typeof setTimeout> | undefined, long = false;
+        b.setAttribute("aria-label", "0, hold for plus");
+        b.addEventListener("pointerdown", () => { long = false; if (!current) timer = setTimeout(() => { long = true; unlockAudio(); insert("+"); }, 500); });
+        const cancel = () => { if (timer !== undefined) clearTimeout(timer); timer = undefined; };
+        b.addEventListener("pointerleave", cancel); b.addEventListener("pointercancel", cancel);
+        b.addEventListener("click", (event) => { cancel(); if (long) { long = false; return; } press("0"); void event; });
+      } else b.addEventListener("click", () => press(key));
+      pad.append(b);
+    }
+    el("backspace").append(icon("backspace", "size-5"));
+    label(el("call"), "phone", "Call");
+
+    number.addEventListener("paste", (event) => {
+      const text = event.clipboardData?.getData("text") ?? "";
+      event.preventDefault();
+      insert(normalizePhone(text) ?? text.replace(/[^\d+*#]/g, ""));
+    });
+    el("backspace").addEventListener("click", backspace);
+
+    el<HTMLFormElement>("dial-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (current) return;
+      const destination = normalizePhone(number.value);
+      if (!destination) { dialError.textContent = "Enter a valid phone number, for example (202) 555-0142."; number.setAttribute("aria-invalid", "true"); return; }
+      if (!ready || !client) { dialError.textContent = "The phone is not connected. Use Reconnect, then try again."; return; }
+      dialError.textContent = "";
+      try { current = client.newCall({ destinationNumber: destination, callerNumber, audio: true, remoteElement: remoteAudio }); render(); }
+      catch { dialError.textContent = "Could not start the call. Check your microphone permission and connection."; }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable]") && target !== number) return;
+      if (target === number && !current) return;
+      if (/^[0-9*#]$/.test(event.key)) { event.preventDefault(); press(event.key); }
+    });
+    for (const type of ["pointerdown", "keydown"]) document.addEventListener(type, () => unlockAudio(), { once: true });
+    el("notify").append(notifyControl("Notify me of incoming calls"));
+
+    window.addEventListener("pagehide", () => { if (heartbeat !== undefined) beat(false, true); try { client?.disconnect(); } catch { /* closing */ } });
+
+    // ---- recent calls, call log, voicemail ----
+    const empty = (title: string, body: string) => { const box = h("div", "border-border rounded-lg border border-dashed px-6 py-8 text-center"); box.append(h("p", "font-medium", title), h("p", "text-muted-foreground mt-1 text-sm", body)); return box; };
+    const other = (direction: string | null, from: string | null, to: string | null) => (direction === "outbound" ? to : from) || "Unknown number";
+    const cap = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+    const useNumber = (value: string | null) => { if (!value) return; setNumber(value); window.scrollTo({ top: 0, behavior: "smooth" }); number.focus(); };
+
+    function renderRecent(calls: CallRow[]) {
+      const box = el("recent");
+      if (!calls.length) return box.replaceChildren(h("p", "text-muted-foreground text-sm", "Calls you make and receive appear here."));
+      const ul = h("ul", "flex flex-col gap-1");
+      for (const call of calls.slice(0, 6)) {
+        const who = other(call.direction, call.from, call.to);
+        const li = h("li"), row = h("button", "hover:bg-muted focus-visible:ring-outline/50 flex min-h-11 w-full items-center gap-3 rounded-md px-2 py-1 text-left outline-none focus-visible:ring-3");
+        row.type = "button"; row.setAttribute("aria-label", `Use ${who} in the dial pad`);
+        row.append(icon(call.outcome === "missed" ? "phoneX" : call.direction === "inbound" ? "phoneIncoming" : "phoneOutgoing", "size-4"));
+        const text = h("span", "flex min-w-0 flex-1 flex-col");
+        text.append(h("span", "truncate font-medium", who), h("span", "text-muted-foreground text-xs", `${call.direction === "inbound" ? "Incoming" : "Outgoing"} · ${cap(call.outcome)}`));
+        const time = h("time", "text-muted-foreground shrink-0 text-xs", ago(call.startedAt)); time.dateTime = call.startedAt; time.title = when(call.startedAt);
+        row.append(text, time);
+        row.addEventListener("click", () => useNumber(other(call.direction, call.from, call.to) === "Unknown number" ? null : who));
+        li.append(row); ul.append(li);
+      }
+      box.replaceChildren(ul);
+    }
 
     async function loadRecordings() {
-      const box = el<HTMLElement>('recordings'); box.replaceChildren(skeletonRows(2, 'h-24 w-full'));
+      const box = el("recordings"); box.replaceChildren(skeletonRows(2, "h-24 w-full"));
       try {
-        const data = await api<{ recordings: Recording[] }>('/api/voice/recordings');
-        if (!data.recordings.length) return box.replaceChildren(empty('No voicemail yet', 'Voicemail and recorded calls appear here with a player once someone leaves one.'));
+        const data = await api<{ recordings: Recording[] }>("/api/voice/recordings");
+        if (!data.recordings.length) return box.replaceChildren(empty("No voicemail yet", "Voicemail and recorded calls appear here with a player once someone leaves one."));
         box.replaceChildren();
         for (const rec of data.recordings) {
           if (!/^[0-9a-f-]{36}$/i.test(rec.recording_id)) continue;
-          const row = h('div', item({ variant: 'outline' }));
-          const content = h('div', itemContent());
-          const title = h('div', itemTitle() + ' flex flex-wrap items-center gap-2');
-          title.append(h('span', '', rec.kind === 'voicemail' ? 'Voicemail' : 'Call recording'), h('span', 'font-normal', other(rec.direction, rec.from_number, rec.to_number)));
-          const unheard = !rec.heard_at;
-          const mark = badgeEl(unheard ? 'New' : 'Heard', unheard ? 'info' : 'ghost'); title.append(mark);
-          const meta = [rec.direction === 'outbound' ? 'Outgoing' : rec.direction === 'inbound' ? 'Incoming' : '', when(rec.archived_at), duration(rec.duration_secs)].filter(Boolean).join(' · ');
-          content.append(title, h('p', itemDescription(), meta));
-          const audio = document.createElement('audio'); audio.controls = true; audio.preload = 'none'; audio.src = `/api/voice/recordings/${rec.recording_id}`; audio.className = 'mt-2 w-full max-w-md';
-          audio.setAttribute('aria-label', `Play ${rec.kind === 'voicemail' ? 'voicemail' : 'recording'} from ${other(rec.direction, rec.from_number, rec.to_number)}`);
-          audio.addEventListener('play', () => { if (rec.heard_at) return; rec.heard_at = new Date().toISOString(); fetch(`/api/voice/recordings/${rec.recording_id}/heard`, { method: 'POST' }).then(r => { if (!r.ok) throw new Error(); mark.textContent = 'Heard'; }).catch(() => { rec.heard_at = null; toast('Could not mark this as heard.', 'error'); }); });
+          const who = other(rec.direction, rec.from_number, rec.to_number);
+          const row = h("div", item({ variant: "outline" }));
+          const content = h("div", itemContent());
+          const title = h("div", `${itemTitle()} flex flex-wrap items-center gap-2`);
+          title.append(h("span", "", rec.kind === "voicemail" ? "Voicemail" : "Call recording"), h("span", "font-normal", who));
+          const mark = badgeEl(rec.heard_at ? "Heard" : "New", rec.heard_at ? "ghost" : "info"); title.append(mark);
+          const meta = [rec.direction === "outbound" ? "Outgoing" : rec.direction === "inbound" ? "Incoming" : "", when(rec.archived_at), duration(rec.duration_secs)].filter(Boolean).join(" · ");
+          content.append(title, h("p", itemDescription(), meta));
+          const audio = document.createElement("audio"); audio.controls = true; audio.preload = "none"; audio.src = `/api/voice/recordings/${rec.recording_id}`; audio.className = "mt-2 w-full max-w-md";
+          audio.setAttribute("aria-label", `Play ${rec.kind === "voicemail" ? "voicemail" : "recording"} from ${who}`);
+          audio.addEventListener("play", () => {
+            if (rec.heard_at) return;
+            rec.heard_at = new Date().toISOString();
+            fetch(`/api/voice/recordings/${rec.recording_id}/heard`, { method: "POST" }).then((r) => { if (!r.ok) throw new Error(); mark.textContent = "Heard"; void refreshCount(); }).catch(() => { rec.heard_at = null; toast("Could not mark this as heard.", "error"); });
+          });
           content.append(audio);
-          if (rec.transcript) { const text = h('p', 'text-muted-foreground mt-2 max-w-prose text-sm whitespace-pre-line', rec.transcript); text.setAttribute('aria-label', 'Transcript'); content.append(h('p', 'mt-2 text-xs font-medium uppercase tracking-wide', 'Transcript'), text); }
-          const actions = h('div', itemActions()); const link = h('a', 'text-sm underline underline-offset-4', 'Download'); link.href = `/api/voice/recordings/${rec.recording_id}?download=1`; link.setAttribute('aria-label', 'Download recording'); actions.append(link);
+          if (rec.transcript) {
+            const text = h("p", "text-muted-foreground max-w-prose text-sm whitespace-pre-line", rec.transcript);
+            content.append(h("h3", "mt-2 text-sm font-medium", "Transcript"), text);
+          }
+          const actions = h("div", `${itemActions()} flex-wrap`);
+          if (rec.direction !== "outbound" && rec.from_number) {
+            const back = h("button", button({ variant: "outline", size: "sm" }));
+            back.type = "button"; label(back, "phone", "Call back");
+            back.setAttribute("aria-label", `Call back ${rec.from_number}`);
+            back.addEventListener("click", () => useNumber(rec.from_number));
+            actions.append(back);
+          }
+          const link = h("a", "text-sm underline underline-offset-4", "Download"); link.href = `/api/voice/recordings/${rec.recording_id}?download=1`; link.setAttribute("aria-label", "Download recording"); actions.append(link);
           row.append(content, actions); box.append(row);
         }
-      } catch { box.replaceChildren(empty('Recordings could not be loaded', 'Reload the page to try again.')); }
+      } catch { box.replaceChildren(empty("Recordings could not be loaded", "Reload the page to try again.")); }
     }
 
     async function loadCalls() {
-      const box = el<HTMLElement>('call-log'); box.replaceChildren(skeletonRows(4, 'h-10 w-full'));
+      const box = el("call-log");
+      if (!box.childElementCount) box.replaceChildren(skeletonRows(4, "h-10 w-full"));
       try {
-        const { calls } = await api<{ calls: CallRow[] }>('/api/voice/calls');
-        if (!calls.length) return box.replaceChildren(empty('No calls yet', 'Incoming and outgoing calls are listed here after they happen.'));
-        const t = h('table', table()); const head = h('thead', tableHeader()); const hr = h('tr', tableRow());
-        for (const name of ['Number', 'Direction', 'Started', 'Duration', 'Outcome']) hr.append(h('th', tableHead(), name));
-        head.append(hr); const body = h('tbody', tableBody());
+        const { calls } = await api<{ calls: CallRow[] }>("/api/voice/calls");
+        renderRecent(calls);
+        if (!calls.length) return box.replaceChildren(empty("No calls yet", "Incoming and outgoing calls are listed here after they happen."));
+        const t = h("table", table()), head = h("thead", tableHeader()), hr = h("tr", tableRow());
+        for (const name of ["Number", "Direction", "Started", "Duration", "Outcome"]) hr.append(h("th", tableHead(), name));
+        head.append(hr);
+        const body = h("tbody", tableBody());
         for (const call of calls) {
-          const tr = h('tr', tableRow());
-          for (const text of [other(call.direction, call.from, call.to), call.direction === 'inbound' ? 'Incoming' : 'Outgoing', when(call.startedAt), duration(call.durationSecs) || '-']) tr.append(h('td', tableCell(), text));
-          const td = h('td', tableCell()); td.append(badgeEl(call.outcome.charAt(0).toUpperCase() + call.outcome.slice(1), call.outcome === 'missed' ? 'warning' : call.outcome === 'answered' ? 'success' : 'outline')); tr.append(td); body.append(tr);
+          const tr = h("tr", tableRow());
+          for (const text of [other(call.direction, call.from, call.to), call.direction === "inbound" ? "Incoming" : "Outgoing", when(call.startedAt), duration(call.durationSecs) || "-"]) tr.append(h("td", tableCell(), text));
+          const td = h("td", tableCell());
+          td.append(badgeEl(cap(call.outcome), call.outcome === "missed" ? "warning" : call.outcome === "answered" ? "success" : "outline"));
+          tr.append(td); body.append(tr);
         }
-        t.append(head, body); const wrap = h('div', 'overflow-x-auto'); wrap.append(t); box.replaceChildren(wrap);
-      } catch { box.replaceChildren(empty('The call log could not be loaded', 'Reload the page to try again.')); }
+        t.append(head, body);
+        const wrap = h("div", "overflow-x-auto"); wrap.append(t); box.replaceChildren(wrap);
+      } catch {
+        el("recent").replaceChildren(h("p", "text-muted-foreground text-sm", "Recent calls could not be loaded."));
+        box.replaceChildren(empty("The call log could not be loaded", "Reload the page to try again."));
+      }
     }
+
+    // ---- start ----
+    const dial = new URL(location.href).searchParams.get("dial");
+    if (dial) {
+      const wanted = normalizePhone(dial);
+      if (wanted) setNumber(wanted);
+      history.replaceState({}, "", "/calls/");
+    }
+    render();
+    void connect();
     void loadRecordings(); void loadCalls();
   </script>
 </AppLayout>

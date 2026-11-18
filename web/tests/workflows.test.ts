@@ -33,7 +33,7 @@ describe.skipIf(!built)("workflow pages (run `pnpm build` first)", () => {
     const doc = read("/calls/");
     expect(doc).toContain('id="recordings"');
     expect(doc).toContain('id="call-log"');
-    expect(doc).toContain('id="call-confirm"');
+    expect(doc).toContain('id="dial-form"');
   });
 
   it("lists records with a detail view", () => {

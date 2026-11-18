@@ -85,7 +85,7 @@ async function send(request, env, fetcher) {
   } catch { return json({ error: 'Messaging unavailable' }, 503); }
   const fail = async (code, reason) => {
     await env.DB.prepare("UPDATE sms_messages SET status = 'failed', error_code = ?, error_text = ?, status_at = ? WHERE id = ?").bind(code, reason, new Date().toISOString(), id).run();
-    return json({ message: view(await env.DB.prepare(`SELECT ${COLUMNS} FROM sms_messages WHERE id = ?`).bind(id).first()) }, 502);
+    return json({ message: view(await env.DB.prepare(`SELECT ${COLUMNS} FROM sms_messages WHERE id = ?`).bind(id).first()), error: reason }, 502);
   };
   try {
     const response = await fetcher('https://api.telnyx.com/v2/messages', {
