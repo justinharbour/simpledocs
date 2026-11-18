@@ -55,6 +55,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Config/MacConnected.entitlements
         ENABLE_HARDENED_RUNTIME: "YES"
         GENERATE_INFOPLIST_FILE: "YES"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_CFBundleDisplayName: simpledocs
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
   SimpleDocsShareMac:
@@ -109,6 +110,7 @@ targets:
         PRODUCT_NAME: simpledocs
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: "YES"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_CFBundleDisplayName: simpledocs
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
@@ -150,7 +152,8 @@ targets:
         PRODUCT_NAME: SimpleDocsTV
         TARGETED_DEVICE_FAMILY: "3"
         GENERATE_INFOPLIST_FILE: "YES"
-        INFOPLIST_KEY_CFBundleDisplayName: SimpleDocs
+        ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
+        INFOPLIST_KEY_CFBundleDisplayName: simpledocs
   SimpleDocsSignInTests:
     type: bundle.unit-test
     platform: macOS

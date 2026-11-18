@@ -23,3 +23,8 @@ targets:
       base:
         CODE_SIGN_STYLE: Manual
         PROVISIONING_PROFILE_SPECIFIER: $(SIMPLEDOCS_MAC_SHARE_PROFILE)
+  SimpleDocsTV:
+    settings:
+      base:
+        CODE_SIGN_STYLE: Manual
+        PROVISIONING_PROFILE_SPECIFIER: $(SIMPLEDOCS_TV_PROFILE)
