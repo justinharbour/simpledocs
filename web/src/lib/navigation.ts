@@ -5,16 +5,14 @@ export type NavItem = {
 };
 
 export const primaryNav: readonly NavItem[] = [
-  { label: "Overview", href: "/", description: "Channel status and recent activity." },
-  { label: "Compose", href: "/compose/", description: "Prepare a fax or letter. Preview only." },
-  { label: "Fax", href: "/fax/", description: "Faxes sent and received." },
-  { label: "Calls", href: "/calls/", description: "Calls and voicemail." },
-  { label: "Mail", href: "/mail/", description: "Physical mail, proofs and tracking." },
-  { label: "Records", href: "/records/", description: "Documents and delivery records." },
+  { label: "Overview", href: "/", description: "Where to start." },
+  { label: "Send", href: "/send/", description: "Send one PDF by fax, paper mail, or both." },
+  { label: "Calls", href: "/calls/", description: "Phone, call log and voicemail." },
+  { label: "Records", href: "/records/", description: "Everything sent and received." },
 ];
 
 export const secondaryNav: readonly NavItem[] = [
-  { label: "Settings", href: "/settings/", description: "Which channels are turned on." },
+  { label: "Settings", href: "/settings/", description: "Sender name and return address." },
 ];
 
 export function normalizePath(pathname: string): string {

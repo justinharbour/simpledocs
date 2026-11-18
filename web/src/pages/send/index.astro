@@ -1,0 +1,421 @@
+---
+import AppLayout from "@/layouts/AppLayout.astro";
+import PageHeader from "@/components/PageHeader.astro";
+import AddressFields from "@/components/AddressFields.astro";
+import UploadIcon from "@tabler/icons/outline/upload.svg";
+import PdfIcon from "@tabler/icons/outline/file-type-pdf.svg";
+import PrinterIcon from "@tabler/icons/outline/printer.svg";
+import MailIcon from "@tabler/icons/outline/mail.svg";
+import { Alert, AlertDescription } from "@/components/starwind/alert";
+import { Button } from "@/components/starwind/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/starwind/card";
+import { Checkbox } from "@/components/starwind/checkbox";
+import { Input } from "@/components/starwind/input";
+import { Label } from "@/components/starwind/label";
+import { Progress } from "@/components/starwind/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/starwind/select";
+import { Switch } from "@/components/starwind/switch";
+import { Textarea } from "@/components/starwind/textarea";
+---
+
+<AppLayout title="Send" description="Send one PDF by fax, paper mail, or both.">
+  <PageHeader title="Send" summary="Choose a PDF once, then send it by fax, paper mail, or both." />
+
+  <div id="wizard" class="max-w-3xl">
+    <div class="mb-6">
+      <p id="step-label" class="mb-2 text-sm font-medium" aria-live="polite">Step 1 of 4: Document</p>
+      <Progress id="step-progress" value={25} max={100} variant="primary" aria-label="Progress through the form" />
+    </div>
+
+    <div id="form-error" hidden class="mb-4">
+      <Alert variant="error"><AlertDescription id="form-error-text" /></Alert>
+    </div>
+
+    <section data-step="1" aria-labelledby="s1">
+      <h2 id="s1" class="mb-3 text-lg font-semibold">Choose the PDF</h2>
+      <div
+        id="dropzone"
+        role="button"
+        tabindex="0"
+        aria-label="Choose a PDF. Drop a file here or press Enter to browse."
+        class="border-border hover:bg-muted/50 focus-visible:ring-outline/50 data-[over=true]:border-primary data-[over=true]:bg-primary/5 flex min-h-56 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-8 text-center outline-none focus-visible:ring-3"
+      >
+        <UploadIcon class="text-muted-foreground size-10" aria-hidden="true" />
+        <p class="text-base font-medium">Drop a PDF here, or click to browse</p>
+        <p class="text-muted-foreground text-sm">One PDF, up to 5 MB.</p>
+      </div>
+      <input id="file-input" type="file" accept="application/pdf,.pdf" class="sr-only" tabindex="-1" aria-hidden="true" />
+      <div id="file-card" hidden class="mt-4">
+        <Card>
+          <CardContent class="flex flex-col gap-4">
+            <div class="flex flex-wrap items-center gap-3">
+              <PdfIcon class="text-primary size-8 shrink-0" aria-hidden="true" />
+              <div class="min-w-0 flex-1">
+                <p id="file-name" class="truncate font-medium"></p>
+                <p id="file-meta" class="text-muted-foreground text-sm"></p>
+              </div>
+              <Button id="file-replace" type="button" variant="outline" size="sm">Replace</Button>
+              <Button id="file-remove" type="button" variant="ghost" size="sm">Remove</Button>
+            </div>
+            <iframe id="file-preview" title="Preview of the selected PDF" class="border-border h-96 w-full rounded-lg border"></iframe>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+
+    <section data-step="2" hidden aria-labelledby="s2">
+      <h2 id="s2" class="mb-1 text-lg font-semibold">How should it go out?</h2>
+      <p class="text-muted-foreground mb-3 text-sm">Pick one or both. They go out as one send.</p>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div data-channel-card="fax" class="border-border hover:bg-muted/50 data-[on=true]:border-primary data-[on=true]:bg-primary/5 cursor-pointer rounded-xl border p-4">
+          <div class="flex items-start gap-3">
+            <Checkbox aria-label="Fax" data-channel="fax" />
+            <div class="flex-1">
+              <p class="flex items-center gap-2 font-medium"><PrinterIcon class="size-4" aria-hidden="true" /> Fax</p>
+              <p class="text-muted-foreground mt-1 text-sm">Sent through Telnyx from +1 213 414 7728. Includes a cover page if you want one.</p>
+            </div>
+          </div>
+        </div>
+        <div data-channel-card="mail" class="border-border hover:bg-muted/50 data-[on=true]:border-primary data-[on=true]:bg-primary/5 cursor-pointer rounded-xl border p-4">
+          <div class="flex items-start gap-3">
+            <Checkbox aria-label="Paper mail" data-channel="mail" />
+            <div class="flex-1">
+              <p class="flex items-center gap-2 font-medium"><MailIcon class="size-4" aria-hidden="true" /> Paper mail</p>
+              <p class="text-muted-foreground mt-1 text-sm">Printed and mailed by PostGrid to one US address.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section data-step="3" hidden aria-labelledby="s3">
+      <h2 id="s3" class="mb-3 text-lg font-semibold">Details</h2>
+      <div class="flex flex-col gap-6">
+        <Card data-panel="fax">
+          <CardHeader>
+            <CardTitle>Fax</CardTitle>
+            <CardDescription>One number per line. Common formats like (213) 414-7728 work.</CardDescription>
+          </CardHeader>
+          <CardContent class="flex flex-col gap-4">
+            <div class="flex flex-col gap-1.5">
+              <Label for="fax-recipients">Fax numbers</Label>
+              <Textarea id="fax-recipients" rows={3} placeholder="(512) 555-0100" inputmode="tel" />
+            </div>
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <p class="font-medium" id="cover-label">Include a cover page</p>
+                <p class="text-muted-foreground text-sm">Added in front of your document.</p>
+              </div>
+              <div data-switch="cover"><Switch id="cover-switch" defaultChecked aria-labelledby="cover-label" /></div>
+            </div>
+            <div id="cover-fields" class="grid gap-4 lg:grid-cols-2">
+              <div class="flex flex-col gap-3">
+                <div class="flex flex-col gap-1.5"><Label for="cover-to">To</Label><Input id="cover-to" placeholder="Recipient name" autocomplete="off" /></div>
+                <div class="flex flex-col gap-1.5"><Label for="cover-from">From</Label><Input id="cover-from" autocomplete="off" /></div>
+                <div class="flex flex-col gap-1.5"><Label for="cover-subject">Subject</Label><Input id="cover-subject" autocomplete="off" /></div>
+                <div class="flex flex-col gap-1.5"><Label for="cover-date">Date</Label><Input id="cover-date" type="date" /></div>
+                <div class="flex flex-col gap-1.5"><Label for="cover-message">Message</Label><Textarea id="cover-message" rows={4} /></div>
+                <p id="cover-pages" class="text-muted-foreground text-sm"></p>
+              </div>
+              <div class="flex flex-col gap-1.5">
+                <p class="text-sm font-medium">Cover page preview</p>
+                <iframe id="cover-preview" title="Cover page preview" class="border-border h-96 w-full rounded-lg border lg:h-full lg:min-h-96"></iframe>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card data-panel="mail">
+          <CardHeader>
+            <CardTitle>Paper mail</CardTitle>
+            <CardDescription>US addresses only.</CardDescription>
+          </CardHeader>
+          <CardContent class="flex flex-col gap-6">
+            <AddressFields prefix="to" legend="Mail to" />
+            <AddressFields prefix="from" legend="Return address" />
+            <div class="grid gap-4 sm:grid-cols-3">
+              <div class="flex items-center justify-between gap-3 sm:flex-col sm:items-start">
+                <span class="text-sm font-medium" id="color-label">Print in color</span>
+                <div data-switch="color"><Switch id="color-switch" aria-labelledby="color-label" /></div>
+              </div>
+              <div class="flex items-center justify-between gap-3 sm:flex-col sm:items-start">
+                <span class="text-sm font-medium" id="duplex-label">Print on both sides</span>
+                <div data-switch="duplex"><Switch id="duplex-switch" aria-labelledby="duplex-label" /></div>
+              </div>
+              <div class="flex flex-col gap-1.5" data-select="class">
+                <span class="text-sm font-medium" id="class-label">Mailing class</span>
+                <Select defaultValue="first_class">
+                  <SelectTrigger aria-labelledby="class-label"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="first_class">First class</SelectItem>
+                    <SelectItem value="standard_class">Standard class (slower, cheaper)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+
+    <section data-step="4" hidden aria-labelledby="s4">
+      <h2 id="s4" class="mb-1 text-lg font-semibold">Review and confirm</h2>
+      <p class="text-muted-foreground mb-3 text-sm">Nothing is sent until you press Send.</p>
+      <Card>
+        <CardContent class="flex flex-col gap-4">
+          <dl id="summary" class="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[8rem_1fr]"></dl>
+          <div id="mode-box" class="border-border flex flex-col gap-1.5 rounded-lg border p-4" data-select="mode">
+            <span class="text-sm font-medium" id="mode-label">Paper mail mode</span>
+            <Select defaultValue="test">
+              <SelectTrigger aria-labelledby="mode-label"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="test">Test: PostGrid prints nothing and mails nothing</SelectItem>
+                <SelectItem value="live">Live: PostGrid prints and mails a real letter (paid)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p id="mode-hint" class="text-muted-foreground text-sm"></p>
+          </div>
+        </CardContent>
+      </Card>
+    </section>
+
+    <div class="mt-6 flex flex-wrap justify-between gap-3">
+      <Button id="back" type="button" variant="outline" class="invisible">Back</Button>
+      <Button id="next" type="button" variant="primary">Next</Button>
+    </div>
+  </div>
+
+  <section id="result" hidden class="max-w-3xl" aria-labelledby="result-title">
+    <h2 id="result-title" class="mb-1 text-lg font-semibold">Sent for delivery</h2>
+    <p class="text-muted-foreground mb-4 text-sm">This page updates as the providers report back. You can leave it; the same details are in Records.</p>
+    <div id="result-body"></div>
+    <div class="mt-6 flex gap-3">
+      <Button href="/send/" variant="outline">Send another</Button>
+      <Button href="/records/" variant="ghost">Go to Records</Button>
+    </div>
+  </section>
+
+  <script>
+    import { normalizePhone } from "@/lib/phone";
+    import { watchTransmission, approveLetter } from "@/lib/detail";
+    import { api, formatBytes, h, skeletonRows, toast } from "@/lib/ui";
+
+    const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+    const MAX = 5 * 1024 * 1024;
+    const TITLES = ["Document", "How to send", "Details", "Review and confirm"];
+
+    let file: File | null = null;
+    let pages = 0;
+    let objectUrl = "";
+    let step = 1;
+    let settings = { senderName: "", mailFrom: null as Record<string, string> | null, faxFrom: "+12134147728" };
+
+    const dropzone = $("dropzone"), input = $<HTMLInputElement>("file-input");
+    const card = $("file-card");
+
+    const channelOn = (name: string) => document.querySelector(`[data-channel="${name}"]`)?.getAttribute("aria-checked") === "true";
+    const switchOn = (name: string) => document.querySelector(`[data-switch="${name}"] [data-slot="switch-button"]`)?.getAttribute("aria-checked") === "true";
+    const selectValue = (name: string) => document.querySelector<HTMLInputElement>(`[data-select="${name}"] [data-sw-select-input]`)?.value ?? "";
+    const value = (id: string) => $<HTMLInputElement | HTMLTextAreaElement>(id).value.trim();
+
+    function showError(message: string) {
+      $("form-error-text").textContent = message;
+      $("form-error").hidden = false;
+      $("form-error").scrollIntoView({ block: "nearest" });
+    }
+    const clearError = () => { $("form-error").hidden = true; };
+
+    async function setFile(next: File) {
+      clearError();
+      if (next.size === 0 || next.size > MAX) return showError("That file is too large. Choose a PDF up to 5 MB.");
+      const head = await next.slice(0, 5).text();
+      if (head !== "%PDF-") return showError("That file is not a PDF. Choose a PDF.");
+      let count = 0;
+      try {
+        const { PDFDocument } = await import("pdf-lib");
+        count = (await PDFDocument.load(new Uint8Array(await next.arrayBuffer()), { updateMetadata: false })).getPageCount();
+      } catch { return showError("That PDF could not be read. Try exporting it again."); }
+      file = next; pages = count;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      objectUrl = URL.createObjectURL(next);
+      $("file-name").textContent = next.name;
+      $("file-meta").textContent = `${formatBytes(next.size)} · ${count} ${count === 1 ? "page" : "pages"}`;
+      $<HTMLIFrameElement>("file-preview").src = objectUrl;
+      card.hidden = false;
+      dropzone.hidden = true;
+      if (!value("cover-subject")) $<HTMLInputElement>("cover-subject").value = next.name.replace(/\.pdf$/i, "");
+    }
+    function clearFile() {
+      file = null; pages = 0; input.value = "";
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      objectUrl = ""; $<HTMLIFrameElement>("file-preview").removeAttribute("src");
+      card.hidden = true; dropzone.hidden = false;
+    }
+
+    dropzone.addEventListener("click", () => input.click());
+    dropzone.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
+    input.addEventListener("change", () => { const f = input.files?.[0]; if (f) void setFile(f); });
+    for (const type of ["dragenter", "dragover"]) dropzone.addEventListener(type, (e) => { e.preventDefault(); dropzone.dataset.over = "true"; });
+    for (const type of ["dragleave", "drop"]) dropzone.addEventListener(type, () => { dropzone.dataset.over = "false"; });
+    dropzone.addEventListener("drop", (e) => { e.preventDefault(); const f = (e as DragEvent).dataTransfer?.files?.[0]; if (f) void setFile(f); });
+    $("file-replace").addEventListener("click", () => input.click());
+    $("file-remove").addEventListener("click", clearFile);
+
+    // Whole card toggles its checkbox.
+    for (const cardEl of document.querySelectorAll<HTMLElement>("[data-channel-card]")) {
+      const box = cardEl.querySelector<HTMLElement>("[data-channel]")!;
+      const sync = () => { cardEl.dataset.on = String(box.getAttribute("aria-checked") === "true"); };
+      cardEl.addEventListener("click", (e) => { if (!(e.target as HTMLElement).closest("[data-channel]")) box.click(); });
+      new MutationObserver(sync).observe(box, { attributes: true, attributeFilter: ["aria-checked"] });
+      sync();
+    }
+
+    function sync() {
+      const fax = channelOn("fax"), mail = channelOn("mail");
+      document.querySelector<HTMLElement>('[data-panel="fax"]')!.hidden = !fax;
+      document.querySelector<HTMLElement>('[data-panel="mail"]')!.hidden = !mail;
+      $("cover-fields").hidden = !switchOn("cover");
+      $("mode-box").hidden = !mail;
+    }
+
+    function goto(next: number) {
+      step = next;
+      for (const section of document.querySelectorAll<HTMLElement>("[data-step]")) section.hidden = Number(section.dataset.step) !== step;
+      $("step-label").textContent = `Step ${step} of 4: ${TITLES[step - 1]}`;
+      const percent = step * 25;
+      const bar = $("step-progress");
+      bar.setAttribute("aria-valuenow", String(percent));
+      const indicator = bar.querySelector<HTMLElement>('[data-slot="progress-indicator"]');
+      if (indicator) indicator.style.transform = `translateX(-${100 - percent}%)`;
+      $("back").classList.toggle("invisible", step === 1);
+      $("next").textContent = step === 4 ? "Send" : "Next";
+      clearError(); sync();
+      if (step === 3) { prepareDetails(); void refreshCover(); }
+      if (step === 4) renderSummary();
+      window.scrollTo({ top: 0 });
+    }
+
+    type Address = Record<string, string>;
+    function readAddress(prefix: string): Address {
+      const out: Address = { countryCode: "US" };
+      for (const el of document.querySelectorAll<HTMLInputElement>(`[data-address="${prefix}"] [data-field]`)) {
+        const v = el.value.trim(); if (v) out[el.dataset.field!] = v;
+      }
+      return out;
+    }
+    function writeAddress(prefix: string, address: Address | null) {
+      if (!address) return;
+      for (const el of document.querySelectorAll<HTMLInputElement>(`[data-address="${prefix}"] [data-field]`)) if (!el.value) el.value = address[el.dataset.field!] ?? "";
+    }
+    const addressProblem = (a: Address, label: string) => {
+      for (const [key, name] of [["firstName", "first name"], ["addressLine1", "street address"], ["city", "city"], ["provinceOrState", "state"], ["postalOrZip", "ZIP"]] as const) if (!a[key]) return `${label}: enter the ${name}.`;
+      return "";
+    };
+    const faxNumbers = () => value("fax-recipients").split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean);
+
+    function prepareDetails() {
+      if (!value("cover-from")) $<HTMLInputElement>("cover-from").value = settings.senderName;
+      if (!value("cover-date")) $<HTMLInputElement>("cover-date").value = new Date().toISOString().slice(0, 10);
+      writeAddress("from", settings.mailFrom);
+      $("cover-pages").textContent = `${pages + 1} pages including the cover.`;
+    }
+
+    function coverBody() {
+      return { title: value("cover-subject"), to: value("cover-to"), from: value("cover-from"), subject: value("cover-subject"), message: value("cover-message"), date: value("cover-date"), pages, recipient: faxNumbers()[0] ? normalizePhone(faxNumbers()[0]) ?? "" : "" };
+    }
+    let coverUrl = "", coverTimer: ReturnType<typeof setTimeout> | undefined, coverSeq = 0;
+    async function refreshCover() {
+      if (!channelOn("fax") || !switchOn("cover")) return;
+      const seq = ++coverSeq;
+      try {
+        const response = await fetch("/api/cover-preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(coverBody()) });
+        if (!response.ok) throw new Error();
+        const blob = await response.blob();
+        if (seq !== coverSeq) return;
+        if (coverUrl) URL.revokeObjectURL(coverUrl);
+        coverUrl = URL.createObjectURL(blob);
+        $<HTMLIFrameElement>("cover-preview").src = coverUrl;
+      } catch { if (seq === coverSeq) toast("The cover page preview could not be made.", "error"); }
+    }
+    const queueCover = () => { clearTimeout(coverTimer); coverTimer = setTimeout(() => void refreshCover(), 500); };
+    for (const id of ["cover-to", "cover-from", "cover-subject", "cover-date", "cover-message", "fax-recipients"]) $(id).addEventListener("input", queueCover);
+    document.querySelector('[data-switch="cover"]')!.addEventListener("click", () => setTimeout(() => { sync(); queueCover(); }, 0));
+
+    function validate(): string {
+      if (step === 1 && !file) return "Choose a PDF to continue.";
+      if (step === 2 && !channelOn("fax") && !channelOn("mail")) return "Pick fax, paper mail, or both.";
+      if (step === 3) {
+        if (channelOn("fax")) {
+          const numbers = faxNumbers();
+          if (!numbers.length) return "Enter at least one fax number.";
+          if (numbers.length > 10) return "Enter up to 10 fax numbers.";
+          const bad = numbers.find((n) => !normalizePhone(n));
+          if (bad) return `"${bad}" is not a valid phone number.`;
+        }
+        if (channelOn("mail")) return addressProblem(readAddress("to"), "Mail to") || addressProblem(readAddress("from"), "Return address");
+      }
+      return "";
+    }
+
+    function renderSummary() {
+      const dl = $("summary"); dl.replaceChildren();
+      const add = (term: string, text: string) => { dl.append(h("dt", "text-muted-foreground", term), h("dd", "font-medium whitespace-pre-line", text)); };
+      add("Document", `${file?.name} (${pages} ${pages === 1 ? "page" : "pages"})`);
+      if (channelOn("fax")) {
+        const list = faxNumbers().map((n) => normalizePhone(n)!);
+        add("Fax to", list.join("\n"));
+        add("Fax from", settings.faxFrom);
+        add("Cover page", switchOn("cover") ? `Yes (${pages + 1} pages sent per number)` : "No");
+      }
+      if (channelOn("mail")) {
+        const to = readAddress("to"), from = readAddress("from");
+        const lines = (a: Address) => [`${a.firstName} ${a.lastName ?? ""}`.trim(), a.addressLine1, a.addressLine2, `${a.city}, ${a.provinceOrState} ${a.postalOrZip}`].filter(Boolean).join("\n");
+        add("Mail to", lines(to)); add("Return address", lines(from));
+        add("Print", `${switchOn("color") ? "Color" : "Black and white"}, ${switchOn("duplex") ? "both sides" : "one side"}, ${selectValue("class") === "standard_class" ? "standard class" : "first class"}`);
+      }
+      const hint = () => { $("mode-hint").textContent = selectValue("mode") === "live" ? "A real, paid letter will be mailed." : "Nothing will be printed or mailed. Use this to check the flow."; };
+      hint();
+      document.querySelector('[data-select="mode"]')!.addEventListener("click", () => setTimeout(hint, 50));
+      $("next").textContent = channelOn("mail") && selectValue("mode") === "live" ? "Send for real" : "Send";
+    }
+
+    async function submit() {
+      const button = $<HTMLButtonElement>("next");
+      button.disabled = true; $("back").setAttribute("disabled", "");
+      const mail = channelOn("mail"), mode = selectValue("mode") === "live" ? "live" : "test";
+      const spec: Record<string, unknown> = { title: file!.name.replace(/\.pdf$/i, "") };
+      if (channelOn("fax")) spec.fax = { recipients: faxNumbers().map((n) => normalizePhone(n)), cover: switchOn("cover") ? { enabled: true, to: value("cover-to"), from: value("cover-from"), subject: value("cover-subject"), message: value("cover-message"), date: value("cover-date") } : { enabled: false } };
+      if (mail) spec.mail = { to: readAddress("to"), from: readAddress("from"), color: switchOn("color"), doubleSided: switchOn("duplex"), mailingClass: selectValue("class") || "first_class" };
+      const form = new FormData();
+      form.set("document", file!); form.set("spec", JSON.stringify(spec));
+      try {
+        const created = await api<{ id: string; deliveries: { id: string; channel: string }[] }>("/api/transmissions", { method: "POST", body: form });
+        $("wizard").hidden = true; $("result").hidden = false;
+        const body = $("result-body"); body.replaceChildren(skeletonRows(2, "h-24 w-full"));
+        const letter = created.deliveries.find((d) => d.channel === "mail");
+        if (letter) {
+          try { await approveLetter(created.id, letter.id, mode); }
+          catch (error) { toast(error instanceof Error ? error.message : "The letter could not be confirmed.", "error"); }
+        }
+        toast("Sent for delivery.", "success");
+        watchTransmission(body, created.id, false);
+        window.scrollTo({ top: 0 });
+      } catch (error) {
+        toast(error instanceof Error ? error.message : "Could not send. Nothing was sent.", "error");
+        showError(error instanceof Error ? error.message : "Could not send. Nothing was sent.");
+        button.disabled = false; $("back").removeAttribute("disabled");
+      }
+    }
+
+    $("next").addEventListener("click", () => {
+      const problem = validate();
+      if (problem) return showError(problem);
+      if (step === 4) void submit(); else goto(step + 1);
+    });
+    $("back").addEventListener("click", () => { if (step > 1) goto(step - 1); });
+    document.addEventListener("click", () => setTimeout(sync, 0));
+
+    api<typeof settings>("/api/settings").then((s) => { settings = s; }).catch(() => { /* defaults are fine */ });
+    goto(1);
+  </script>
+</AppLayout>

@@ -25,12 +25,13 @@ import PageHeader from "@/components/PageHeader.astro";
     </div>
     <audio id="remote-audio" autoplay></audio>
   </section>
-  <section class="mt-10 max-w-xl" aria-labelledby="recordings-heading">
-    <h2 id="recordings-heading" class="text-lg font-semibold">Call recordings</h2>
-    <p class="mt-2 text-sm text-muted-foreground">Archived recordings from the configured connection appear here. Only recordings made by the voicemail flow are labelled voicemail.</p>
-    <button id="load-recordings" type="button" class="mt-4 rounded-md border border-input px-4 py-2">Load recordings</button>
-    <p id="recordings-status" role="status" class="mt-3 text-sm"></p>
-    <ul id="recordings" class="mt-3 space-y-4"></ul>
+  <section class="mt-10" aria-labelledby="voicemail-heading">
+    <h2 id="voicemail-heading" class="text-lg font-semibold">Voicemail and recordings</h2>
+    <div id="recordings" class="mt-3 flex flex-col gap-3" aria-live="polite"></div>
+  </section>
+  <section class="mt-10" aria-labelledby="log-heading">
+    <h2 id="log-heading" class="text-lg font-semibold">Call log</h2>
+    <div id="call-log" class="mt-3" aria-live="polite"></div>
   </section>
   <script>
     import { TelnyxRTC } from '@telnyx/webrtc';
@@ -81,14 +82,57 @@ import PageHeader from "@/components/PageHeader.astro";
     hangup.addEventListener('click', () => { if (call) void call.hangup(); });
     mute.addEventListener('click', () => { if (!call) return; if (muted) call.unmuteAudio(); else call.muteAudio(); muted = !muted; mute.textContent = muted ? 'Unmute' : 'Mute'; });
     window.addEventListener('beforeunload', () => { client?.disconnect(); });
-    el<HTMLButtonElement>('load-recordings').addEventListener('click', async () => {
-      const list = el<HTMLUListElement>('recordings'), message = el<HTMLElement>('recordings-status'); list.replaceChildren(); message.textContent = 'Loading…';
+    import { api, badgeEl, duration, h, skeletonRows, toast, when } from '@/lib/ui';
+    import { table, tableBody, tableCell, tableHead, tableHeader, tableRow } from '@/components/starwind/table/variants';
+    import { item, itemActions, itemContent, itemDescription, itemTitle } from '@/components/starwind/item/variants';
+    type Recording = { recording_id: string; archived_at: string; kind: string; direction: string | null; from_number: string | null; to_number: string | null; duration_secs: number | null; heard_at: string | null; transcript: string | null };
+    type CallRow = { id: string; direction: 'inbound' | 'outbound'; from: string | null; to: string | null; startedAt: string; durationSecs: number | null; outcome: string };
+    const empty = (title: string, body: string) => { const box = h('div', 'border-border rounded-lg border border-dashed px-6 py-8 text-center'); box.append(h('p', 'font-medium', title), h('p', 'text-muted-foreground mt-1 text-sm', body)); return box; };
+    const other = (direction: string | null, from: string | null, to: string | null) => (direction === 'outbound' ? to : from) || 'Unknown number';
+
+    async function loadRecordings() {
+      const box = el<HTMLElement>('recordings'); box.replaceChildren(skeletonRows(2, 'h-24 w-full'));
       try {
-        const response = await fetch('/api/voice/recordings', { cache: 'no-store' }); if (!response.ok) throw new Error();
-        const data = await response.json() as { recordings: { recording_id: string; archived_at: string; kind: string }[] };
-        message.textContent = data.recordings.length ? 'Latest recordings' : 'No archived recordings.';
-        for (const item of data.recordings) { if (!/^[0-9a-f-]{36}$/i.test(item.recording_id)) continue; const li = document.createElement('li'); const label = document.createElement('p'); label.textContent = `${item.kind === 'voicemail' ? 'Voicemail' : 'Call recording'} · Archived ${item.archived_at} (UTC)`; const audio = document.createElement('audio'); audio.controls = true; audio.preload = 'none'; audio.src = `/api/voice/recordings/${item.recording_id}`; li.append(label, audio); list.append(li); }
-      } catch { message.textContent = 'Recordings unavailable. Try again later.'; }
-    });
+        const data = await api<{ recordings: Recording[] }>('/api/voice/recordings');
+        if (!data.recordings.length) return box.replaceChildren(empty('No voicemail yet', 'Voicemail and recorded calls appear here with a player once someone leaves one.'));
+        box.replaceChildren();
+        for (const rec of data.recordings) {
+          if (!/^[0-9a-f-]{36}$/i.test(rec.recording_id)) continue;
+          const row = h('div', item({ variant: 'outline' }));
+          const content = h('div', itemContent());
+          const title = h('div', itemTitle() + ' flex flex-wrap items-center gap-2');
+          title.append(h('span', '', rec.kind === 'voicemail' ? 'Voicemail' : 'Call recording'), h('span', 'font-normal', other(rec.direction, rec.from_number, rec.to_number)));
+          const unheard = !rec.heard_at;
+          const mark = badgeEl(unheard ? 'New' : 'Heard', unheard ? 'info' : 'ghost'); title.append(mark);
+          const meta = [rec.direction === 'outbound' ? 'Outgoing' : rec.direction === 'inbound' ? 'Incoming' : '', when(rec.archived_at), duration(rec.duration_secs)].filter(Boolean).join(' · ');
+          content.append(title, h('p', itemDescription(), meta));
+          const audio = document.createElement('audio'); audio.controls = true; audio.preload = 'none'; audio.src = `/api/voice/recordings/${rec.recording_id}`; audio.className = 'mt-2 w-full max-w-md';
+          audio.setAttribute('aria-label', `Play ${rec.kind === 'voicemail' ? 'voicemail' : 'recording'} from ${other(rec.direction, rec.from_number, rec.to_number)}`);
+          audio.addEventListener('play', () => { if (rec.heard_at) return; rec.heard_at = new Date().toISOString(); fetch(`/api/voice/recordings/${rec.recording_id}/heard`, { method: 'POST' }).then(r => { if (!r.ok) throw new Error(); mark.textContent = 'Heard'; }).catch(() => { rec.heard_at = null; toast('Could not mark this as heard.', 'error'); }); });
+          content.append(audio);
+          if (rec.transcript) { const text = h('p', 'text-muted-foreground mt-2 max-w-prose text-sm whitespace-pre-line', rec.transcript); text.setAttribute('aria-label', 'Transcript'); content.append(h('p', 'mt-2 text-xs font-medium uppercase tracking-wide', 'Transcript'), text); }
+          const actions = h('div', itemActions()); const link = h('a', 'text-sm underline underline-offset-4', 'Download'); link.href = `/api/voice/recordings/${rec.recording_id}?download=1`; link.setAttribute('aria-label', 'Download recording'); actions.append(link);
+          row.append(content, actions); box.append(row);
+        }
+      } catch { box.replaceChildren(empty('Recordings could not be loaded', 'Reload the page to try again.')); }
+    }
+
+    async function loadCalls() {
+      const box = el<HTMLElement>('call-log'); box.replaceChildren(skeletonRows(4, 'h-10 w-full'));
+      try {
+        const { calls } = await api<{ calls: CallRow[] }>('/api/voice/calls');
+        if (!calls.length) return box.replaceChildren(empty('No calls yet', 'Incoming and outgoing calls are listed here after they happen.'));
+        const t = h('table', table()); const head = h('thead', tableHeader()); const hr = h('tr', tableRow());
+        for (const name of ['Number', 'Direction', 'Started', 'Duration', 'Outcome']) hr.append(h('th', tableHead(), name));
+        head.append(hr); const body = h('tbody', tableBody());
+        for (const call of calls) {
+          const tr = h('tr', tableRow());
+          for (const text of [other(call.direction, call.from, call.to), call.direction === 'inbound' ? 'Incoming' : 'Outgoing', when(call.startedAt), duration(call.durationSecs) || '-']) tr.append(h('td', tableCell(), text));
+          const td = h('td', tableCell()); td.append(badgeEl(call.outcome.charAt(0).toUpperCase() + call.outcome.slice(1), call.outcome === 'missed' ? 'warning' : call.outcome === 'answered' ? 'success' : 'outline')); tr.append(td); body.append(tr);
+        }
+        t.append(head, body); const wrap = h('div', 'overflow-x-auto'); wrap.append(t); box.replaceChildren(wrap);
+      } catch { box.replaceChildren(empty('The call log could not be loaded', 'Reload the page to try again.')); }
+    }
+    void loadRecordings(); void loadCalls();
   </script>
 </AppLayout>
