@@ -97,6 +97,16 @@ const voices = [
     <div><Button type="submit" variant="primary">Save hours</Button></div>
   </form>
 
+  <section id="tv" class="mt-6 flex max-w-2xl flex-col gap-6">
+    <Card><CardHeader><CardTitle>Apple TV</CardTitle><CardDescription>On the Apple TV, open the app and enter the code shown there. Approve only a code you just saw on your TV.</CardDescription></CardHeader>
+      <CardContent class="flex flex-col gap-4">
+        <div class="flex flex-col gap-1.5"><Label for="tv-code">Code from the Apple TV</Label><Input id="tv-code" placeholder="ABCD-EFGH" autocomplete="off" spellcheck="false" /></div>
+        <p id="tv-device" class="text-muted-foreground text-sm" aria-live="polite"></p>
+        <div><Button id="tv-approve" type="button" variant="primary" disabled>Approve Apple TV</Button></div>
+        <div class="flex flex-col gap-2"><h3 class="text-sm font-medium">Paired Apple TVs</h3><ul id="tv-devices" class="flex flex-col gap-2 text-sm"></ul></div>
+      </CardContent></Card>
+  </section>
+
   <script>
     import { api, postJson, toast } from "@/lib/ui";
 
@@ -185,6 +195,57 @@ const voices = [
     });
 
     api<Settings>("/api/settings").then(fill).catch(() => toast("Settings could not be loaded. Reload to try again.", "error"));
+
+    type TvDevice = { id: string; deviceName: string; createdAt: string; lastUsedAt: string | null; revokedAt: string | null };
+    let lookupCode = "";
+    const tvCode = () => $<HTMLInputElement>("tv-code").value.replace(/[^a-z0-9]/gi, "").toUpperCase();
+    const tvApprove = () => $<HTMLButtonElement>("tv-approve");
+    function renderDevices(devices: TvDevice[]) {
+      const list = $("tv-devices");
+      list.replaceChildren(...devices.filter(d => !d.revokedAt).map(d => {
+        const li = document.createElement("li");
+        li.className = "flex items-center justify-between gap-2";
+        const text = document.createElement("span");
+        text.textContent = `${d.deviceName}. Last used ${d.lastUsedAt ? new Date(d.lastUsedAt).toLocaleString() : "never"}.`;
+        const revoke = document.createElement("button");
+        revoke.type = "button"; revoke.className = "underline"; revoke.textContent = "Revoke";
+        revoke.addEventListener("click", async () => {
+          revoke.disabled = true;
+          try { await postJson(`/api/tv/devices/${d.id}/revoke`, {}); toast("Apple TV revoked.", "success"); loadDevices(); }
+          catch (error) { toast(error instanceof Error ? error.message : "Could not revoke.", "error"); revoke.disabled = false; }
+        });
+        li.append(text, revoke);
+        return li;
+      }));
+      if (!list.children.length) list.textContent = "No Apple TVs paired.";
+    }
+    async function loadDevices() {
+      try { renderDevices((await api<{ devices: TvDevice[] }>("/api/tv/devices")).devices); }
+      catch { toast("Apple TVs could not be loaded.", "error"); }
+    }
+    $("tv-code").addEventListener("input", async () => {
+      lookupCode = tvCode();
+      tvApprove().disabled = true;
+      $("tv-device").textContent = "";
+      if (lookupCode.length !== 8) return;
+      try {
+        const { deviceName } = await api<{ deviceName: string }>(`/api/tv/pair/lookup?code=${lookupCode}`);
+        if (tvCode() !== lookupCode) return;
+        $("tv-device").textContent = `Pair ${deviceName}? Check that it shows this same code.`;
+        tvApprove().disabled = false;
+      } catch (error) { $("tv-device").textContent = error instanceof Error ? error.message : "Code not found."; }
+    });
+    tvApprove().addEventListener("click", async () => {
+      const button = tvApprove();
+      button.disabled = true;
+      try {
+        await postJson("/api/tv/pair/approve", { userCode: lookupCode, confirmed: true });
+        $<HTMLInputElement>("tv-code").value = ""; $("tv-device").textContent = "";
+        toast("Apple TV paired. It will show your dashboard shortly.", "success");
+        loadDevices();
+      } catch (error) { toast(error instanceof Error ? error.message : "Could not pair.", "error"); button.disabled = false; }
+    });
+    loadDevices();
 
     $("settings-form").addEventListener("submit", async (event) => {
       event.preventDefault();

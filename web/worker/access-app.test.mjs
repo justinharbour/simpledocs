@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { configureAccess } from './access-app.mjs';
+import { configureAccess, PUBLIC_PATHS } from './access-app.mjs';
 import { PORTAL_PATHS } from './portal-paths.mjs';
 
 const old = 'simpledocs.justinharbour.dev', next = 'simpledocs.justinharbour.com';
@@ -100,8 +100,13 @@ test('publishes exact portal paths on the production destination only and preser
   f.writes.length = 0;
   await configureAccess(f.api, true);
   assert.deepEqual(f.writes, ['owner']);
-  const overrides = PORTAL_PATHS.map(path_pattern => ({ path_pattern, behavior: 'public' }));
+  const overrides = PUBLIC_PATHS.map(path_pattern => ({ path_pattern, behavior: 'public' }));
+  assert.deepEqual(PUBLIC_PATHS, [...PORTAL_PATHS, '/tv/pair/start', '/tv/pair/poll', '/tv/api/*']);
   assert.deepEqual(f.apps[0].destinations, [{ type: 'public', uri: old }, { type: 'public', uri: next, overrides }]);
+  await configureAccess(f.api);
+  assert.deepEqual(f.apps[0].destinations[1].overrides, overrides);
+  // A destination with the earlier portal-only set is upgraded on a plain redeploy.
+  f.apps[0].destinations[1].overrides = PORTAL_PATHS.map(path_pattern => ({ path_pattern, behavior: 'public' }));
   await configureAccess(f.api);
   assert.deepEqual(f.apps[0].destinations[1].overrides, overrides);
   f.apps[0].destinations[1].overrides = [{ path_pattern: '/portal/*', behavior: 'public' }];
