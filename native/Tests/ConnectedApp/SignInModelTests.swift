@@ -28,7 +28,11 @@ import SimpleDocsOAuth
     func exchange(_ request: TokenRequest, registry: InstanceRegistry) async throws -> OAuthTokens {
         try request.parse(data: Data(#"{"access_token":"test","token_type":"Bearer","expires_in":60,"resource":"https://one.example.com/"}"#.utf8), registry: registry)
     }
-    func send(plan: WorkerPlan, bearer: String) async throws -> Data { XCTFail("No Worker request expected"); return Data() }
+    func send(plan: WorkerPlan, bearer: String) async throws -> Data {
+        plan.url.path == "/api/inbound-faxes"
+            ? Data(#"{"records":[{"id":"e1","faxId":"f1","occurredAt":"x","receivedAt":"2026-11-18T00:00:00Z"}],"pendingCount":0}"#.utf8)
+            : Data(#"{"recordings":[]}"#.utf8)
+    }
 }
 
 @MainActor final class SignInModelTests: XCTestCase {
@@ -61,11 +65,12 @@ import SimpleDocsOAuth
         model.prepare()
         await model.signIn()
         XCTAssertEqual(adapter.calls, 1)
-        XCTAssertTrue(model.message.contains("Token acquired"))
-        XCTAssertTrue(model.message.contains("not been verified"))
+        XCTAssertTrue(model.loaded)
+        XCTAssertEqual(model.faxes.count, 1)
         model.signOut()
         XCTAssertNil(model.preparation)
-        XCTAssertTrue(model.message.contains("revocation was not attempted"))
+        XCTAssertFalse(model.loaded)
+        XCTAssertTrue(model.faxes.isEmpty)
     }
     func testSignOutCancelsAndDiscardsLateResult() async {
         let adapter = MockAdapter()
@@ -81,6 +86,6 @@ import SimpleDocsOAuth
         await task.value
         XCTAssertFalse(model.busy)
         XCTAssertNil(model.preparation)
-        XCTAssertTrue(model.message.contains("Local session cleared"))
+        XCTAssertFalse(model.loaded)
     }
 }
