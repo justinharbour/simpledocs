@@ -120,6 +120,25 @@ test('a rejected transfer or a failed credential lookup goes straight to voicema
   assert.equal(db.prepare('SELECT outcome FROM voicemail_rings').get().outcome, 'unknown');
 });
 
+test('manual offline and a closed schedule answer voicemail without ringing an online phone', async () => {
+  const { env, db } = setup(); goOnline(db);
+  const policy = (mode, intervals = []) => db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('voice_availability', ?, 'x') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify({ mode, timezone: 'UTC', intervals }));
+  policy('offline');
+  let t = telnyx();
+  await post(env, t.fetcher, 'call.initiated', 'init-offline', { ...incoming, call_control_id: 'leg-offline' });
+  assert.deepEqual(t.actions(), ['answer']);
+  assert.equal(t.commands.some(c => c.url.includes('telephony_credentials')), false);
+  const day = new Date(now).getUTCDay();
+  policy('schedule', [{ day: (day + 1) % 7, start: '00:00', end: '23:59' }]);
+  t = telnyx();
+  await post(env, t.fetcher, 'call.initiated', 'init-closed', { ...incoming, call_control_id: 'leg-closed' });
+  assert.deepEqual(t.actions(), ['answer']);
+  policy('online');
+  t = telnyx();
+  await post(env, t.fetcher, 'call.initiated', 'init-online', { ...incoming, call_control_id: 'leg-online' });
+  assert.deepEqual(t.actions(), ['transfer']);
+});
+
 test('without a WebRTC credential the phone is never rung', async () => {
   const { env, db } = setup({ TELNYX_WEBRTC_CREDENTIAL_ID: undefined }); goOnline(db); const t = telnyx();
   await post(env, t.fetcher, 'call.initiated', 'init', incoming);
