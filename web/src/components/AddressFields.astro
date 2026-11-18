@@ -1,0 +1,42 @@
+---
+import { Input } from "@/components/starwind/input";
+import { Label } from "@/components/starwind/label";
+
+type Props = { prefix: string; legend: string };
+const { prefix, legend } = Astro.props;
+const field = (name: string) => `${prefix}-${name}`;
+---
+
+<fieldset class="grid gap-3 sm:grid-cols-2" data-address={prefix}>
+  <legend class="mb-2 text-sm font-medium">{legend}</legend>
+  <div class="flex flex-col gap-1.5">
+    <Label for={field("first")}>First name</Label>
+    <Input id={field("first")} data-field="firstName" autocomplete="off" />
+  </div>
+  <div class="flex flex-col gap-1.5">
+    <Label for={field("last")}>Last name</Label>
+    <Input id={field("last")} data-field="lastName" autocomplete="off" />
+  </div>
+  <div class="flex flex-col gap-1.5 sm:col-span-2">
+    <Label for={field("line1")}>Street address</Label>
+    <Input id={field("line1")} data-field="addressLine1" autocomplete="off" />
+  </div>
+  <div class="flex flex-col gap-1.5 sm:col-span-2">
+    <Label for={field("line2")}>Apartment, suite (optional)</Label>
+    <Input id={field("line2")} data-field="addressLine2" autocomplete="off" />
+  </div>
+  <div class="flex flex-col gap-1.5">
+    <Label for={field("city")}>City</Label>
+    <Input id={field("city")} data-field="city" autocomplete="off" />
+  </div>
+  <div class="grid grid-cols-2 gap-3">
+    <div class="flex flex-col gap-1.5">
+      <Label for={field("state")}>State</Label>
+      <Input id={field("state")} data-field="provinceOrState" autocomplete="off" maxlength={2} placeholder="CA" />
+    </div>
+    <div class="flex flex-col gap-1.5">
+      <Label for={field("zip")}>ZIP</Label>
+      <Input id={field("zip")} data-field="postalOrZip" autocomplete="off" inputmode="numeric" />
+    </div>
+  </div>
+</fieldset>

@@ -7,9 +7,9 @@ import { createWorker } from './index.mjs';
 import { generateKeyPair, exportJWK, SignJWT, createLocalJWKSet } from 'jose';
 
 test('verified and explicitly authorized subject can list and retrieve private PDF', async () => {
-  const mf = new Miniflare({ modules: true, script: 'export default { fetch() { return new Response("ok") } }', compatibilityDate: '2026-07-01', d1Databases: ['DB'], r2Buckets: ['FAX_MEDIA'] });
+  const mf = new Miniflare({ modules: true, script: 'export default { fetch() { return new Response("ok") } }', compatibilityDate: '2026-07-01', d1Databases: ['DB'], r2Buckets: ['FILES'] });
   try {
-    const db = await mf.getD1Database('DB'), bucket = await mf.getR2Bucket('FAX_MEDIA');
+    const db = await mf.getD1Database('DB'), bucket = await mf.getR2Bucket('FILES');
     const migration = await readFile(new URL('../../backend/core/migrations/0007_inbound_fax_events.sql', import.meta.url), 'utf8');
     await db.prepare(migration.replace(/^--.*$/gm, '').trim()).run();
     const pendingMigration = await readFile(new URL('../../backend/core/migrations/0010_inbound_fax_pending.sql', import.meta.url), 'utf8');
@@ -23,7 +23,7 @@ test('verified and explicitly authorized subject can list and retrieve private P
     const issuer = 'https://example.cloudflareaccess.com';
     const worker = createWorker(() => createLocalJWKSet({ keys: [{ ...jwk, kid: 'test', alg: 'RS256' }] }));
     const token = async sub => new SignJWT({ email: 'test@example.test' }).setProtectedHeader({ alg: 'RS256', kid: 'test' }).setIssuer(issuer).setAudience('test').setSubject(sub).setIssuedAt().setExpirationTime('5m').sign(keys.privateKey);
-    const env = { DB: db, FAX_MEDIA: bucket, ACCESS_TEAM_DOMAIN: issuer, ACCESS_AUDIENCE: 'test', INBOUND_FAX_ALLOWED_SUBJECTS: '["owner"]' };
+    const env = { DB: db, FILES: bucket, ACCESS_TEAM_DOMAIN: issuer, ACCESS_AUDIENCE: 'test', INBOUND_FAX_ALLOWED_SUBJECTS: '["owner"]' };
     const request = (path, assertion) => new Request(`https://example.test${path}`, { headers: assertion ? { 'cf-access-jwt-assertion': assertion } : {} });
     const owner = await token('owner'), other = await token('other');
     assert.equal((await worker.fetch(request('/api/inbound-faxes'), env)).status, 401);

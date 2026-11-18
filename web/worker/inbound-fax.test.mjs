@@ -21,7 +21,7 @@ function setup() {
   const env = {
     TELNYX_INBOUND_FAX_ENABLED: 'true', TELNYX_PUBLIC_KEY: publicKey, TELNYX_FAX_CONNECTION_ID: 'test-connection', TELNYX_FAX_NUMBER: '+12025550101',
     DB: { prepare(sql) { return { bind(...args) { return { async first() { return sql.includes('inbound_fax_pending') ? pending.get(args[0]) ?? null : rows.get(args[0]) ?? null; }, async run() { if (!sql.startsWith('INSERT')) throw Error(); if (sql.includes('inbound_fax_pending')) { if (!pending.has(args[0])) pending.set(args[0], { fax_id: args[1], occurred_at: args[2], received_at: args[3] }); } else if (!rows.has(args[0])) rows.set(args[0], args); return { success: true }; } }; } }; } },
-    FAX_MEDIA: { async put(key, bytes) { objects.set(key, bytes); } },
+    FILES: { async put(key, bytes) { objects.set(key, bytes); } },
   };
   const fetcher = async () => { downloads++; return new Response('%PDF-test', { headers: { 'Content-Type': 'application/pdf' } }); };
   return { env, rows, pending, objects, fetcher, downloads: () => downloads };
@@ -48,7 +48,7 @@ test('unsafe URLs and failed media or storage never acknowledge', async () => {
   for (const url of ['http://s3.amazonaws.com/faxes-prod/x?q=1', 'https://s3.amazonaws.com.evil.test/faxes-prod/x?q=1', 'https://s3.amazonaws.com/other/x?q=1', 'https://user@s3.amazonaws.com/faxes-prod/x?q=1']) {
     const s = setup(); assert.equal((await handleInboundFax(await signed(fixture({ media_url: url })), s.env, { now, fetcher: s.fetcher })).status, 503); assert.equal(s.downloads(), 0);
   }
-  const s = setup(); s.env.FAX_MEDIA.put = async () => { throw Error('failure'); };
+  const s = setup(); s.env.FILES.put = async () => { throw Error('failure'); };
   assert.equal((await handleInboundFax(await signed(fixture()), s.env, { now, fetcher: s.fetcher })).status, 503);
   assert.equal(s.rows.size, 0);
   const invalid = setup();
