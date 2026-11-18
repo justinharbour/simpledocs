@@ -8,7 +8,7 @@ const req = (origin = 'https://example.test') => new Request('https://example.te
 
 test('only the configured owner can issue a token via same-origin POST', async () => {
   let calls = 0;
-  const fetcher = async (url, options) => { calls++; assert.equal(url, 'https://api.telnyx.com/v2/telephony_credentials/credential-1/token'); assert.equal(options.redirect, 'error'); return new Response('a.b.c', { status: 201 }); };
+  const fetcher = async (url, options) => { calls++; assert.equal(url, 'https://api.telnyx.com/v2/telephony_credentials/credential-1/token'); assert.equal(options.redirect, 'manual'); return new Response('a.b.c', { status: 201 }); };
   assert.equal((await worker.fetch(req(), env)).status, 401);
   assert.equal((await handleVoiceSession(req(), env, 'other', fetcher)).status, 503);
   assert.equal((await handleVoiceSession(req('https://evil.test'), env, 'owner', fetcher)).status, 403);

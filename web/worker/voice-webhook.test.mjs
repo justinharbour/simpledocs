@@ -25,7 +25,7 @@ function setup() {
 
 test('authenticates, durably records, archives privately and deduplicates', async () => {
   const { env, db, objects } = setup(); let downloads = 0;
-  const fetcher = async (_url, options) => { downloads++; assert.equal(options.redirect, 'error'); return new Response('audio'); };
+  const fetcher = async (_url, options) => { downloads++; assert.equal(options.redirect, 'manual'); return new Response('audio'); };
   const body = JSON.stringify(event());
   assert.equal((await handleVoiceWebhook(await signed(body), env, fetcher, now)).status, 200);
   assert.equal((await handleVoiceWebhook(await signed(body), env, fetcher, now)).status, 200);

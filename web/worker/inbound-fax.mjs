@@ -53,7 +53,7 @@ function mediaURL(value) {
 }
 
 async function archiveMedia(env, eventId, faxId, value, fetcher) {
-  const media = await fetcher(mediaURL(value), { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(15000) });
+  const media = await fetcher(mediaURL(value), { method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(15000) });
   if (!media.ok || !/^application\/pdf(?:\s*;|\s*$)/i.test(media.headers.get('content-type') ?? '')) throw new Error();
   const pdf = await bounded(media.body, MAX_PDF);
   if (pdf.length < 5 || new TextDecoder().decode(pdf.subarray(0, 5)) !== '%PDF-') throw new Error();
@@ -71,7 +71,7 @@ export async function recoverInboundFax(env, eventId, { fetcher = fetch, now = D
     const receipt = await env.DB.prepare('SELECT event_id, fax_id, occurred_at FROM inbound_fax_unarchived WHERE event_id = ?').bind(eventId).first();
     if (!receipt || receipt.event_id !== eventId || typeof receipt.fax_id !== 'string' || !UUID.test(receipt.fax_id)) return false;
     const endpoint = `https://api.telnyx.com/v2/faxes/${receipt.fax_id}`;
-    const options = { headers: { Authorization: `Bearer ${env.TELNYX_API_TOKEN}`, Accept: 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(15000) };
+    const options = { headers: { Authorization: `Bearer ${env.TELNYX_API_TOKEN}`, Accept: 'application/json' }, redirect: 'manual', signal: AbortSignal.timeout(15000) };
     const refresh = await fetcher(`${endpoint}/actions/refresh`, { ...options, method: 'POST' });
     if (!refresh.ok) return false;
     const refreshBody = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await bounded(refresh.body, MAX_EVENT)));

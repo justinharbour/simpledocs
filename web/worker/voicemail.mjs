@@ -32,7 +32,7 @@ export async function processVoicemail(env, event, payload, fetcher = fetch) {
   let outcome = 'unknown';
   try {
     const response = await fetcher(`https://api.telnyx.com/v2/calls/${encodeURIComponent(id)}/actions/${action}`, {
-      method: 'POST', redirect: 'error', headers: { Authorization: `Bearer ${env.TELNYX_API_TOKEN}`, 'Content-Type': 'application/json' },
+      method: 'POST', redirect: 'manual', headers: { Authorization: `Bearer ${env.TELNYX_API_TOKEN}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...body, command_id: commandId }),
     });
     if (response.ok) outcome = 'accepted';
