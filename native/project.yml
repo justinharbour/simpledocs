@@ -8,14 +8,11 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    # No signing identity, team or provisioning is configured. Signing is a separate, authorized step.
-    CODE_SIGN_STYLE: Manual
-    CODE_SIGN_IDENTITY: "-"
-    DEVELOPMENT_TEAM: ""
-    CODE_SIGNING_ALLOWED: "NO"
-    CODE_SIGNING_REQUIRED: "NO"
-    MARKETING_VERSION: "0.0.0"
-    CURRENT_PROJECT_VERSION: "1"
+    # CI supplies signing, team and release version build settings when authorized.
+    MARKETING_VERSION: "$(SIMPLEDOCS_MARKETING_VERSION)"
+    CURRENT_PROJECT_VERSION: "$(SIMPLEDOCS_BUILD_NUMBER)"
+    SIMPLEDOCS_MARKETING_VERSION: "0.0.0"
+    SIMPLEDOCS_BUILD_NUMBER: "1"
 packages:
   SimpleDocsKit:
     path: Packages/SimpleDocsKit

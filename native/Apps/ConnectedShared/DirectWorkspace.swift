@@ -1,5 +1,7 @@
 import SimpleDocsDirect
 import SwiftUI
+import PDFKit
+import UniformTypeIdentifiers
 
 struct ConnectionModePicker: View {
     @AppStorage("connectionMode") private var mode = "instance"
@@ -18,6 +20,16 @@ struct DirectWorkspace: View {
     @State private var loaded = false
     @State private var loading = false
     @State private var message: String?
+    @State private var connection = ""
+    @State private var from = ""
+    @State private var to = ""
+    @State private var pdf: Data?
+    @State private var filename = ""
+    @State private var importing = false
+    @State private var reviewing = false
+    @State private var submitting = false
+    @State private var sendMessage: String?
+    @State private var sharedFiles: [URL] = []
     private let store = CredentialStore()
 
     var body: some View {
@@ -25,8 +37,27 @@ struct DirectWorkspace: View {
             Form {
                 Section("Connection") {
                     ConnectionModePicker()
-                    Text("Direct mode currently reads the first page of Telnyx fax records only. Sending, calls, voicemail, mail, notifications and document downloads are not available.")
+                    Text("Direct mode supports sending one PDF fax and reading the first page of Telnyx fax records. Calls, voicemail, mail, notifications and document downloads are not available.")
                         .font(.footnote).foregroundStyle(.secondary)
+                }
+                Section("Send a fax") {
+                    TextField("Telnyx fax connection ID", text: $connection)
+                    TextField("From (E.164)", text: $from)
+                    TextField("To (E.164)", text: $to)
+                    Button("Choose PDF") { importing = true }
+                    ForEach(sharedFiles, id: \.self) { url in
+                        HStack {
+                            Button("Use shared PDF \(url.deletingPathExtension().lastPathComponent.prefix(8))") { loadPDF(url) }
+                            Spacer()
+                            Button("Remove", role: .destructive) {
+                                do { try FileManager.default.removeItem(at: url); refreshSharedFiles() }
+                                catch { sendMessage = "Could not remove the shared PDF." }
+                            }
+                        }
+                    }
+                    if pdf != nil { Text(filename) }
+                    Button("Review fax") { reviewing = true }.disabled(pdf == nil || !stored || submitting)
+                    if let sendMessage { Text(sendMessage).foregroundStyle(.secondary) }
                 }
                 Section("Telnyx API key") {
                     SecureField("API key", text: $key)
@@ -62,8 +93,49 @@ struct DirectWorkspace: View {
             }
             .formStyle(.grouped)
             .navigationTitle("Provider connection")
-            .onAppear { checkKey() }
+            .onAppear { checkKey(); refreshSharedFiles() }
+            .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf]) { result in
+                guard case .success(let url) = result else { return }
+                loadPDF(url)
+            }
+            .sheet(isPresented: $reviewing) {
+                if let pdf {
+                    NavigationStack {
+                        VStack(alignment: .leading) {
+                            Text("From: \(from)")
+                            Text("To: \(to)")
+                            Text("Connection: \(connection)")
+                            Text("\(filename) · \(PDFDocument(data: pdf)?.pageCount ?? 0) pages")
+                            Text("Telnyx pricing applies; no estimate is available. Sending submits this PDF and may incur charges.").font(.footnote)
+                            DirectPDFPreview(data: pdf).frame(minHeight: 300)
+                            HStack {
+                                Button("Cancel") { reviewing = false }.disabled(submitting)
+                                Spacer()
+                                Button("Send fax") { Task { await sendFax(pdf) } }.disabled(submitting)
+                            }
+                        }.padding().navigationTitle("Review fax")
+                    }.interactiveDismissDisabled(submitting)
+                }
+            }
         }
+    }
+
+    private func refreshSharedFiles() {
+        guard let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.justinharbour.simpledocs") else { sharedFiles = []; return }
+        sharedFiles = ((try? FileManager.default.contentsOfDirectory(at: root.appendingPathComponent("ShareInbox", isDirectory: true), includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
+            .filter { $0.pathExtension.lowercased() == "pdf" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    private func loadPDF(_ url: URL) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let handle = try? FileHandle(forReadingFrom: url) else { sendMessage = "Could not open the PDF."; return }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: 20 * 1024 * 1024 + 1), data.count <= 20 * 1024 * 1024,
+              let document = PDFDocument(data: data), !document.isEncrypted, document.pageCount > 0 else {
+            sendMessage = "Choose a readable PDF no larger than 20 MB."; return
+        }
+        pdf = data; filename = url.lastPathComponent; sendMessage = nil
     }
 
     private func checkKey() {
@@ -97,4 +169,36 @@ struct DirectWorkspace: View {
         catch DirectFaxError.invalidResponse { message = "Telnyx returned an unexpected response." }
         catch { message = "Unable to load records. Check your connection and try again." }
     }
+
+    private func sendFax(_ reviewedPDF: Data) async {
+        submitting = true
+        defer { submitting = false }
+        do {
+            guard let data = try store.load(for: .telnyx), let secret = String(data: data, encoding: .utf8) else {
+                sendMessage = "The Telnyx key is unavailable."; reviewing = false; return
+            }
+            let fax = try await TelnyxFaxes().send(key: secret, connection: connection, from: from, to: to, pdf: reviewedPDF)
+            sendMessage = "Telnyx accepted fax \(fax.id). Status: \(fax.status ?? "unknown"). Acceptance is not delivery."
+            pdf = nil; reviewing = false
+        } catch DirectFaxError.outcomeUnknown {
+            sendMessage = "The result is unknown. Check Telnyx fax records before sending again; the fax may already be queued."
+            pdf = nil; reviewing = false
+        } catch DirectFaxError.unauthorized { sendMessage = "Telnyx rejected the key or its permissions."; reviewing = false }
+        catch DirectFaxError.rejected(let status) { sendMessage = "Telnyx rejected the request (\(status)). Check your account and fax settings."; reviewing = false }
+        catch { sendMessage = "Check the connection ID, E.164 numbers, PDF and saved key."; reviewing = false }
+    }
 }
+
+#if os(macOS)
+struct DirectPDFPreview: NSViewRepresentable {
+    let data: Data
+    func makeNSView(context: Context) -> PDFView { let view = PDFView(); view.autoScales = true; view.document = PDFDocument(data: data); return view }
+    func updateNSView(_ view: PDFView, context: Context) {}
+}
+#else
+struct DirectPDFPreview: UIViewRepresentable {
+    let data: Data
+    func makeUIView(context: Context) -> PDFView { let view = PDFView(); view.autoScales = true; view.document = PDFDocument(data: data); return view }
+    func updateUIView(_ view: PDFView, context: Context) {}
+}
+#endif

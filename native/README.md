@@ -22,7 +22,7 @@ The voicemail greeting editor uses `GET/PUT /api/settings/voicemail` (`{greeting
 
 ## Layout
 
-Shared SwiftUI screens are in `Apps/ConnectedShared`; platform entry points are in `Apps/MacConnected` and `Apps/iOS`. The old synthetic direct preview source remains for reference but is not a build target. The connection selector supports a self-hosted instance or a device-only Telnyx API key. Direct mode can fetch the first page of fax records only; no sending, calling, mail or inbound capture is implemented. See [connected-integration.md](docs/connected-integration.md). `project.yml` is the [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec (the `.xcodeproj` is generated and not committed).
+Shared SwiftUI screens are in `Apps/ConnectedShared`; platform entry points are in `Apps/MacConnected` and `Apps/iOS`. The connection selector supports a self-hosted instance or a device-only Telnyx API key. Direct mode includes fax records and reviewed single-PDF fax submission, pending CI and provider verification; calling, mail and inbound capture are not implemented. `project.yml` is the XcodeGen spec; CI must supply authorized signing settings and can override `SIMPLEDOCS_MARKETING_VERSION` and `SIMPLEDOCS_BUILD_NUMBER`.
 
 The macOS and iOS/iPadOS app targets share `com.justinharbour.simpledocs` as their main bundle identifier; they are platform builds, not one cross-platform binary. Share extensions queue a PDF locally for explicit review in the connected Send screen; no automatic sending occurs. They need signed App Group provisioning and real-device testing. tvOS is not implemented. See [unified product](docs/unified-product.md) for platform, policy and provisioning gaps.
 
