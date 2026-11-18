@@ -1,5 +1,15 @@
 import Foundation
 
+public struct EmailReview: Decodable, Sendable {
+    public let email: String
+    public let pinChannel: String
+    public let phone: String?
+    public let status: String
+    public let reviewHash: String
+    public let pdfSha256: String
+    public let packetUrl: String
+}
+
 /// Codable shapes of the owner Worker's JSON API. Nothing here performs I/O.
 public enum RecordType: String, Codable, Sendable {
     case transmission, inboundFax = "inbound_fax", recording, other
@@ -94,6 +104,20 @@ public struct CreatedTransmission: Codable, Sendable {
     public let deliveries: [CreatedDelivery]
 }
 
+public struct FaxReview: Decodable, Sendable {
+    public let recipient: String
+    public let from: String
+    public let status: String
+    public let reviewHash: String
+    public let packetSha256: String
+    public let packetUrl: String
+}
+
+public struct RecentRecipients: Decodable, Sendable {
+    public let fax: [String]
+    public let mail: [MailContact]
+}
+
 public struct MailReview: Codable, Sendable {
     public let mode: String
     public let reviewHash: String
@@ -101,6 +125,15 @@ public struct MailReview: Codable, Sendable {
     public let status: String
     public let available: Bool
     public let notice: String
+    public let summary: MailReviewSummary?
+}
+
+public struct MailReviewSummary: Codable, Sendable {
+    public let to: MailContact
+    public let from: MailContact
+    public let color: Bool
+    public let doubleSided: Bool
+    public let mailingClass: String
 }
 
 public struct MailApproval: Encodable, Sendable {
@@ -172,6 +205,13 @@ public struct WorkerSettings: Codable, Sendable, Equatable {
     public let senderName: String
     public let mailFrom: MailContact?
     public let faxFrom: String?
+    public let faxEstimate: FaxEstimate?
+}
+
+public struct FaxEstimate: Codable, Sendable, Equatable {
+    public let rate: Double
+    public let source: String
+    public let url: String?
 }
 
 public struct SettingsUpdate: Encodable, Sendable {

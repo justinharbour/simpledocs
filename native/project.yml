@@ -1,6 +1,6 @@
 name: SimpleDocs
 options:
-  bundleIdPrefix: dev.justinharbour.simpledocs
+  bundleIdPrefix: com.justinharbour.simpledocs
   deploymentTarget:
     macOS: "14.0"
     iOS: "17.0"
@@ -8,14 +8,11 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    # No signing identity, team or provisioning is configured. Signing is a separate, authorized step.
-    CODE_SIGN_STYLE: Manual
-    CODE_SIGN_IDENTITY: "-"
-    DEVELOPMENT_TEAM: ""
-    CODE_SIGNING_ALLOWED: "NO"
-    CODE_SIGNING_REQUIRED: "NO"
-    MARKETING_VERSION: "0.0.0"
-    CURRENT_PROJECT_VERSION: "1"
+    # CI supplies signing, team and release version build settings when authorized.
+    MARKETING_VERSION: "$(SIMPLEDOCS_MARKETING_VERSION)"
+    CURRENT_PROJECT_VERSION: "$(SIMPLEDOCS_BUILD_NUMBER)"
+    SIMPLEDOCS_MARKETING_VERSION: "0.0.0"
+    SIMPLEDOCS_BUILD_NUMBER: "1"
 packages:
   SimpleDocsKit:
     path: Packages/SimpleDocsKit
@@ -23,6 +20,8 @@ packages:
     path: Packages/SimpleDocsConnected
   SimpleDocsOAuth:
     path: Packages/SimpleDocsOAuth
+  SimpleDocsDirect:
+    path: Packages/SimpleDocsDirect
 targets:
   SimpleDocsMacConnected:
     type: application
@@ -31,8 +30,10 @@ targets:
     info:
       path: Config/MacConnected-Info.plist
       properties:
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CFBundleURLTypes:
-          - CFBundleURLSchemes: [dev.justinharbour.simpledocs]
+          - CFBundleURLSchemes: [com.justinharbour.simpledocs]
     dependencies:
       - package: SimpleDocsKit
         product: SimpleDocsCore
@@ -42,34 +43,41 @@ targets:
         product: SimpleDocsConnected
       - package: SimpleDocsOAuth
         product: SimpleDocsOAuth
+      - package: SimpleDocsDirect
+        product: SimpleDocsDirect
+      - target: SimpleDocsShareMac
     settings:
       base:
-        # Provisional identifiers; confirm before any signing.
-        PRODUCT_BUNDLE_IDENTIFIER: dev.justinharbour.simpledocs.mac.connected
+        # Confirm App IDs and provisioning with the Apple Developer account before signing.
+        PRODUCT_BUNDLE_IDENTIFIER: com.justinharbour.simpledocs
         PRODUCT_NAME: simpledocs
         CODE_SIGN_ENTITLEMENTS: Config/MacConnected.entitlements
         ENABLE_HARDENED_RUNTIME: "YES"
         GENERATE_INFOPLIST_FILE: "YES"
         INFOPLIST_KEY_CFBundleDisplayName: simpledocs
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
-  SimpleDocsMacDirect:
-    type: application
+  SimpleDocsShareMac:
+    type: app-extension
     platform: macOS
-    sources: [Apps/MacDirect]
-    dependencies:
-      - package: SimpleDocsKit
-        product: SimpleDocsCore
-      - package: SimpleDocsKit
-        product: SimpleDocsViews
+    sources: [Apps/ShareMac]
+    info:
+      path: Config/Share-Mac-Info.plist
+      properties:
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).ShareViewController"
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsFileWithMaxCount: 1
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.justinharbour.simpledocs.mac.direct
-        PRODUCT_NAME: simpledocs Direct
-        CODE_SIGN_ENTITLEMENTS: Config/MacDirect.entitlements
-        ENABLE_HARDENED_RUNTIME: "YES"
+        PRODUCT_BUNDLE_IDENTIFIER: com.justinharbour.simpledocs.share
+        PRODUCT_NAME: simpledocs Share
+        CODE_SIGN_ENTITLEMENTS: Config/Share-Mac.entitlements
         GENERATE_INFOPLIST_FILE: "YES"
-        INFOPLIST_KEY_CFBundleDisplayName: simpledocs Direct
-        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        APPLICATION_EXTENSION_API_ONLY: "YES"
   SimpleDocsiOS:
     type: application
     platform: iOS
@@ -77,8 +85,10 @@ targets:
     info:
       path: Config/iOS-Info.plist
       properties:
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CFBundleURLTypes:
-          - CFBundleURLSchemes: [dev.justinharbour.simpledocs]
+          - CFBundleURLSchemes: [com.justinharbour.simpledocs]
     dependencies:
       - package: SimpleDocsKit
         product: SimpleDocsCore
@@ -88,9 +98,12 @@ targets:
         product: SimpleDocsConnected
       - package: SimpleDocsOAuth
         product: SimpleDocsOAuth
+      - package: SimpleDocsDirect
+        product: SimpleDocsDirect
+      - target: SimpleDocsShareiOS
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.justinharbour.simpledocs.ios
+        PRODUCT_BUNDLE_IDENTIFIER: com.justinharbour.simpledocs
         CODE_SIGN_ENTITLEMENTS: Config/iOS.entitlements
         PRODUCT_NAME: simpledocs
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -99,6 +112,28 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+  SimpleDocsShareiOS:
+    type: app-extension
+    platform: iOS
+    sources: [Apps/ShareiOS]
+    info:
+      path: Config/Share-iOS-Info.plist
+      properties:
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).ShareViewController"
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsFileWithMaxCount: 1
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.justinharbour.simpledocs.share
+        PRODUCT_NAME: simpledocs Share
+        CODE_SIGN_ENTITLEMENTS: Config/Share-iOS.entitlements
+        GENERATE_INFOPLIST_FILE: "YES"
+        APPLICATION_EXTENSION_API_ONLY: "YES"
   SimpleDocsSignInTests:
     type: bundle.unit-test
     platform: macOS
@@ -112,14 +147,12 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: "YES"
-        PRODUCT_BUNDLE_IDENTIFIER: dev.justinharbour.simpledocs.signintests
+        PRODUCT_BUNDLE_IDENTIFIER: com.justinharbour.simpledocs.signintests
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/simpledocs.app/Contents/MacOS/simpledocs"
         BUNDLE_LOADER: "$(TEST_HOST)"
 schemes:
   SimpleDocsMacConnected:
     build: {targets: {SimpleDocsMacConnected: all}}
-  SimpleDocsMacDirect:
-    build: {targets: {SimpleDocsMacDirect: all}}
   SimpleDocsiOS:
     build: {targets: {SimpleDocsiOS: all}}
   SimpleDocsSignInTests:
