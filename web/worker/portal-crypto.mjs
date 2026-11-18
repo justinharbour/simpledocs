@@ -18,11 +18,27 @@ export function newPortalToken() {
   return base64url(crypto.getRandomValues(new Uint8Array(32)));
 }
 
+export function newPortalAccessCode() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(5)), value => value.toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+
 export async function portalTokenHash(token) {
   if (typeof token !== 'string' || !TOKEN_PATTERN.test(token)) throw new TypeError('Invalid token');
   // Domain separation prevents accidental reuse of this digest in another flow.
   const digest = await crypto.subtle.digest('SHA-256', encoder.encode(`simpledocs:portal:v1:${token}`));
   return base64url(new Uint8Array(digest));
+}
+
+// Only the browser that supplied the original random verifier can recover an
+// exchange whose response was lost. Replays do not change server-side expiry.
+export async function portalExchangeSession(invitationHash, verifier) {
+  if (typeof invitationHash !== 'string' || !TOKEN_PATTERN.test(invitationHash) || typeof verifier !== 'string' || !TOKEN_PATTERN.test(verifier)) throw new TypeError('Invalid exchange');
+  return base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(`simpledocs:portal-session:v1:${invitationHash}:${verifier}`))));
+}
+
+export async function portalInvitationHash(token, code) {
+  if (typeof token !== 'string' || !TOKEN_PATTERN.test(token) || typeof code !== 'string' || !/^[0-9A-Fa-f]{10}$/.test(code)) throw new TypeError('Invalid invitation');
+  return base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(`simpledocs:portal-invite:v2:${token}:${code.toUpperCase()}`))));
 }
 
 // The key is a dedicated, 32-byte random secret, not a password. The same key
@@ -32,6 +48,17 @@ export async function importPortalKey(encoded) {
   const bytes = decode(encoded);
   if (bytes.length !== 32 || base64url(bytes) !== encoded) throw new TypeError('Invalid portal key');
   return crypto.subtle.importKey('raw', bytes, 'AES-GCM', false, ['encrypt', 'decrypt']);
+}
+
+export async function portalKeyId(encoded) {
+  return base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(`simpledocs:portal-key-id:v1:${encoded}`))));
+}
+
+export async function portalDecryptionKey(env, id) {
+  for (const candidate of [env.PORTAL_KEY, env.PORTAL_PREVIOUS_KEY]) {
+    if (candidate && await portalKeyId(candidate) === id) return importPortalKey(candidate);
+  }
+  throw new TypeError('Document encryption key unavailable');
 }
 
 function associatedData(deliveryId, documentId) {

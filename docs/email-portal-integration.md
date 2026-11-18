@@ -1,104 +1,74 @@
-# Email portal draft: integration and rollout
+# Recipient email portal
 
-This draft remains disabled and has not been deployed or verified end to end.
-The owner API can create an email delivery for an existing owner-authorized
-transmission (`POST /api/transmissions/:id/email`, JSON `{email, pinChannel:
-"none"|"sms"|"voice", phone?}`) and revoke it (`POST
-/api/transmissions/:id/email/:deliveryId/revoke`). This is an independent record integrated with Send and transmission records.
-The owner can select email and optional phone verification; the recipient must
-consent before a message or call is initiated. There is no recovery/resend UI.
+Send emails a seven-day invitation to download the exact ordered, optionally
+numbered PDF from the envelope. Email acceptance is not delivery confirmation.
+Records shows submission status and allows revoking a link; revocation cannot
+recall copies already downloaded. Fax and mail retain their existing transports.
+Email requests use `emailDocuments` or `numberedEmailDocuments` multipart fields
+so older Workers reject the whole request instead of silently dropping email.
 
-## Access and email evidence
+## Production rollout
 
-`web/worker/access-app.mjs` provisions a host-wide owner Access application and
-more-specific webhook bypass applications. Cloudflare documents [more-specific
-path precedence](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/app-paths/)
-and [public endpoint bypass](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/common-policies/).
-After review, provision separate exact-path bypass applications for `/portal`,
-`/portal/exchange`, `/portal/status`, `/portal/pin/start`, `/portal/pin/check`,
-and `/portal/document`; do not bypass `/api`, the owner app, or a broader
-prefix. Verify actual deployed Access policy and path normalization, including
-negative tests for owner APIs and adjacent paths, before enabling. No Access
-application or provider configuration was changed by this work.
+1. Preserve both protected owner hosts. The owner UI can send and revoke on
+   `simpledocs.justinharbour.com` and `simpledocs.justinharbour.dev`, but invite
+   links and recipient cookies use only `https://simpledocs.justinharbour.com`.
+2. Create six separate self-hosted Cloudflare Access applications with a single
+   `.com` destination each: `/portal`, `/portal/exchange`, `/portal/status`,
+   `/portal/pin/start`, `/portal/pin/check`, and `/portal/document`. Each uses one
+   Bypass/Everyone policy. Never add a wildcard or bypass an owner `/api` path.
+   Verify edge behavior on both hosts without sending anything: the recipient
+   landing page is public on `.com`; an unauthenticated document or status
+   request is denied; `.dev`, the owner app, owner APIs, and adjacent/normalized
+   paths remain protected. The Worker independently verifies Access JWTs on
+   owner routes and accepts only the exact public route set. The deploy workflow
+   validates policy metadata and does not create recipient exceptions.
+3. Store a backed-up dedicated 32-byte random base64url `PORTAL_KEY` in the
+   repository's Actions secrets. Keep the key for the life of its copies and
+   protected backups. To rotate, set the outgoing key as `PORTAL_PREVIOUS_KEY`
+   before replacing the active key in Actions; deploy both in one release. Keep
+   it until those copies expire and verify backup recovery before discarding it.
+   Removing the Actions secret does not remove an existing Worker secret; retire
+   it separately after confirming it is no longer needed. Rotate at most once
+   within the lifetime of an active copy. The independent Simpledocs Wrangler
+   workflow binds `PORTAL_EMAIL` and uses the verified `mail.justinharbour.com`
+   sender domain.
+4. Set Actions variable `TELNYX_VERIFY_PROFILE_ID` to a dedicated Simpledocs
+   profile accessible by the actual production `TELNYX_API_TOKEN`, with a daily
+   spend cap and no external webhook. Do not reuse CommCenter profiles. Review
+   recipient consent wording and the allowed destination region. Verify metadata
+   with a read-only profile GET; do not initiate a verification as a smoke test.
+5. Promote through `develop` and `main`. The production workflow performs
+   read-only provider and Access preflight before migration or deploy. Verify
+   migration history, Worker binding metadata, and the non-sending checks above.
+   End-to-end delivery testing requires separate permission for each real send.
 
-The existing `FAX_ALERT_EMAIL` binding sends operational alerts using the
-Cloudflare Workers email API. The existing `send_email` binding has no explicit
-recipient restrictions. [Cloudflare Email Service](https://developers.cloudflare.com/email-service/)
-documents arbitrary recipients on Workers Paid and a sender from an onboarded
-Email Sending domain; verified destination addresses have a separate free path.
-This does not establish current account onboarding, plan, quota, sender domain,
-or deliverability. A new `PORTAL_EMAIL` binding and `PORTAL_SENDER` are needed;
-acceptance is not delivery. The Wrangler configuration declares the binding. A read-only
-production check found arbitrary-recipient mode and an enabled sender subdomain;
-it did not establish mailbox delivery, and the deployed Worker had no portal key or binding.
+## Security and failure behavior
 
-Telnyx endpoint discovery and schemas identify `POST /v2/verifications/sms`,
-`/v2/verifications/call` with `phone_number`, `verify_profile_id`, and optional
-`timeout_secs`; `POST /v2/verifications/{id}/actions/verify` takes `code` and
-returns `data.response_code` accepted or rejected. See [Telnyx Verify](https://developers.telnyx.com/api-reference/verify/trigger-sms-verification)
-and [security best practices](https://developers.telnyx.com/docs/identity/verify/security-best-practices).
-A suitably configured Verify profile, credentials, allowed destinations and
-compliance review are required. No Telnyx API operation was invoked.
-
-## Security properties and limitations
-
-The invitation URL carries a 256-bit token in the fragment. An explicit click
-exchanges its SHA-256 hash using an atomic D1 update, so GET and ordinary mail
-link scanners do not consume it. A 30-minute host-only Secure, HttpOnly,
-SameSite=Strict cookie authorizes only that delivery. Exact configured HTTPS
-origin is required on mutations; expiry and revocation are checked on access.
-The document copy is encrypted with AES-256-GCM and delivery/document-bound
-associated data. This is **not end-to-end encryption**: the server has the key;
-the existing source remains under the current R2 storage protections. Possession
-of a forwarded link is sufficient without PIN. A PIN is optional per delivery;
-when selected, an unchecked recipient consent checkbox precedes one Telnyx
-request, a matching accepted PIN is required, and attempts are bounded. Provider
-uncertainty is not retried automatically. Fixed-window D1 client, destination, global Verify,
-and owner limits are basic controls, not comprehensive bot or SMS-pumping
-protection; IP availability and upstream trust must be verified.
-
-Remaining release work includes recipient-specific consent and legal wording (a link
-holder is not necessarily the subscriber for the supplied phone number), stronger
-abuse protection and cost monitoring, retention policy for audit metadata, recovery
-after session loss or scanners that actively submit forms, key rotation and backup,
-accessibility testing, and end-to-end deployment verification.
-Provider timeouts are deliberately reported as unknown, not failures or delivery.
-The portal page uses a per-response CSP nonce. Rate limits do not yet
-cover IPv6 aggregation or global attack traffic; configure edge rate limiting.
-Do not log raw URLs, cookies, provider payloads, codes, or document contents.
-
-## Integration contract with ordered envelopes
-
-The ordered envelope is assembled into one server-owned PDF at
-`transmissions.source_key`. The portal encrypts a snapshot of those exact bytes
-under an independently generated delivery ID. It neither accepts recipient object
-keys nor changes the UUID or display numbers. Document numbers and ordered
-manifest are available in the owner's records; the recipient downloads the
-combined PDF, including document-number page headers if the sender selected them.
-
-## Configuration, after review only
-
-Apply the migration through the normal reviewed deployment process, provision
-path bypasses as above, verify the `PORTAL_EMAIL` Workers email binding, provision the
-onboarded `PORTAL_SENDER`, set exact HTTPS `PORTAL_ORIGIN`, and keep a dedicated
-random 32-byte base64url `PORTAL_KEY` secret backed up and retained for the
-lifetime of all copies. `PORTAL_ENABLED` defaults off; only enable after verifying
-the exact Access path behavior and complete email setup. The routine deploy workflow
-does not create any public Access exceptions, pass the portal secret or enable this feature.
-Phone verification is separately disabled unless `PORTAL_VERIFY_ENABLED=true`,
-`TELNYX_VERIFY_PROFILE_ID` and `TELNYX_API_TOKEN` are configured, and the operator
-has approved consent and abuse controls. This branch makes no live configuration changes.
-
-Email attempts are durably claimed once per transmission before provider submission.
-Disabled or cross-origin requests are rejected before any transmission is created,
-and email-specific multipart fields prevent older Workers from silently submitting
-only the fax or mail channels. A crash or timeout at the
-provider boundary remains unknown; do not retry without checking. Scheduled
-cleanup removes expired sessions, old rate buckets, and up to 50 expired or
-revoked encrypted copies per run while retaining delivery and consent metadata.
-The email intent is inserted in the same D1 batch as the transmission. A
-cleanup intent precedes the encrypted R2 write; an unregistered object becomes
-eligible for deletion after eight days and failed deletions are retried. This
-depends on the scheduled cleanup running. Existing delivery rows from the
-earlier draft are not backfilled into email_attempts. Other outbound source and
-cover objects have separate lifecycle concerns outside this portal cleanup.
+- The 256-bit token is in the URL fragment. A separate random access code in
+  the email body must be manually entered; a scanner that merely follows the
+  link or clicks Continue cannot redeem it. A service that reads and submits
+  both values still has the same authority as the recipient's mailbox. This
+  is not multi-factor authentication; select phone verification when needed.
+- Redemption atomically consumes the invite and opens one 30-minute session.
+  A same-page retry can recover a lost response using its in-memory random
+  verifier without extending the server expiry. After browser/session loss,
+  contact the sender; no automatic resend or new session is created from a used
+  link. The cookie is `__Host-`, Secure, HttpOnly, and SameSite=Strict.
+  Mutations require exact same origin. No keys, codes, or raw links are logged.
+- R2 stores an AES-256-GCM encrypted snapshot, bound to its delivery and document
+  by authenticated data. The Worker has the key; this is not end-to-end
+  encryption. The original PDF retains its existing access and storage policy.
+- Verify is optional per invitation. The recipient must enter the full number
+  provided by the sender, attest to controlling it, and explicitly consent
+  before one automated request. An accepted code must match that verification
+  ID. PIN attempts, client and destination rates, total traffic, and provider
+  spend are bounded. Rate counters are keyed; verify the edge's client-IP
+  behavior and configure edge abuse protection before making the portal public.
+- Missing bindings or credentials return errors; there is no feature flag.
+  Once provider submission starts, failures can have an unknown outcome. No
+  provider call is retried automatically. A durable email attempt prevents a
+  duplicate invitation for the same envelope.
+- The cron removes expired sessions and encrypted copies after expiry or
+  revocation. It also retries orphan deletes after ambiguous R2 writes. Keep
+  the existing R2 protections, monitor cleanup, and set a policy for owner
+  records and consent metadata before production use.

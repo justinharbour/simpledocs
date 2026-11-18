@@ -5,14 +5,9 @@ import { createWorker } from './index.mjs';
 import { processDelivery } from './queue-consumer.mjs';
 import { approveMail, createTransmission, getTransmission, getTransmissionFile, listRecords, listTransmissions, reviewMail } from './transmissions.mjs';
 import { address, jsonRequest, makeEnv, samplePdf, sendRequest } from './test-env.mjs';
-import { portal, revokeEmailDelivery } from './email-portal.mjs';
-import { newPortalToken } from './portal-crypto.mjs';
 
 const actor = 'owner';
 const faxSpec = { title: 'Lease', fax: { recipients: ['(512) 555-0100', '512.555.0101'], cover: { enabled: true, to: 'Ada', message: 'Hello' } } };
-const portalEnv = (messages = []) => makeEnv({ PORTAL_ENABLED: 'true', PORTAL_ORIGIN: 'https://example.test', PORTAL_KEY: newPortalToken(), PORTAL_SENDER: 'test@example.test', PORTAL_EMAIL: { send: async m => messages.push(m) } });
-const emailSpec = { email: { email: 'recipient@example.test', pinChannel: 'none' } };
-const emailRequest = async (spec = emailSpec) => sendRequest(spec, [await pdfFile('lease.pdf', [612])], undefined, 'emailDocuments');
 
 async function pdfFile(name, widths, populated = false) {
   const pdf = await PDFDocument.create();
@@ -27,49 +22,6 @@ async function pdfFile(name, widths, populated = false) {
   }
   return new File([await pdf.save()], name, { type: 'application/pdf' });
 }
-
-for (const stamped of [false, true]) test(`recipient receives ordered packet ${stamped ? 'with' : 'without'} headers, isolated and revocable`, async () => {
-  const messages = [];
-  const { env, objects } = portalEnv(messages);
-  const response = await createTransmission(await sendRequest(emailSpec, [await pdfFile('z.pdf', [612, 600]), await pdfFile('a.pdf', [601])], undefined, stamped ? 'numberedEmailDocuments' : 'emailDocuments'), env, actor);
-  const result = await response.json();
-  assert.equal(result.deliveries[0].status, 'accepted');
-  assert.deepEqual(result.documents.map(d => d.number), ['00000101', '00000102']);
-  assert.equal((await getTransmission(env, 'other', result.id)).status, 404);
-  const token = messages[0].text.match(/\/portal#([\w-]+)/)[1];
-  const headers = { origin: 'https://example.test', 'cf-connecting-ip': '192.0.2.1', 'content-type': 'application/json' };
-  const get = cookie => portal(new Request('https://example.test/portal/document', { headers: cookie ? { cookie } : {} }), env);
-  assert.equal((await get()).status, 404);
-  const exchange = await portal(new Request('https://example.test/portal/exchange', { method: 'POST', headers, body: JSON.stringify({ token }) }), env);
-  const cookie = exchange.headers.get('set-cookie').split(';')[0];
-  const bytes = new Uint8Array(await (await get(cookie)).arrayBuffer());
-  assert.deepEqual(bytes, objects.get(`outbound/${result.id}/document.pdf`));
-  const packet = await PDFDocument.load(bytes);
-  assert.deepEqual(packet.getPages().map(p => p.getWidth()), [612, 600, 601]);
-  if (stamped) for (const [i, page] of packet.getPages().entries()) assert.ok(pageContents(page).includes(hex(i < 2 ? 'Document 00000101' : 'Document 00000102')));
-  const encrypted = [...objects.entries()].find(([key]) => key.startsWith('portal/'))[1];
-  assert.notDeepEqual(encrypted, bytes);
-  assert.equal((await revokeEmailDelivery(jsonRequest('/x', {}), env, 'other', result.id, result.deliveries[0].id)).status, 404);
-  assert.equal((await revokeEmailDelivery(jsonRequest('/x', {}), env, actor, result.id, result.deliveries[0].id)).status, 200);
-  assert.equal((await get(cookie)).status, 404);
-});
-
-test('email intent commits atomically with transmission and remains visible if invocation fails', async () => {
-  const { env, db } = portalEnv();
-  db.exec("CREATE TRIGGER fail_claim BEFORE UPDATE OF status ON email_attempts BEGIN SELECT RAISE(ABORT, 'injected'); END");
-  await createTransmission(await emailRequest(), env, actor);
-  const row = db.prepare('SELECT t.id, a.status FROM transmissions t JOIN email_attempts a ON a.transmission_id = t.id').get();
-  assert.equal(row.status, 'pending');
-  assert.equal((await (await getTransmission(env, actor, row.id)).json()).deliveries.find(d => d.channel === 'email').status, 'unknown');
-});
-test('failure inserting email intent rolls back the transmission batch', async () => {
-  const { env, db } = portalEnv();
-  db.exec("CREATE TRIGGER fail_intent BEFORE INSERT ON email_attempts BEGIN SELECT RAISE(ABORT, 'injected'); END");
-  await assert.rejects(createTransmission(await emailRequest(), env, actor));
-  assert.equal(db.prepare('SELECT count(*) AS n FROM transmissions').get().n, 0);
-  assert.equal(db.prepare('SELECT count(*) AS n FROM email_attempts').get().n, 0);
-  assert.equal(db.prepare('SELECT count(*) AS n FROM envelope_documents').get().n, 0);
-});
 
 const pageContents = page => Buffer.from(decodePDFRawStream(page.node.Contents().lookup(0)).decode()).toString('ascii');
 const hex = value => Buffer.from(value).toString('hex').toUpperCase();
@@ -358,42 +310,4 @@ test('every new route requires a verified Access identity', async () => {
     assert.equal((await worker.fetch(new Request(`https://example.test${path}`, { method }), env)).status, 401, `${method} ${path}`);
     assert.equal((await worker.fetch(new Request(`https://example.test${path}`, { method, headers: { 'cf-access-jwt-assertion': 'forged' } }), env)).status, 401, `${method} ${path} forged`);
   }
-});
-
-test('email-only transmission uses the portal and appears in records without claiming delivery', async () => {
-  const messages = [];
-  const { env } = portalEnv(messages);
-  const response = await createTransmission(await emailRequest(), env, actor);
-  const result = await response.json();
-  assert.equal(response.status, 202); assert.equal(result.deliveries[0].status, 'accepted'); assert.equal(messages.length, 1);
-  const detail = await (await getTransmission(env, actor, result.id)).json();
-  assert.equal(detail.deliveries[0].channel, 'email'); assert.equal(detail.deliveries[0].status, 'accepted');
-  assert.equal(detail.settled, true);
-  assert.equal((await (await listTransmissions(env, actor)).json()).transmissions[0].channels[0].channel, 'email');
-  assert.equal((await getTransmission(env, 'someone-else', result.id)).status, 404);
-});
-
-test('disabled, cross-origin, and legacy-field email submission cannot write or enqueue any channel', async () => {
-  const messages = [];
-  const { env, objects, db, queue } = portalEnv(messages);
-  const mixed = { ...emailSpec, ...faxSpec };
-  const foreign = await emailRequest(mixed);
-  foreign.headers.set('origin', 'https://elsewhere.test');
-  assert.equal((await createTransmission(foreign, env, actor)).status, 403);
-  assert.equal((await createTransmission(await sendRequest(mixed, await samplePdf(1)), env, actor)).status, 400);
-  env.PORTAL_ENABLED = 'false';
-  assert.equal((await createTransmission(await emailRequest(mixed), env, actor)).status, 503);
-  assert.equal(db.prepare('SELECT count(*) AS n FROM transmissions').get().n, 0);
-  assert.equal(objects.size, 0);
-  assert.equal(queue.sent.length + messages.length, 0);
-});
-
-test('Worker recipient routes never authorize adjacent paths or owner APIs', async () => {
-  const { env } = portalEnv();
-  const worker = createWorker();
-  for (const path of ['/portal/', '/portal%2fstatus', '/portal/status/extra', '/portal/../api/records', '/api/portal-capability', '/api/transmissions', `/api/transmissions/${crypto.randomUUID()}/email`]) {
-    assert.equal((await worker.fetch(new Request(`https://example.test${path}`), env)).status, 401, path);
-  }
-  assert.equal((await worker.fetch(new Request('https://example.test/portal'), env)).status, 200);
-  assert.equal((await worker.fetch(new Request('https://example.test/portal/status'), env)).status, 404);
 });

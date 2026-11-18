@@ -4,7 +4,8 @@ import { enqueue, isTerminal, mailReviewHash, mark, refreshDelivery, sha256Hex, 
 import { assembleEnvelope } from './envelope-pdf.mjs';
 import { contact, mailApiKey } from './mail-send.mjs';
 import { normalizePhone } from './phone.mjs';
-import { createEmailDelivery, portalAvailable, portalMutationOriginOK } from './email-portal.mjs';
+import { createEmailDelivery, portalAvailable, portalMutationOriginOK, validatePortalRecipient } from './email-portal.mjs';
+import { importPortalKey } from './portal-crypto.mjs';
 
 const MAX_FAX_RECIPIENTS = 10;
 const headers = { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' };
@@ -109,7 +110,10 @@ export async function createTransmission(request, env, actor) {
   if (!!spec.email !== !!(email.length || numberedEmail.length)) return reply({ error: 'Use the email document field only with email delivery' }, 400);
   if (spec.email) {
     if (!portalMutationOriginOK(request, env)) return reply({ error: 'Email requires a same-origin request' }, 403);
-    if (!portalAvailable(env)) return reply({ error: 'Email portal is not enabled on this instance' }, 503);
+    if (!portalAvailable(env)) return reply({ error: 'Email portal requires an encryption key, sender address, and email binding.' }, 503);
+    try { await importPortalKey(env.PORTAL_KEY); } catch { return reply({ error: 'Email portal encryption key is invalid.' }, 503); }
+    const invalid = validatePortalRecipient(spec.email, env);
+    if (invalid) return reply({ error: invalid.error }, invalid.status);
   }
 
   const faxNumbers = [];
@@ -150,6 +154,7 @@ export async function createTransmission(request, env, actor) {
     try { bytes = await assembled.stamp(envelopeNumber); }
     catch (error) { return reply({ error: error.message }, 400); }
   }
+  if (spec.email && bytes.byteLength > MAX_DOCUMENT_BYTES) return reply({ error: 'The assembled email PDF exceeds 5 MB.' }, 400);
   const now = new Date().toISOString();
   const settings = await getSettings(env.DB);
   const sourceKey = `outbound/${id}/document.pdf`;
@@ -188,7 +193,8 @@ export async function createTransmission(request, env, actor) {
   if (spec.email) {
     try {
       const origin = new URL(request.url).origin;
-      const emailRequest = new Request(`${origin}/api/transmissions/${id}/email`, { method: 'POST', headers: { origin: request.headers.get('origin'), 'content-type': 'application/json' }, body: JSON.stringify(spec.email) });
+      const { email, pinChannel, phone } = spec.email;
+      const emailRequest = new Request(`${origin}/api/transmissions/${id}/email`, { method: 'POST', headers: { origin: request.headers.get('origin'), 'content-type': 'application/json' }, body: JSON.stringify({ email, pinChannel, phone: pinChannel === 'none' ? undefined : phone }) });
       const response = await createEmailDelivery(emailRequest, env, actor, id, true);
       const result = await response.json();
       if (!response.ok) created.push({ channel: 'email', status: 'failed', error: result.error || 'Email could not be sent.' });
@@ -196,7 +202,6 @@ export async function createTransmission(request, env, actor) {
     } catch { created.push({ channel: 'email', status: 'unknown', error: 'Email outcome is unknown. Check Records before trying again.' }); }
   }
   return reply({ id, envelopeNumber, documents: manifest, deliveries: created }, 202);
-
 }
 
 const deliveryView = (row, transmissionId, timeline) => ({
@@ -216,7 +221,6 @@ export async function listTransmissions(env, actor) {
   for (const d of deliveries.results ?? []) by.set(d.transmission_id, [...(by.get(d.transmission_id) ?? []), { id: d.id, channel: d.channel, status: d.status }]);
   for (const d of emails.results ?? []) by.set(d.transmission_id, [...(by.get(d.transmission_id) ?? []), { id: d.delivery_id ?? d.transmission_id, channel: 'email', status: d.revoked_at ? 'revoked' : ['preparing', 'pending'].includes(d.status) ? 'unknown' : d.status }]);
   return reply({ transmissions: (rows.results ?? []).map(r => ({ id: r.id, title: r.title, envelopeNumber: r.number == null ? null : formatEnvelopeNumber(r.number), pageCount: r.page_count, createdAt: r.created_at, updatedAt: r.updated_at, channels: by.get(r.id) ?? [] })) });
-
 }
 
 export async function getTransmission(env, actor, id, fetcher = fetch) {
@@ -238,8 +242,8 @@ export async function getTransmission(env, actor, id, fetcher = fetch) {
     const timeline = (await env.DB.prepare('SELECT at, status, detail FROM timeline WHERE delivery_id = ? ORDER BY id').bind(row.id).all()).results ?? [];
     deliveries.push(deliveryView(row, id, timeline));
   }
-  const emails = await env.DB.prepare('SELECT a.delivery_id, a.recipient, a.status, a.error, a.created_at, p.revoked_at FROM email_attempts a LEFT JOIN portal_deliveries p ON p.id = a.delivery_id WHERE a.transmission_id = ? AND a.actor_id = ?').bind(id, actor).all();
-  for (const email of emails.results ?? []) deliveries.push({ id: email.delivery_id ?? id, channel: 'email', recipient: email.recipient, status: email.revoked_at ? 'revoked' : ['preparing', 'pending'].includes(email.status) ? 'unknown' : email.status, providerStatus: null, error: email.error, createdAt: new Date(email.created_at).toISOString(), updatedAt: new Date(email.created_at).toISOString(), submittedAt: null, finishedAt: null, needsApproval: false, coverUrl: null, timeline: [] });
+  const emails = await env.DB.prepare('SELECT a.delivery_id, a.recipient, a.status, a.error, a.created_at, p.revoked_at, p.expires_at FROM email_attempts a LEFT JOIN portal_deliveries p ON p.id = a.delivery_id WHERE a.transmission_id = ? AND a.actor_id = ?').bind(id, actor).all();
+  for (const email of emails.results ?? []) deliveries.push({ id: email.delivery_id ?? id, channel: 'email', recipient: email.recipient, status: email.revoked_at ? 'revoked' : ['preparing', 'pending'].includes(email.status) ? 'unknown' : email.status, canRevoke: !!(email.delivery_id && !email.revoked_at && email.expires_at > Date.now()), providerStatus: null, error: email.error, createdAt: new Date(email.created_at).toISOString(), updatedAt: new Date(email.created_at).toISOString(), submittedAt: null, finishedAt: null, needsApproval: false, coverUrl: null, timeline: [] });
   // Email exposes submission acceptance, not a provider delivery status feed.
   const settled = deliveries.every(d => d.channel === 'email' || isTerminal(d.status));
   const refreshed = await env.DB.prepare('SELECT updated_at FROM transmissions WHERE id = ?').bind(id).first();
