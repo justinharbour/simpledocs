@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Observation
 import SimpleDocsConnected
 
@@ -94,6 +95,44 @@ import SimpleDocsConnected
 
     /// Local review of the exact letter for one mode. Nothing is mailed until `approve` runs.
     public private(set) var mailReview: (deliveryID: String, review: MailReview)?
+    public private(set) var faxReview: (deliveryID: String, review: FaxReview, url: URL)?
+
+    public func reviewFax(_ delivery: DeliveryDetail) async {
+        guard approvingID == nil else { return }
+        approvalError = nil; approvingID = delivery.id; faxReview = nil
+        defer { approvingID = nil }
+        do {
+            let (id, deliveryID) = (self.id, delivery.id)
+            let review = try await session.call { try await $0.faxReview(transmissionID: id, deliveryID: deliveryID) }
+            let path = "/api/transmissions/\(id)/packet/\(deliveryID)"
+            guard review.packetUrl == path, review.status == "awaiting_approval", review.recipient == delivery.recipient,
+                  review.packetSha256.count == 64, review.reviewHash.count == 64 else { throw APIError.invalidResponse }
+            let url = try await session.call { try await $0.download(path: path, filename: "Fax packet.pdf") }
+            let bytes = try Data(contentsOf: url)
+            let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+            guard digest == review.packetSha256 else { try? FileManager.default.removeItem(at: url); throw APIError.invalidResponse }
+            faxReview = (deliveryID, review, url)
+        } catch is CancellationError {
+        } catch { approvalError = "Fax proof unavailable or invalid. Older instances may not support packet review. \(describe(error))" }
+    }
+
+    public func cancelFaxReview() { faxReview = nil; approvalError = nil }
+
+    public func approveFax(_ delivery: DeliveryDetail) async {
+        guard approvingID == nil, let shown = faxReview, shown.deliveryID == delivery.id else { return }
+        approvalError = nil; approvingID = delivery.id
+        defer { approvingID = nil }
+        do {
+            let (id, deliveryID, hash) = (self.id, delivery.id, shown.review.reviewHash)
+            try await session.call { try await $0.approveFax(transmissionID: id, deliveryID: deliveryID, reviewHash: hash) }
+            faxReview = nil
+            await load(quiet: true)
+        } catch {
+            faxReview = nil
+            approvalError = "Approval result could not be confirmed. Refresh this record before trying again. \(describe(error))"
+            await load(quiet: true)
+        }
+    }
 
     public func reviewMail(_ delivery: DeliveryDetail, mode: MailMode) async {
         approvalError = nil
@@ -313,6 +352,7 @@ public struct PickedDocument: Equatable, Sendable {
         public let transmissionID: String
         public let envelopeNumber: String?
         public let faxCount: Int
+        public let faxAwaitingReview: Int
         public let letterApproved: Bool
         /// Set when the letter exists but was not approved, so nothing was mailed.
         public let letterProblem: String?
@@ -325,6 +365,8 @@ public struct PickedDocument: Equatable, Sendable {
     public private(set) var step = Step.compose
     public private(set) var error: String?
     public private(set) var documentError: String?
+    public private(set) var recentRecipients: RecentRecipients?
+    public private(set) var recipientsNotice: String?
     private let session: ConnectedModel
     private var prefilled = false
 
@@ -332,10 +374,9 @@ public struct PickedDocument: Equatable, Sendable {
 
     public var problems: [String] { draft.problems(hasDocument: document != nil) }
     public var canReview: Bool { problems.isEmpty }
-    public var needsLiveConfirmation: Bool { draft.channels.hasMail && draft.mode == .live }
+    public var needsLiveConfirmation: Bool { draft.channels.hasFax || (draft.channels.hasMail && draft.mode == .live) }
     public var sendButtonTitle: String {
-        guard draft.channels.hasMail else { return "Send fax" }
-        return draft.mode == .live ? "Send a real letter" : (draft.channels.hasFax ? "Send fax and test letter" : "Send test letter")
+        "Create transmission"
     }
 
     public func choose(data: Data, name: String, pageCount: Int?) {
@@ -370,6 +411,11 @@ public struct PickedDocument: Equatable, Sendable {
         if draft.mailFrom.isBlank, let from = settings.mailFrom { draft.mailFrom = from }
     }
 
+    public func loadRecipients() async {
+        do { recentRecipients = try await session.call { try await $0.recentRecipients() }; recipientsNotice = nil }
+        catch { recipientsNotice = "Previous recipients are unavailable on this instance." }
+    }
+
     public func review() {
         error = nil
         guard canReview else { return }
@@ -397,21 +443,11 @@ public struct PickedDocument: Equatable, Sendable {
             let numberDocumentPages = draft.numberDocumentPages
             let numberFaxCover = draft.channels.hasFax && draft.cover.enabled && draft.cover.includeNumbers
             let created = try await session.call { try await $0.createTransmission(documents: files, spec: spec, numberDocumentPages: numberDocumentPages, numberFaxCover: numberFaxCover) }
-            var approved = false
-            var problem: String?
-            if draft.channels.hasMail, let letter = created.deliveries.first(where: { $0.channel == "mail" }) {
-                let (id, mode) = (created.id, draft.mode)
-                do {
-                    try await session.call { api in
-                        let review = try await api.mailReview(transmissionID: id, deliveryID: letter.id, mode: mode)
-                        guard review.available else { throw APIError.server(status: 503, message: "Paper mail in \(mode.rawValue) mode isn't set up on this instance, so the letter was not mailed.") }
-                        try await api.approveMail(transmissionID: id, deliveryID: letter.id, mode: mode, reviewHash: review.reviewHash)
-                    }
-                    approved = true
-                } catch { problem = describe(error) }
-            }
+            let problem: String? = draft.channels.hasMail
+                ? "Open the record to review and confirm the letter separately." : nil
             step = .sent(SentSummary(transmissionID: created.id, envelopeNumber: created.envelopeNumber, faxCount: created.deliveries.filter { $0.channel == "fax" }.count,
-                                     letterApproved: approved, letterProblem: problem))
+                                     faxAwaitingReview: created.deliveries.filter { $0.channel == "fax" && $0.status == "awaiting_approval" }.count,
+                                     letterApproved: false, letterProblem: problem))
         } catch is CancellationError {
             step = .review
         } catch {

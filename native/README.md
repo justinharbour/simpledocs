@@ -22,9 +22,13 @@ The voicemail greeting editor uses `GET/PUT /api/settings/voicemail` (`{greeting
 
 ## Layout
 
-Shared SwiftUI screens are in `Apps/ConnectedShared`; the macOS connected app is in `Apps/MacConnected`, the direct edition in `Apps/MacDirect` (unchanged, still a preview with synthetic data) and iPhone/iPad in `Apps/iOS`. The models, sign-in, networking and view models live in Swift packages under `Packages/`; see [connected-integration.md](docs/connected-integration.md) for what each package does and how sessions work. `project.yml` is the [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec (the `.xcodeproj` is generated and not committed).
+Shared SwiftUI screens are in `Apps/ConnectedShared`; platform entry points are in `Apps/MacConnected` and `Apps/iOS`. The connection selector supports a self-hosted instance or a device-only Telnyx API key. Direct mode includes fax records and reviewed single-PDF fax submission, pending CI and provider verification; calling, mail and inbound capture are not implemented. `project.yml` is the XcodeGen spec; CI must supply authorized signing settings and can override `SIMPLEDOCS_MARKETING_VERSION` and `SIMPLEDOCS_BUILD_NUMBER`.
 
-The two macOS editions are separate targets with separate bundle identifiers, product names and entitlements. The identifiers (`dev.justinharbour.simpledocs.mac.connected`, `.mac.direct`, `.ios`) are provisional and need confirming against the Apple Developer account before any signing.
+The macOS and iOS/iPadOS app targets share `com.justinharbour.simpledocs` as their main bundle identifier; they are platform builds, not one cross-platform binary. Share extensions queue a PDF locally for explicit review in the connected Send screen; no automatic sending occurs. They need signed App Group provisioning and real-device testing. tvOS is not implemented. See [unified product](docs/unified-product.md) for platform, policy and provisioning gaps.
+
+These IDs are different applications from the old `dev` IDs, not in-place upgrades. Existing installations, preferences, sandbox data and Keychain access may not carry over; users may need to sign in again and re-enter direct-provider credentials. The existing direct-provider Keychain service name is intentionally retained; no credentials are deleted or copied. Keep the old app installed until data and credentials are safely accounted for. See [push.md](docs/push.md) for the APNs cutover.
+
+Managed OAuth must allow both `com.justinharbour.simpledocs:/oauth/callback` and the legacy `dev.justinharbour.simpledocs:/oauth/callback` before deploying the new Worker or using the new app. The deployment preflight validates these without modifying live OAuth configuration. Existing deployments and self-hosted instances require an explicit owner-managed Access update; preserve all other OAuth settings. The old callback remains for old app versions.
 
 ## Build and test
 
@@ -41,7 +45,6 @@ Packages/*Connected/ci/guard.sh
 # Generate the project, then build each target without signing
 xcodegen generate
 xcodebuild -project SimpleDocs.xcodeproj -scheme SimpleDocsMacConnected -destination 'platform=macOS' build CODE_SIGNING_ALLOWED=NO
-xcodebuild -project SimpleDocs.xcodeproj -scheme SimpleDocsMacDirect    -destination 'platform=macOS' build CODE_SIGNING_ALLOWED=NO
 xcodebuild -project SimpleDocs.xcodeproj -scheme SimpleDocsiOS          -destination 'generic/platform=iOS' build CODE_SIGNING_ALLOWED=NO
 xcodebuild -project SimpleDocs.xcodeproj -scheme SimpleDocsSignInTests  -destination 'platform=macOS' test CODE_SIGNING_ALLOWED=NO
 ```
@@ -52,7 +55,7 @@ The `native-connected` job in `.github/workflows/ci.yml` runs the guard and the 
 
 ## Not verified
 
-- **Sign-in against the live instance.** The app needs Managed OAuth turned on for the Access application with `dev.justinharbour.simpledocs:/oauth/callback` allowed. The Worker must accept the bearer token (Access turns it into the assertion) and the `Origin` header. Until that is checked end to end, sign-in may be refused.
+- **Sign-in against the live instance.** The app needs Managed OAuth turned on for the Access application with the current and legacy callback URIs allowed. The Worker must accept the bearer token (Access turns it into the assertion) and the `Origin` header. Until that is checked end to end, sign-in may be refused.
 - **No iOS simulator was run**, so the iOS app is built for `generic/platform=iOS` only.
 - **No VoiceOver, keyboard-navigation or Dynamic Type pass.** Labels and system controls are in place; a manual pass is still needed.
 - No signing, notarization or App Store Connect setup. Push delivery needs the Apple and Worker setup in [push.md](docs/push.md).

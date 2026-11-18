@@ -9,11 +9,13 @@ tvOS release today.
 
 ## GitHub setup and flow
 
-The `main` push workflow runs release-please against the root manifest. It
-opens a conventional-title release PR to `main`; merge it through the normal
-review and CI process. On the subsequent `main` push release-please creates the
-GitHub tag/release and, in the same workflow run, starts both TestFlight jobs
-at the exact release SHA. A GitHub release means the tag was created, **not**
+The `develop` push workflow runs release-please against the root manifest. It
+opens a conventional-title release PR to `develop`; merge it through the normal
+review and CI process. The subsequent `develop` push creates a GitHub release
+and tag. Promote `develop` to `main` through the normal reviewed promotion PR.
+Once Apple setup is complete, dispatch the TestFlight workflow **on main** with
+the published tag. It verifies the tagged commit is an ancestor of main, checks
+its version, and builds that exact commit. A GitHub release means the tag was created, **not**
 that Apple accepted, processed, reviewed, or distributed a build. Check both
 matrix jobs and App Store Connect. Upload does not submit for App Review or
 automatically add external testers. Follow the repository's branch protection
@@ -26,7 +28,7 @@ the identity appropriate branch protection access without bypassing review.
 Unlike `GITHUB_TOKEN`, this identity causes release PRs to trigger ordinary PR
 CI. If organizational policy requires it, allow Actions to create pull requests.
 Rotate and restrict this credential. The token is used only in the release job;
-Apple secrets are used only by the main-branch release jobs, never PR jobs.
+Apple secrets are used only by the explicitly dispatched main-branch jobs, never PR jobs.
 
 `version.txt` and `.release-please-manifest.json` start at 0.0.0, not a claim
 that a version was shipped. Confirm existing GitHub tags and App Store Connect

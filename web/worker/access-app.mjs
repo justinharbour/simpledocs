@@ -1,3 +1,4 @@
+import { supportsNativeCallbacks } from './access-oauth.mjs';
 // Configure Access before Wrangler exposes either hostname. Never adopt an
 // unexpected application, policy, destination, or OAuth configuration.
 import { appendFile } from 'node:fs/promises';
@@ -7,7 +8,6 @@ const hosts = ['simpledocs.justinharbour.dev', 'simpledocs.justinharbour.com'];
 const paths = ['/webhooks/telnyx/fax', '/api/webhooks/telnyx/voice', '/api/webhooks/telnyx/messaging'];
 const policy = '36ee1f67-a91a-494c-b503-94bf48820ffa';
 const idp = 'bc4cede3-4ee0-4bd6-9393-34c10ca6a6d8';
-const callback = 'dev.justinharbour.simpledocs:/oauth/callback';
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 function destinations(app, allowed, required) {
@@ -20,7 +20,7 @@ function owner(app, policies, required) {
   if (app.name !== 'Simpledocs' || app.type !== 'self_hosted' || app.domain !== hosts[0] ||
       !same(app.allowed_idps, [idp]) || policies.length !== 1 || policies[0].id !== policy || policies[0].decision !== 'allow' ||
       typeof app.aud !== 'string' || !/^[a-f0-9]{64}$/i.test(app.aud) || !app.oauth_configuration?.enabled ||
-      !app.oauth_configuration.dynamic_client_registration?.enabled || !app.oauth_configuration.dynamic_client_registration.allowed_uris?.includes(callback)) throw Error('Unexpected owner Access configuration');
+      !supportsNativeCallbacks(app.oauth_configuration)) throw Error('Unexpected owner Access configuration');
 }
 function bypass(app, policies, path, required) {
   const allowed = hosts.map(host => host + path);

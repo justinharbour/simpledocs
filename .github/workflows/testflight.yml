@@ -1,0 +1,81 @@
+name: Upload promoted release to TestFlight
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release tag already promoted to main (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
+permissions: {}
+concurrency:
+  group: simpledocs-testflight
+  cancel-in-progress: false
+jobs:
+  resolve:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - id: resolve
+        env:
+          TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          gh release view "$TAG" --json isDraft,isPrerelease --jq 'select(.isDraft == false and .isPrerelease == false) | .isDraft' | grep -qx false
+          sha=$(git rev-parse "refs/tags/$TAG^{commit}")
+          git merge-base --is-ancestor "$sha" origin/main
+          [[ "$(git show "$sha:version.txt" | tr -d '\r\n')" == "${TAG#v}" ]]
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+  testflight:
+    needs: resolve
+    runs-on: xcode-27
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ios, macos]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+      - name: Select Xcode 27.2
+        run: sudo xcode-select -s /Applications/Xcode_27.2.app/Contents/Developer
+      - name: Install XcodeGen 2.46.0
+        env:
+          XCODEGEN_SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip
+          echo "${XCODEGEN_SHA256}  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 --check --strict
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
+      - name: Archive, export and upload
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_IOS_PROFILE_BASE64: ${{ matrix.platform == 'ios' && secrets.APPLE_IOS_PROFILE_BASE64 || '' }}
+          APPLE_IOS_SHARE_PROFILE_BASE64: ${{ matrix.platform == 'ios' && secrets.APPLE_IOS_SHARE_PROFILE_BASE64 || '' }}
+          APPLE_MAC_PROFILE_BASE64: ${{ matrix.platform == 'macos' && secrets.APPLE_MAC_PROFILE_BASE64 || '' }}
+          APPLE_MAC_SHARE_PROFILE_BASE64: ${{ matrix.platform == 'macos' && secrets.APPLE_MAC_SHARE_PROFILE_BASE64 || '' }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: bash native/ci/testflight.sh

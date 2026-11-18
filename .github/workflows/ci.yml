@@ -181,8 +181,6 @@ jobs:
         include:
           - scheme: SimpleDocsMacConnected
             destination: platform=macOS
-          - scheme: SimpleDocsMacDirect
-            destination: platform=macOS
           - scheme: SimpleDocsiOS
             destination: generic/platform=iOS
     steps:

@@ -2,7 +2,8 @@
 // content or phone numbers. Never log tokens, keys, or provider payloads.
 // Sending never throws: a push failure must not break the primary flow.
 const HOSTS = { production: 'https://api.push.apple.com', sandbox: 'https://api.sandbox.push.apple.com' };
-const TOPICS = { ios: 'dev.justinharbour.simpledocs.ios', macos: 'dev.justinharbour.simpledocs.mac.connected' };
+const TOPICS = { ios: ['com.justinharbour.simpledocs', 'com.justinharbour.simpledocs.ios'], macos: ['com.justinharbour.simpledocs', 'com.justinharbour.simpledocs.mac.connected'] };
+const LEGACY_TOPICS = { ios: 'dev.justinharbour.simpledocs.ios', macos: 'dev.justinharbour.simpledocs.mac.connected' };
 const TOKEN = /^[0-9a-f]{64,200}$/;
 const JWT_MAX_AGE_MS = 50 * 60 * 1000;
 const MESSAGES = {
@@ -23,9 +24,11 @@ function credentials(env) {
   return { key, keyId: keyId.trim(), teamId: teamId.trim() };
 }
 
-function topicFor(env, platform) {
-  const override = platform === 'macos' ? env.APNS_TOPIC_MACOS : env.APNS_TOPIC;
-  return typeof override === 'string' && override.trim() ? override.trim() : TOPICS[platform];
+function topicFor(env, device) {
+  if (device.bundle_id && TOPICS[device.platform]?.includes(device.bundle_id)) return device.bundle_id;
+  if (device.bundle_id) throw Error('Invalid bundle identifier');
+  const override = device.platform === 'macos' ? env.APNS_TOPIC_MACOS : env.APNS_TOPIC;
+  return typeof override === 'string' && override.trim() ? override.trim() : LEGACY_TOPICS[device.platform];
 }
 
 let cached = null;
@@ -58,17 +61,14 @@ async function sendOne(env, device, jwt, body, fetcher) {
   const response = await fetcher(`${HOSTS[device.environment]}/3/device/${device.token}`, {
     method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(4000), body,
     headers: {
-      authorization: `bearer ${jwt}`, 'apns-topic': topicFor(env, device.platform), 'apns-push-type': 'alert',
+      authorization: `bearer ${jwt}`, 'apns-topic': topicFor(env, device), 'apns-push-type': 'alert',
       'apns-priority': '10', 'content-type': 'application/json',
     },
   });
   if (response.ok) return 'sent';
   let reason = '';
   try { reason = (await response.json())?.reason ?? ''; } catch { /* Reason is optional. */ }
-  if (response.status === 410 || reason === 'Unregistered' || reason === 'BadDeviceToken') {
-    await env.DB.prepare('DELETE FROM push_devices WHERE token = ?').bind(device.token).run();
-    return 'removed';
-  }
+  // Keep registrations even if a signing environment or topic is misconfigured.
   console.error('APNs rejected a notification', response.status, String(reason).slice(0, 64));
   return 'failed';
 }
@@ -80,7 +80,7 @@ export async function notifyPush(env, { kind, id }, { fetcher = fetch, now = Dat
   const message = MESSAGES[kind];
   if (!creds || !message || !env.DB) return 'skipped';
   try {
-    const devices = await env.DB.prepare('SELECT token, platform, environment FROM push_devices').all();
+    const devices = await env.DB.prepare('SELECT token, platform, environment, bundle_id FROM push_devices').all();
     if (!devices.results?.length) return 'none';
     const jwt = await providerToken(creds, now);
     const payload = { aps: { alert: { title: message[0], body: message[1] }, sound: 'default', 'thread-id': kind }, kind, ...(id ? { id } : {}) };
@@ -97,7 +97,7 @@ async function readJson(request) {
   return JSON.parse(text);
 }
 
-// POST /api/push/devices {token, platform, environment}; DELETE /api/push/devices/:token.
+// POST /api/push/devices {token, platform, environment, bundleId?}; DELETE /api/push/devices/:token.
 // The caller has already verified the Access assertion.
 export async function handlePushDevices(request, env, actor, token) {
   if (env.VOICE_OWNER_SUBJECT && actor !== env.VOICE_OWNER_SUBJECT) return reply({ error: 'Not found' }, 404);
@@ -114,8 +114,9 @@ export async function handlePushDevices(request, env, actor, token) {
     try { body = await readJson(request); } catch { return reply({ error: 'Invalid request' }, 400); }
     const value = typeof body?.token === 'string' ? body.token.toLowerCase() : '';
     if (!TOKEN.test(value) || !['ios', 'macos'].includes(body.platform) || !['sandbox', 'production'].includes(body.environment)) return reply({ error: 'Invalid device' }, 400);
-    await env.DB.prepare("INSERT INTO push_devices (token, platform, environment) VALUES (?, ?, ?) ON CONFLICT(token) DO UPDATE SET platform = excluded.platform, environment = excluded.environment, last_seen_at = datetime('now')")
-      .bind(value, body.platform, body.environment).run();
+    if (body.bundleId !== undefined && !TOPICS[body.platform].includes(body.bundleId)) return reply({ error: 'Invalid bundle identifier' }, 400);
+    await env.DB.prepare("INSERT INTO push_devices (token, platform, environment, bundle_id) VALUES (?, ?, ?, ?) ON CONFLICT(token) DO UPDATE SET platform = excluded.platform, environment = excluded.environment, bundle_id = excluded.bundle_id, last_seen_at = datetime('now')")
+      .bind(value, body.platform, body.environment, body.bundleId ?? null).run();
     return reply({ ok: true });
   } catch { return reply({ error: 'Storage unavailable' }, 503); }
 }

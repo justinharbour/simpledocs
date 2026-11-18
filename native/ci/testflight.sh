@@ -12,7 +12,7 @@ umask 077
 
 work="$(mktemp -d "$RUNNER_TEMP/simpledocs-signing.XXXXXX")"
 keychain="$work/signing.keychain-db"
-profiles="$HOME/Library/MobileDevice/Provisioning Profiles"
+profiles="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
 installed=()
 old_keychains=()
 while IFS= read -r line; do
@@ -97,7 +97,7 @@ cat > "$work/export.plist" <<EOF
 EOF
 xcodebuild -exportArchive -archivePath "$work/SimpleDocs.xcarchive" -exportPath "$work/export" -exportOptionsPlist "$work/export.plist"
 shopt -s nullglob
-packages=("$work/export/"*.$ext)
+packages=("$work/export/"*."$ext")
 [[ ${#packages[@]} -eq 1 ]]
 mkdir -p "$work/private_keys"
 printf '%s\n' "$ASC_PRIVATE_KEY" > "$work/private_keys/AuthKey_${ASC_KEY_ID}.p8"

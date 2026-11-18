@@ -1,70 +1,19 @@
-name: Release and TestFlight
-
+name: Release Please
 on:
   push:
-    branches: [main]
-
+    branches: [develop]
 permissions: {}
 concurrency:
   group: simpledocs-release
   cancel-in-progress: false
-
 jobs:
   release:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
-    outputs:
-      created: ${{ steps.release.outputs.release_created }}
-      version: ${{ steps.release.outputs.version }}
-      sha: ${{ steps.release.outputs.sha }}
     steps:
-      - id: release
-        uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4.4.0
+      - uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4.4.0
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          target-branch: main
-
-  testflight:
-    needs: release
-    if: ${{ needs.release.outputs.created == 'true' }}
-    runs-on: xcode-27
-    timeout-minutes: 90
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        platform: [ios, macos]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.release.outputs.sha }}
-          persist-credentials: false
-      - name: Select Xcode 27.2
-        run: sudo xcode-select -s /Applications/Xcode_27.2.app/Contents/Developer
-      - name: Install XcodeGen 2.46.0
-        env:
-          XCODEGEN_SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
-        run: |
-          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip
-          echo "${XCODEGEN_SHA256}  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 --check --strict
-          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
-          echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
-      - name: Archive, export and upload
-        env:
-          PLATFORM: ${{ matrix.platform }}
-          RELEASE_VERSION: ${{ needs.release.outputs.version }}
-          BUILD_NUMBER: ${{ github.run_number }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_IOS_PROFILE_BASE64: ${{ matrix.platform == 'ios' && secrets.APPLE_IOS_PROFILE_BASE64 || '' }}
-          APPLE_IOS_SHARE_PROFILE_BASE64: ${{ matrix.platform == 'ios' && secrets.APPLE_IOS_SHARE_PROFILE_BASE64 || '' }}
-          APPLE_MAC_PROFILE_BASE64: ${{ matrix.platform == 'macos' && secrets.APPLE_MAC_PROFILE_BASE64 || '' }}
-          APPLE_MAC_SHARE_PROFILE_BASE64: ${{ matrix.platform == 'macos' && secrets.APPLE_MAC_SHARE_PROFILE_BASE64 || '' }}
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
-        run: bash native/ci/testflight.sh
+          target-branch: develop

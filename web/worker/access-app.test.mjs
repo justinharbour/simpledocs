@@ -6,6 +6,7 @@ const old = 'simpledocs.justinharbour.dev', next = 'simpledocs.justinharbour.com
 const paths = ['/webhooks/telnyx/fax', '/api/webhooks/telnyx/voice', '/api/webhooks/telnyx/messaging'];
 function fixture() {
   const apps = [{ id: 'owner', name: 'Simpledocs', type: 'self_hosted', domain: old, destinations: [{ type: 'public', uri: old }], allowed_idps: ['bc4cede3-4ee0-4bd6-9393-34c10ca6a6d8'], aud: 'a'.repeat(64), oauth_configuration: { enabled: true, dynamic_client_registration: { enabled: true, allowed_uris: ['dev.justinharbour.simpledocs:/oauth/callback'] } }, policies: [{ id: '36ee1f67-a91a-494c-b503-94bf48820ffa', precedence: 1 }] }, ...paths.map((path, i) => ({ id: `b${i}`, name: `Simpledocs Telnyx webhook ${path}`, type: 'self_hosted', domain: old + path, destinations: [{ type: 'public', uri: old + path }], policies: [{ id: `p${i}`, precedence: 1 }] }))];
+  apps[0].oauth_configuration.dynamic_client_registration.allowed_uris.push('com.justinharbour.simpledocs:/oauth/callback');
   const policies = { owner: [{ id: '36ee1f67-a91a-494c-b503-94bf48820ffa', decision: 'allow' }] };
   paths.forEach((_, i) => { policies[`b${i}`] = [{ decision: 'bypass', include: [{ everyone: {} }], exclude: [], require: [] }]; });
   const writes = [];

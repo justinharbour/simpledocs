@@ -11,6 +11,8 @@ struct SendView: View {
     @State private var dropTargeted = false
     @State private var reorderToken = UUID().uuidString
     @State private var confirmLive = false
+    @State private var sharedFiles: [URL] = []
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -23,6 +25,9 @@ struct SendView: View {
         }
         .navigationTitle("Send")
         .task { await model.prefill() }
+        .task { await model.loadRecipients() }
+        .onAppear { refreshSharedFiles() }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { refreshSharedFiles() } }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf], allowsMultipleSelection: true) { result in
             switch result {
             case .success(let urls): load(urls)
@@ -69,6 +74,20 @@ struct SendView: View {
     private var compose: some View {
         Form {
             Section("Documents") {
+                if !sharedFiles.isEmpty {
+                    Text("Shared PDFs are kept on this device until removed. Add one to review; nothing sends automatically.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    ForEach(sharedFiles, id: \.self) { url in
+                        HStack {
+                            Button("Add shared PDF \(url.deletingPathExtension().lastPathComponent.prefix(8))") { loadOne(url) }
+                            Spacer()
+                            Button("Remove", role: .destructive) {
+                                do { try FileManager.default.removeItem(at: url); refreshSharedFiles() }
+                                catch { model.rejectDocument("The shared PDF couldn't be removed.") }
+                            }
+                        }
+                    }
+                }
                 documentRows
                 Toggle("Put the document number at the top of each page", isOn: $model.draft.numberDocumentPages)
                 Text("Recipients will see the number on every document page sent by fax or paper mail. The original page is scaled slightly to make room. This does not change the fax cover.")
@@ -91,6 +110,14 @@ struct SendView: View {
                         .keyboardType(.phonePad)
                         #endif
                     faxFeedback
+                    if let recent = model.recentRecipients, !recent.fax.isEmpty {
+                        Menu("Previous fax recipients") {
+                            ForEach(recent.fax, id: \.self) { number in
+                                Button(number) { model.draft.faxList += model.draft.faxList.isEmpty ? number : ", " + number }
+                            }
+                        }
+                    }
+                    if let notice = model.recipientsNotice { Text(notice).font(.footnote).foregroundStyle(.secondary) }
                 } header: { Text("Fax") } footer: {
                     Text("One per line or separated by commas. (213) 414-7728, 213-414-7728 and +12134147728 all work.")
                 }
@@ -108,7 +135,16 @@ struct SendView: View {
             }
 
             if model.draft.channels.hasMail {
-                Section("Mail to") { ContactFields(contact: $model.draft.mailTo) }
+                Section("Mail to") {
+                    ContactFields(contact: $model.draft.mailTo)
+                    if let recent = model.recentRecipients, !recent.mail.isEmpty {
+                        Menu("Previous mail recipients") {
+                            ForEach(Array(recent.mail.enumerated()), id: \.offset) { _, contact in
+                                Button(contact.oneLine) { model.draft.mailTo = contact }
+                            }
+                        }
+                    }
+                }
                 Section("Return address") { ContactFields(contact: $model.draft.mailFrom) }
                 Section("Letter") {
                     Toggle("Color", isOn: $model.draft.color)
@@ -134,6 +170,13 @@ struct SendView: View {
         }
         .formStyle(.grouped)
         .overlay { if dropTargeted { DropHint() } }
+    }
+
+    private func refreshSharedFiles() {
+        guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.justinharbour.simpledocs") else { sharedFiles = []; return }
+        let folder = container.appendingPathComponent("ShareInbox", isDirectory: true)
+        sharedFiles = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]))?
+            .filter { $0.pathExtension.lowercased() == "pdf" }.sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
     }
 
     @ViewBuilder private var documentRows: some View {
@@ -204,6 +247,12 @@ struct SendView: View {
     private var review: some View {
         let sending = model.step == .sending
         return Form {
+            Section("Cost and preparation") {
+                Text("No reliable estimate is available from this instance. Provider charges may apply.")
+                if model.draft.channels.hasFax {
+                    Text("Older instances queue faxes immediately when you continue. Newer instances prepare packets for separate review and approval. Confirm your instance version before proceeding.")
+                }
+            }
             Section("Document order") {
                 ForEach(Array(model.documents.enumerated()), id: \.offset) { index, document in
                     Text("\(index + 1). \(document.name) (\(document.pageCount) \(document.pageCount == 1 ? "page" : "pages"))")
@@ -247,11 +296,11 @@ struct SendView: View {
             }
         }
         .formStyle(.grouped)
-        .confirmationDialog("Mail a real letter?", isPresented: $confirmLive, titleVisibility: .visible) {
-            Button("Mail the letter", role: .destructive) { Task { await model.send() } }
+        .confirmationDialog("Create this transmission?", isPresented: $confirmLive, titleVisibility: .visible) {
+            Button("Create transmission", role: .destructive) { Task { await model.send() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("PostGrid will print and mail this letter to \(model.draft.mailTo.oneLine). This costs money and can't be undone.")
+            Text(model.draft.channels.hasMail ? "Older instances queue faxes immediately; newer instances prepare them for separate review. The letter to \(model.draft.mailTo.oneLine) requires separate confirmation. Pricing is unavailable." : "Older instances queue this fax immediately; newer instances prepare it for separate review. Pricing is unavailable.")
         }
     }
 
@@ -261,11 +310,16 @@ struct SendView: View {
         VStack(spacing: 16) {
             Image(systemName: summary.letterProblem == nil ? "checkmark.circle" : "exclamationmark.triangle")
                 .font(.system(size: 44)).foregroundStyle(summary.letterProblem == nil ? Color.green : Color.orange).accessibilityHidden(true)
-            Text(summary.letterProblem == nil ? "Handed off" : "Partly handed off").font(.title2.bold())
+            Text(summary.faxAwaitingReview > 0 || summary.letterProblem != nil ? "Review deliveries in the record" : "Transmission created").font(.title2.bold())
             if let number = summary.envelopeNumber { Text("Envelope \(number)").foregroundStyle(.secondary) }
             VStack(alignment: .leading, spacing: 6) {
                 if summary.faxCount > 0 {
-                    Label("\(summary.faxCount) \(summary.faxCount == 1 ? "fax" : "faxes") queued. Delivery isn't confirmed until the receiving machine answers.", systemImage: "clock")
+                    if summary.faxAwaitingReview > 0 {
+                        Label("\(summary.faxAwaitingReview) fax packet(s) await separate review in the record.", systemImage: "doc.text.magnifyingglass")
+                    }
+                    if summary.faxCount > summary.faxAwaitingReview {
+                        Label("\(summary.faxCount - summary.faxAwaitingReview) fax(es) were submitted by this instance. Check the record for their status.", systemImage: "clock")
+                    }
                 }
                 if summary.letterApproved {
                     Label("Letter confirmed in \(model.draft.mode.label.lowercased()) mode. PostGrid reports the progress.", systemImage: "envelope")

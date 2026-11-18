@@ -33,9 +33,9 @@ oauth_referrers="$(grep -rIlE '\bSimpleDocsOAuth\b' native \
 if [ -n "$oauth_referrers" ]; then
   fail "SimpleDocsOAuth is referenced outside its package: $(echo "$oauth_referrers" | tr '\n' ' ')"
 fi
-# The direct-provider edition must not gain a dependency on the connected client.
-if sed -n '/^  SimpleDocsMacDirect:/,/^  SimpleDocsiOS:/p' native/project.yml | grep -qE 'SimpleDocsConnected|SimpleDocsOAuth|ConnectedShared'; then
-  fail 'Direct edition references connected-client packages.'
+# The synthetic direct preview must not be restored as a product target.
+if grep -qE '^  SimpleDocsMacDirect:' native/project.yml; then
+  fail 'Synthetic direct preview must not be shipped as a product target.'
 fi
 
 # 2. No dependencies of any kind.
