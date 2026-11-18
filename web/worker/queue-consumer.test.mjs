@@ -107,13 +107,13 @@ test('fax: retries are bounded', async () => {
 test('delivered only comes from a provider-reported terminal status', async () => {
   const { env, db, body, deliveryId } = await queuedFax();
   await processDelivery(env, body, 1, (await fakeTelnyx()).fetcher);
-  await applyOutboundFaxEvent(env.DB, 'fax.sending.started', 'fax-provider-1');
+  await applyOutboundFaxEvent(env, 'fax.sending.started', 'fax-provider-1');
   assert.equal(status(db, deliveryId).status, 'accepted');
   const detail = await (await getTransmission(env, actor, body.transmissionId, (await fakeTelnyx({ faxStatus: 'sending' })).fetcher)).json();
   assert.equal(detail.deliveries[0].status, 'accepted'); assert.equal(detail.settled, false);
-  await applyOutboundFaxEvent(env.DB, 'fax.delivered', 'fax-provider-1');
+  await applyOutboundFaxEvent(env, 'fax.delivered', 'fax-provider-1');
   assert.equal(status(db, deliveryId).status, 'delivered');
-  await applyOutboundFaxEvent(env.DB, 'fax.failed', 'fax-provider-1');
+  await applyOutboundFaxEvent(env, 'fax.failed', 'fax-provider-1');
   assert.equal(status(db, deliveryId).status, 'delivered', 'terminal rows do not change');
   const timeline = db.prepare('SELECT status, detail FROM timeline WHERE delivery_id = ? ORDER BY id').all(deliveryId);
   assert.deepEqual([...new Set(timeline.map(r => r.status))], ['queued', 'accepted', 'delivered']);

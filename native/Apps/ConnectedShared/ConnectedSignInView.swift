@@ -97,6 +97,7 @@ private struct VoiceRecordingList: Decodable { let recordings: [VoiceRecordingRe
             message = "Signed in. Loading records…"
             await load()
             busy = false
+            await registerForPush()
         } catch {
             if let attempt {
                 guard self.session === attempt else { return }
@@ -123,7 +124,21 @@ private struct VoiceRecordingList: Decodable { let recordings: [VoiceRecordingRe
         }
     }
 
+    /// Permission is requested only after a successful sign-in. The device token is posted with the
+    /// session's own credentials; a failure here never affects sign-in or the loaded records.
+    private func registerForPush() async {
+        guard let session else { return }
+        PushCoordinator.shared.report = { [weak self] text in self?.message = text }
+        await PushCoordinator.shared.start { [weak self] token in
+            guard let flow = self?.flow, self?.session === session else { return }
+            do {
+                _ = try await flow.perform(.registerPushDevice(token: token, platform: PushCoordinator.platform, environment: PushCoordinator.environment))
+            } catch { self?.message = "Signed in, but push registration did not complete." }
+        }
+    }
+
     func signOut() {
+        PushCoordinator.shared.stop()
         flow?.clear()
         flow = nil
         faxes = []; pendingFaxes = 0; recordings = []; loaded = false
@@ -143,6 +158,11 @@ struct ConnectedSignInView: View {
     @State private var model = SignInModel()
 
     var body: some View {
+        form
+            .onAppear { PushCoordinator.shared.onOpen = { Task { await model.load() } } }
+    }
+
+    private var form: some View {
         Form {
             Section("simpledocs") {
                 TextField("Instance HTTPS origin", text: $model.instance)

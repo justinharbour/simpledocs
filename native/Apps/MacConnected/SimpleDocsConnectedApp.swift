@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct SimpleDocsConnectedApp: App {
+    @NSApplicationDelegateAdaptor(PushAppDelegate.self) private var pushDelegate
     var body: some Scene {
         WindowGroup {
             ConnectedSignInView()
