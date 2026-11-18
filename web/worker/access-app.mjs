@@ -1,69 +1,81 @@
-// Provision the owner's Access application before attaching the Worker hostname.
-// Existing applications are never modified or adopted implicitly.
 import { supportsNativeCallbacks } from './access-oauth.mjs';
-const account = process.env.CLOUDFLARE_ACCOUNT_ID;
-const token = process.env.CLOUDFLARE_API_TOKEN;
-const hostname = 'simpledocs.justinharbour.dev';
+// Configure Access before Wrangler exposes either hostname. Never adopt an
+// unexpected application, policy, destination, or OAuth configuration.
+import { appendFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
+
+const hosts = ['simpledocs.justinharbour.dev', 'simpledocs.justinharbour.com'];
+const paths = ['/webhooks/telnyx/fax', '/api/webhooks/telnyx/voice', '/api/webhooks/telnyx/messaging'];
 const policy = '36ee1f67-a91a-494c-b503-94bf48820ffa';
-if (!account || !token) throw new Error('Cloudflare credentials are required');
+const idp = 'bc4cede3-4ee0-4bd6-9393-34c10ca6a6d8';
 
-async function api(path, options = {}) {
-  const response = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
-    ...options,
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-  });
-  const body = await response.json();
-  if (!response.ok || !body.success) throw new Error(`Cloudflare Access request failed: ${response.status} ${JSON.stringify(body.errors)}`);
-  return body;
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+function destinations(app, allowed, required) {
+  const ds = app.destinations;
+  if (!Array.isArray(ds) || ds.some(d => d.type !== 'public' || !allowed.includes(d.uri) || (d.overrides?.length ?? 0) !== 0) ||
+      new Set(ds.map(d => d.uri)).size !== ds.length || !required.every(uri => ds.some(d => d.uri === uri))) throw Error('Unexpected Access destinations');
 }
-
-const base = `/accounts/${account}/access/apps`;
-let page = 1;
-let matches = [];
-let result;
-do {
-  result = await api(`${base}?per_page=100&page=${page++}`);
-  matches.push(...result.result.filter(app => app.domain === hostname || app.self_hosted_domains?.includes(hostname)));
-} while (page <= (result.result_info?.total_pages ?? 1));
-if (matches.length > 1) throw new Error('Multiple Access applications match the hostname');
-if (!matches.length) {
-  const created = await api(base, { method: 'POST', body: JSON.stringify({
-    name: 'Simpledocs', type: 'self_hosted', domain: hostname,
-    allowed_idps: ['bc4cede3-4ee0-4bd6-9393-34c10ca6a6d8'],
-    policies: [{ id: policy, precedence: 1 }],
-  }) });
-  matches = [created.result];
+function owner(app, policies, required) {
+  destinations(app, hosts, required);
+  if (app.name !== 'Simpledocs' || app.type !== 'self_hosted' || app.domain !== hosts[0] ||
+      !same(app.allowed_idps, [idp]) || policies.length !== 1 || policies[0].id !== policy || policies[0].decision !== 'allow' ||
+      typeof app.aud !== 'string' || !/^[a-f0-9]{64}$/i.test(app.aud) || !app.oauth_configuration?.enabled ||
+      !supportsNativeCallbacks(app.oauth_configuration)) throw Error('Unexpected owner Access configuration');
 }
-const app = (await api(`${base}/${matches[0].id}`)).result;
-const policyResponse = await api(`${base}/${app.id}/policies?per_page=100`);
-const policies = policyResponse.result;
-if (app.name !== 'Simpledocs' || app.type !== 'self_hosted' || app.domain !== hostname ||
-    app.allowed_idps?.length !== 1 || app.allowed_idps[0] !== 'bc4cede3-4ee0-4bd6-9393-34c10ca6a6d8' ||
-    (policyResponse.result_info?.total_pages ?? 1) > 1 || policies.length !== 1 || policies[0].id !== policy || policies[0].decision !== 'allow' ||
-    typeof app.aud !== 'string' || !/^[a-f0-9]{64}$/i.test(app.aud)) {
-  throw new Error('Access application does not match the expected policy; refusing deployment');
+function bypass(app, policies, path, required) {
+  const allowed = hosts.map(host => host + path);
+  destinations(app, allowed, required);
+  if (app.name !== `Simpledocs Telnyx webhook ${path}` || app.type !== 'self_hosted' || app.domain !== allowed[0] ||
+      policies.length !== 1 || policies[0].decision !== 'bypass' || !same(policies[0].include, [{ everyone: {} }]) ||
+      (policies[0].exclude?.length ?? 0) || (policies[0].require?.length ?? 0)) throw Error('Unexpected webhook Access configuration');
 }
-// Never replace live OAuth settings: an owner must add both callbacks before deployment.
-if (!supportsNativeCallbacks(app.oauth_configuration)) {
-  throw new Error('Managed OAuth must be enabled with both current and legacy Simpledocs callback URIs; configure it explicitly before deployment');
-}
-// Telnyx cannot authenticate through Access; these paths verify Telnyx's
-// Ed25519 signature in the Worker instead. Everything else stays behind Access.
-for (const path of ['/webhooks/telnyx/fax', '/api/webhooks/telnyx/voice', '/api/webhooks/telnyx/messaging']) {
-  const domain = `${hostname}${path}`;
-  const found = [];
-  let p = 1, r;
-  do {
-    r = await api(`${base}?per_page=100&page=${p++}`);
-    found.push(...r.result.filter(a => a.domain === domain));
-  } while (p <= (r.result_info?.total_pages ?? 1));
-  if (!found.length) {
-    await api(base, { method: 'POST', body: JSON.stringify({
-      name: `Simpledocs Telnyx webhook ${path}`, type: 'self_hosted', domain,
-      policies: [{ name: 'Telnyx webhook bypass', decision: 'bypass', include: [{ everyone: {} }], precedence: 1 }],
-    }) });
+export async function configureAccess(api) {
+  const base = '/access/apps';
+  async function list() {
+    let page = 1, all = [], r;
+    do { r = await api(`${base}?per_page=100&page=${page++}`); all.push(...r.result); } while (page <= (r.result_info?.total_pages ?? 1));
+    return all;
   }
+  const all = await list();
+  const specs = [{ path: '', check: owner }, ...paths.map(path => ({ path, check: bypass }))];
+  const selected = [];
+  for (const spec of specs) {
+    const expected = hosts.map(h => h + spec.path);
+    const found = all.filter(a => a.domain === expected[0] || a.destinations?.some(d => d.uri === expected[0]));
+    if (found.length !== 1 || all.some(a => a.id !== found[0]?.id && (a.domain === expected[1] || a.destinations?.some(d => d.uri === expected[1])))) throw Error('Missing or conflicting Access application');
+    const app = (await api(`${base}/${found[0].id}`)).result;
+    const response = await api(`${base}/${app.id}/policies?per_page=100`);
+    if ((response.result_info?.total_pages ?? 1) > 1) throw Error('Unexpected policy pagination');
+    const validate = required => spec.path ? spec.check(app, response.result, spec.path, required) : spec.check(app, response.result, required);
+    validate([expected[0]]);
+    selected.push({ ...spec, app, expected });
+  }
+  // Add webhook destinations first; no hostname is routed to the Worker yet.
+  for (const item of [...selected.slice(1), selected[0]]) {
+    const { app, expected, path, check } = item;
+    const updated = { ...app, destinations: expected.map(uri => ({ type: 'public', uri })), policies: app.policies.map(p => ({ id: p.id, precedence: p.precedence })) };
+    if (!path) updated.eager_redirect_cookie_setting = false;
+    await api(`${base}/${app.id}`, { method: 'PUT', body: JSON.stringify(updated) });
+    const confirmed = (await api(`${base}/${app.id}`)).result;
+    const ps = await api(`${base}/${app.id}/policies?per_page=100`);
+    if ((ps.result_info?.total_pages ?? 1) > 1) throw Error('Unexpected policy pagination');
+    if (path) check(confirmed, ps.result, path, expected); else {
+      check(confirmed, ps.result, expected);
+      if (confirmed.aud !== app.aud || !same(confirmed.oauth_configuration, app.oauth_configuration) || confirmed.eager_redirect_cookie_setting !== false) throw Error('Access audience or OAuth changed');
+    }
+  }
+  return selected[0].app.aud;
 }
-// Audience is public metadata, not a credential. GitHub output passes it to Wrangler.
-const { appendFile } = await import('node:fs/promises');
-await appendFile(process.env.GITHUB_OUTPUT, `audience=${app.aud}\n`);
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const account = process.env.CLOUDFLARE_ACCOUNT_ID, token = process.env.CLOUDFLARE_API_TOKEN;
+  if (!account || !token || !process.env.GITHUB_OUTPUT) throw Error('Cloudflare credentials and GitHub output are required');
+  async function api(path, options = {}) {
+    const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}${path}`, { ...options, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } });
+    const body = await response.json();
+    if (!response.ok || !body.success) throw Error(`Cloudflare Access request failed: ${response.status} ${JSON.stringify(body.errors)}`);
+    return body;
+  }
+  const audience = await configureAccess(api);
+  await appendFile(process.env.GITHUB_OUTPUT, `audience=${audience}\n`);
+}

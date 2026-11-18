@@ -23,7 +23,7 @@ The sections below record the design and the evidence behind it. Where they say 
 
 ### Sessions
 
-- The default instance is `https://simpledocs.justinharbour.dev` with team `https://justinharbour.cloudflareaccess.com`. Both can be changed on the sign-in screen, and the last values are remembered.
+- The default instance is `https://simpledocs.justinharbour.com` with team `https://justinharbour.cloudflareaccess.com`. Both can be changed on the sign-in screen, and the last values are remembered; existing saved instances are not rewritten.
 - Access and refresh tokens are stored only in the Keychain. Only the addresses are kept in UserDefaults.
 - Requests send `Authorization: Bearer <token>`, plus an `Origin` header on writes to satisfy the Worker's same-origin check.
 - A 401 or an Access redirect refreshes the token once and retries once. If that fails the app shows the sign-in screen with "Your session ended".
