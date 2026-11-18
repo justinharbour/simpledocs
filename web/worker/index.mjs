@@ -20,6 +20,8 @@ import { sendPendingFaxAlert } from './inbound-fax-alert.mjs';
 import { handlePushDevices, notifyPush, withPush } from './push.mjs';
 import { cleanupPortal, createEmailDelivery, portal, revokeEmailDelivery } from './email-portal.mjs';
 import { PORTAL_PATHS } from './portal-paths.mjs';
+import { tvActor, tvApprove, tvDevices, tvPairStart, tvPoll, tvPreview, tvRevoke } from './tv-pairing.mjs';
+import { tvApi } from './tv-api.mjs';
 
 // Static Assets do not propagate ctx.access. Verify the Access assertion against
 // the configured team's keys instead; never trust an unverified identity header.
@@ -52,6 +54,10 @@ export function createWorker(resolveKeys = issuer => {
     if (url.pathname === '/api/webhooks/telnyx/messaging') return handleSmsWebhook(request, env);
     // These exact paths use recipient sessions rather than owner Access identity.
     if (PORTAL_PATHS.includes(url.pathname) && url.origin === env.PORTAL_ORIGIN) return portal(request, env);
+    // Pairing is unauthenticated (rate-limited). /tv/api/* uses a TV bearer token, never an Access identity.
+    if (url.pathname === '/tv/pair/start') return tvPairStart(request, env);
+    if (url.pathname === '/tv/pair/poll') return tvPoll(request, env);
+    if (url.pathname === '/tv/api' || url.pathname.startsWith('/tv/api/')) return tvApi(request, env);
     const expected = env.ACCESS_AUDIENCE;
     const issuer = env.ACCESS_TEAM_DOMAIN;
     const token = request.headers.get('cf-access-jwt-assertion');
@@ -64,6 +70,11 @@ export function createWorker(resolveKeys = issuer => {
     } catch {
       return new Response('Unauthorized', { status: 401, headers: { 'Cache-Control': 'no-store' } });
     }
+    if (url.pathname === '/api/tv/pair/lookup') return tvPreview(request, env, actor);
+    if (url.pathname === '/api/tv/pair/approve') return tvApprove(request, env, actor);
+    if (url.pathname === '/api/tv/devices') return tvDevices(request, env, actor);
+    const tvRevokeRoute = /^\/api\/tv\/devices\/([^/]+)\/revoke$/.exec(url.pathname);
+    if (tvRevokeRoute) return tvRevoke(request, env, actor, tvRevokeRoute[1]);
     if (url.pathname === '/api/faxes/unresolved') {
       if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
       try {

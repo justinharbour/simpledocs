@@ -54,6 +54,8 @@ if (process.argv.includes('--check-edge')) {
   const protectedRoute = r => [302, 401, 403].includes(r.status);
   await probe(recipientHost, '/portal', async r => r.ok && (await r.text()).includes('Access code from your email'));
   for (const path of PORTAL_PATHS.slice(1)) await probe(recipientHost, path, async r => r.status === 404 && (await r.json()).error === 'Unavailable');
+  // Unauthenticated TV API calls must reach the Worker and get its 401, not an Access redirect.
+  await probe(recipientHost, '/tv/api/dashboard', async r => r.status === 401 && (await r.json()).error === 'Unauthorized');
   for (const host of [legacyHost, recipientHost]) {
     for (const path of ['/', '/api/transmissions', '/portal/adjacent', '/portal/document/']) await probe(host, path, protectedRoute);
   }

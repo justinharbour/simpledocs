@@ -5,15 +5,17 @@ import { appendFile } from 'node:fs/promises';
 import { isDeepStrictEqual } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { PORTAL_PATHS } from './portal-paths.mjs';
+import { TV_PATHS } from './tv-paths.mjs';
 
+export const PUBLIC_PATHS = Object.freeze([...PORTAL_PATHS, ...TV_PATHS]);
 const hosts = ['simpledocs.justinharbour.dev', 'simpledocs.justinharbour.com'];
 const paths = ['/webhooks/telnyx/fax', '/api/webhooks/telnyx/voice', '/api/webhooks/telnyx/messaging'];
 const policy = '36ee1f67-a91a-494c-b503-94bf48820ffa';
 const idp = 'bc4cede3-4ee0-4bd6-9393-34c10ca6a6d8';
 
 const same = (a, b) => isDeepStrictEqual(a, b);
-const portalOverrides = PORTAL_PATHS.map(path_pattern => ({ path_pattern, behavior: 'public' }));
-const exactPortalOverrides = overrides => overrides?.length === PORTAL_PATHS.length && PORTAL_PATHS.every(path => overrides.some(rule => rule.path_pattern === path && rule.behavior === 'public'));
+const portalOverrides = PUBLIC_PATHS.map(path_pattern => ({ path_pattern, behavior: 'public' }));
+const exactPortalOverrides = overrides => overrides?.length === PUBLIC_PATHS.length && PUBLIC_PATHS.every(path => overrides.some(rule => rule.path_pattern === path && rule.behavior === 'public'));
 function destinations(app, allowed, required, ownerApp = false) {
   const ds = app.destinations;
   if (!Array.isArray(ds) || ds.some(d => d.type !== 'public' || !allowed.includes(d.uri) || ((d.overrides?.length ?? 0) !== 0 && !(ownerApp && d.uri === hosts[1] && exactPortalOverrides(d.overrides)))) ||
