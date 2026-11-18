@@ -9,6 +9,7 @@ import { handleMail, listUnresolvedMail } from './mail-send.mjs';
 import { handleVoiceWebhook, handleVoiceRecording, listVoiceRecordings } from './voice-webhook.mjs';
 import { handleVoiceSession } from './voice-session.mjs';
 import { sendPendingFaxAlert } from './inbound-fax-alert.mjs';
+import { handlePushDevices, notifyPush, withPush } from './push.mjs';
 
 // Static Assets do not propagate ctx.access. Verify the Access assertion against
 // the configured team's keys instead; never trust an unverified identity header.
@@ -27,8 +28,10 @@ export function createWorker(resolveKeys = issuer => {
     const result = await sendPendingFaxAlert(env);
     // Operational status only; never log provider errors or fax data.
     if (result === 'unavailable') console.error('Pending fax alert unavailable');
+    if (result === 'accepted') await notifyPush(env, { kind: 'fax-attention' });
   },
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
+    env = withPush(env, ctx);
     const url = new URL(request.url);
     if (url.pathname === '/webhooks/telnyx/fax') return handleInboundFax(request, env);
     // This one endpoint uses Telnyx's signature, not a browser Access JWT.
@@ -54,6 +57,8 @@ export function createWorker(resolveKeys = issuer => {
         return Response.json({ intents: rows.results }, { headers: { 'Cache-Control': 'no-store' } });
       } catch { return Response.json({ error: 'Fax status unavailable' }, { status: 503, headers: { 'Cache-Control': 'no-store' } }); }
     }
+    const pushRoute = /^\/api\/push\/devices(?:\/([^/]+))?$/.exec(url.pathname);
+    if (pushRoute) return handlePushDevices(request, env, actor, pushRoute[1]);
     if (url.pathname === '/api/inbound-faxes') return handleInboundFaxRead(request, env, actor);
     if (url.pathname === '/api/inbound-fax-recovery') return handleFaxOperator(request, env, actor);
     const faxRecovery = /^\/api\/inbound-fax-recovery\/([^/]+)$/.exec(url.pathname);

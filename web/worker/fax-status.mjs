@@ -1,4 +1,5 @@
 import { applyFaxDeliveryEvent } from './fax-intents.mjs';
+import { pushLater } from './push.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const reply = (value, status = 200) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
@@ -19,7 +20,8 @@ export async function handleFaxStatus(request, env, actor, id, fetcher = fetch) 
       if (response.ok) {
         const data = (await response.json())?.data;
         if (data?.id === row.provider_id && ['delivered', 'failed'].includes(data.status)) {
-          await applyFaxDeliveryEvent(env.DB, { providerId: row.provider_id, status: data.status });
+          const applied = await applyFaxDeliveryEvent(env.DB, { providerId: row.provider_id, status: data.status });
+          if (applied === 'updated' && data.status === 'failed') pushLater(env, { kind: 'fax-failed', id });
           row = await env.DB.prepare('SELECT status, provider_id FROM fax_intents WHERE id = ? AND actor_id = ?').bind(id, actor).first();
         }
       }

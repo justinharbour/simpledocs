@@ -1,3 +1,4 @@
+import { pushLater } from './push.mjs';
 // The public route is independent of Access, and must fail closed before any
 // storage or network operation. Never log payloads, URLs or provider errors.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -84,6 +85,7 @@ export async function recoverInboundFax(env, eventId, { fetcher = fetch, now = D
     const saved = await env.DB.prepare("INSERT INTO inbound_fax_events (event_id, fax_id, event_type, occurred_at, received_at, object_key) VALUES (?, ?, 'fax.received', ?, ?, ?) ON CONFLICT(event_id) DO NOTHING")
       .bind(eventId, receipt.fax_id, receipt.occurred_at, new Date(now).toISOString(), objectKey).run();
     if (!saved.success) return false;
+    if (saved.meta?.changes === 1) pushLater(env, { kind: 'fax', id: eventId });
     const archived = await env.DB.prepare("SELECT event_id FROM inbound_fax_events WHERE event_id = ? AND fax_id = ? AND event_type = 'fax.received' AND object_key IS NOT NULL").bind(eventId, receipt.fax_id).first();
     return !!archived;
   } catch { return false; }
@@ -118,6 +120,7 @@ export async function handleInboundFax(request, env, { fetcher = fetch, now = Da
     const result = await env.DB.prepare('INSERT INTO inbound_fax_events (event_id, fax_id, event_type, occurred_at, received_at, object_key) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(event_id) DO NOTHING')
       .bind(data.id, payload.fax_id, data.event_type, data.occurred_at, new Date(now).toISOString(), objectKey).run();
     if (!result.success) throw new Error();
+    if (data.event_type === 'fax.received' && result.meta?.changes === 1) pushLater(env, { kind: 'fax', id: data.id });
     return response(200);
   } catch { return response(503); }
 }

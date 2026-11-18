@@ -1,4 +1,5 @@
 import { processVoicemail, isVoicemailRecording } from './voicemail.mjs';
+import { pushLater } from './push.mjs';
 const MAX_BODY = 128 * 1024;
 const MAX_AUDIO = 25 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -86,7 +87,8 @@ export async function handleVoiceWebhook(request, env, fetcher = fetch, now = Da
     const contentType = format === 'mp3' ? 'audio/mpeg' : 'audio/wav';
     await env.VOICE_RECORDINGS.put(key, audio, { httpMetadata: { contentType } });
     const kind = await isVoicemailRecording(env.DB, payload) ? 'voicemail' : 'recording';
-    await env.DB.prepare('INSERT OR IGNORE INTO voice_recordings (recording_id, event_id, call_control_id, object_key, content_type, kind) VALUES (?, ?, ?, ?, ?, ?)').bind(id, data.id, payload.call_control_id, key, contentType, kind).run();
+    const inserted = await env.DB.prepare('INSERT OR IGNORE INTO voice_recordings (recording_id, event_id, call_control_id, object_key, content_type, kind) VALUES (?, ?, ?, ?, ?, ?)').bind(id, data.id, payload.call_control_id, key, contentType, kind).run();
+    if (kind === 'voicemail' && inserted.meta?.changes === 1) pushLater(env, { kind: 'voicemail', id });
     const stored = await env.DB.prepare('SELECT event_id, call_control_id FROM voice_recordings WHERE recording_id = ?').bind(id).first();
     if (!stored || stored.event_id !== data.id || stored.call_control_id !== payload.call_control_id) return reply(409, 'Recording conflict');
     return reply(200, 'Accepted');

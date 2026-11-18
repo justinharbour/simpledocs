@@ -269,7 +269,7 @@ Format validity is **not** instance validity. No code path may describe a parsed
 
 ## Not integrated or not verified
 
-- **Experimental sign-in UI, not production-ready.** The connected macOS and iOS targets provide explicit instance and issuer confirmation and invoke the in-memory OAuth lifecycle. The callback scheme is not registered or verified with the provider, Worker acceptance is unverified, and workspace data remains sample data. Local sign-out does not revoke a provider token. The direct-provider app remains independent; push is not wired.
+- **Experimental sign-in UI, not production-ready.** The connected macOS and iOS targets provide explicit instance and issuer confirmation and invoke the in-memory OAuth lifecycle. The callback scheme is not registered or verified with the provider, Worker acceptance is unverified, and workspace data remains sample data. Local sign-out does not revoke a provider token. The direct-provider app remains independent. Push registration is described in [push.md](push.md).
 - **No sign-in.** The Access/OAuth flow, issuer and audience binding, renewal and revocation are undecided (see PR #2 architecture). The package cannot authenticate anyone.
 - **No discovery.** The discovery route, schema and its authenticity binding are undecided. `APIVersion.negotiate` only handles a list the caller supplies, and that list must be treated as untrusted. `InstanceTrust` has a single `userEnteredUnverified` state.
 - **No networking.** No `URLSession`, TLS or certificate policy, redirect delegate, timeout, response-size limit, or error-envelope decoding. `OriginBinding` and `CredentialPolicy` are the checks a future transport must call; the transport itself is unwritten and unreviewed.

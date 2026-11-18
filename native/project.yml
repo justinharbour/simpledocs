@@ -91,6 +91,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.justinharbour.simpledocs.ios
+        CODE_SIGN_ENTITLEMENTS: Config/iOS.entitlements
         PRODUCT_NAME: simpledocs
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: "YES"
