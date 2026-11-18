@@ -19,7 +19,7 @@ Apple Developer portal:
 2. Keys: create an **Apple Push Notifications service (APNs)** key and download the `.p8`. It can be downloaded only once. Note its Key ID and your Team ID.
 3. Regenerate the provisioning profiles for both apps so they carry the push entitlement.
 
-Worker secrets. They are never in `wrangler.jsonc`. `.github/workflows/deploy.yml` uploads `APNS_KEY_P8`, `APNS_KEY_ID` and `APNS_TEAM_ID` on every deploy, the same way it does `TELNYX_*` and `POSTGRID_*`, from GitHub repository secrets of the same names. **Create those three repository secrets before the next deploy, or the deploy step fails** (the action rejects an empty listed secret). `APNS_TOPIC` and `APNS_TOPIC_MACOS` are optional and not in the workflow; set them with `wrangler secret put` only if the bundle IDs differ.
+Worker secrets. They are never in `wrangler.jsonc` or the deploy workflow. Set them once by hand from `web/` with `wrangler secret put <NAME>`; they persist across deploys. `APNS_TOPIC` and `APNS_TOPIC_MACOS` are optional; set them only if the bundle IDs differ.
 
 | Secret | Value |
 | --- | --- |

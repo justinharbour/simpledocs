@@ -59,13 +59,7 @@ jobs:
             POSTGRID_TEST_KEY
             POSTGRID_LIVE_KEY
             TELNYX_PUBLIC_KEY
-            APNS_KEY_P8
-            APNS_KEY_ID
-            APNS_TEAM_ID
         env:
-          APNS_KEY_P8: ${{ secrets.APNS_KEY_P8 }}
-          APNS_KEY_ID: ${{ secrets.APNS_KEY_ID }}
-          APNS_TEAM_ID: ${{ secrets.APNS_TEAM_ID }}
           TELNYX_PUBLIC_KEY: ${{ secrets.TELNYX_PUBLIC_KEY }}
           TELNYX_API_TOKEN: ${{ secrets.TELNYX_API_TOKEN }}
           POSTGRID_TEST_KEY: ${{ secrets.POSTGRID_TEST_KEY }}
