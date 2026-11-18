@@ -1,19 +1,30 @@
 # simpledocs native apps
 
-Wave 1 foundation for the SwiftUI iOS and macOS apps. It is a **preview with synthetic data**. Nothing here connects to an instance or a provider, there is no sign-in or credential entry, and nothing can be sent. People are expected to deploy their own instance to their own Cloudflare account, so no instance address is built in. See [self-hosted instances and App Store release](docs/self-hosted-instances.md). See [the implementation plan](../docs/plan.md).
+SwiftUI apps for macOS, iPad and iPhone that sign in to your own simpledocs instance and use its Worker API: send faxes and paper mail, read records and their delivery status, listen to voicemail, and edit settings. There is no built-in data. Everything on screen comes from the signed-in instance. See [self-hosted instances and App Store release](docs/self-hosted-instances.md) and [the implementation plan](../docs/plan.md).
+
+## Screens
+
+| Screen | What it does | Worker endpoints |
+| --- | --- | --- |
+| Sign in | Instance address and Cloudflare Access address, browser sign-in, session kept in the Keychain, last instance remembered. Shows "can't reach", "canceled" and "session ended" states. | OAuth discovery, registration, token |
+| Send | Choose a PDF (file picker, or drag and drop on macOS and iPad) with name, size, page count and thumbnail. Fax numbers are normalized to E.164. Paper mail address, fax cover page, review step, then send. Live mail needs an extra confirmation. | `POST /api/transmissions`, `GET .../mail/:id/review`, `POST .../approve` |
+| Records | Newest first, per-channel status badges, detail with timeline and PDF preview, pull to refresh, polling while a delivery is moving. A letter that was not approved can be reviewed and approved here. | `GET /api/records`, `GET /api/transmissions/:id`, document and cover downloads |
+| Calls | Calls and voicemail, audio player, transcript, New/Heard, share or save, call back. | `GET /api/voice/calls`, `GET /api/voice/recordings`, `GET .../recordings/:id`, `POST .../heard` |
+| Settings | Instance info, sender name and return address, voicemail greeting and voice, sign out. | `GET/PUT /api/settings`, `GET/PUT /api/settings/voicemail` |
+
+macOS and iPad use a sidebar (`NavigationSplitView`); iPhone uses tabs. On macOS, New Send is ⌘N and Refresh is ⌘R.
+
+Status wording comes from the provider. "Accepted by provider" and "Completed by PostGrid" are never shown as delivery.
+
+Call back opens the phone's dialer with a `tel:` link. A dialer inside the app would need Telnyx's WebRTC SDK, which this project does not bundle.
+
+The voicemail greeting editor expects `GET/PUT /api/settings/voicemail` returning `{greeting, voice, service_level}`. If the instance answers 404, the screen says the instance doesn't support it yet.
 
 ## Layout
 
-| Path | Purpose |
-| --- | --- |
-| `Packages/SimpleDocsKit` | Shared Swift package. `SimpleDocsCore` holds editions, capabilities, models and synthetic data. `SimpleDocsViews` holds the shared SwiftUI interface. |
-| `Apps/MacConnected` | macOS edition that links to a person's own self-deployed instance (not yet connected). |
-| `Apps/MacDirect` | macOS direct-provider edition (no provider access yet). |
-| `Apps/iOS` | iOS skeleton. iOS always uses the connected-instance model. |
-| `project.yml` | [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec. The `.xcodeproj` is generated and not committed. |
-| `Config` | Per-edition entitlements. |
+Shared SwiftUI screens are in `Apps/ConnectedShared`; the macOS connected app is in `Apps/MacConnected`, the direct edition in `Apps/MacDirect` (unchanged, still a preview with synthetic data) and iPhone/iPad in `Apps/iOS`. The models, sign-in, networking and view models live in Swift packages under `Packages/`; see [connected-integration.md](docs/connected-integration.md) for what each package does and how sessions work. `project.yml` is the [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec (the `.xcodeproj` is generated and not committed).
 
-The two macOS editions are separate targets with separate bundle identifiers, product names and entitlements, so they can be signed and distributed independently. The identifiers (`dev.justinharbour.simpledocs.mac.connected`, `.mac.direct`, `.ios`) are provisional and need confirming against the Apple Developer account before any signing.
+The two macOS editions are separate targets with separate bundle identifiers, product names and entitlements. The identifiers (`dev.justinharbour.simpledocs.mac.connected`, `.mac.direct`, `.ios`) are provisional and need confirming against the Apple Developer account before any signing.
 
 ## Build and test
 
@@ -23,47 +34,26 @@ Requires Xcode (the full app, not only Command Line Tools) and `brew install xco
 cd native
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer   # if xcode-select points at Command Line Tools
 
-# Shared package tests (Swift Testing)
-(cd Packages/SimpleDocsKit && swift test)
+# Package tests (Swift Testing)
+for p in Packages/*; do (cd $p && swift test); done
+Packages/*Connected/ci/guard.sh
 
 # Generate the project, then build each target without signing
 xcodegen generate
-xcodebuild -project SimpleDocs.xcodeproj -scheme SimpleDocsMacConnected  -destination 'platform=macOS' build CODE_SIGNING_ALLOWED=NO
-xcodebuild -project SimpleDocs.xcodeproj -scheme SimpleDocsMacDirect -destination 'platform=macOS' build CODE_SIGNING_ALLOWED=NO
-xcodebuild -project SimpleDocs.xcodeproj -scheme SimpleDocsiOS       -destination 'generic/platform=iOS' build CODE_SIGNING_ALLOWED=NO
+xcodebuild -project SimpleDocs.xcodeproj -scheme SimpleDocsMacConnected -destination 'platform=macOS' build CODE_SIGNING_ALLOWED=NO
+xcodebuild -project SimpleDocs.xcodeproj -scheme SimpleDocsMacDirect    -destination 'platform=macOS' build CODE_SIGNING_ALLOWED=NO
+xcodebuild -project SimpleDocs.xcodeproj -scheme SimpleDocsiOS          -destination 'generic/platform=iOS' build CODE_SIGNING_ALLOWED=NO
+xcodebuild -project SimpleDocs.xcodeproj -scheme SimpleDocsSignInTests  -destination 'platform=macOS' test CODE_SIGNING_ALLOWED=NO
 ```
 
 ## For CI
 
-Schemes and targets are `SimpleDocsMacConnected`, `SimpleDocsMacDirect` and `SimpleDocsiOS`. `SimpleDocsMacConnected` was renamed from `SimpleDocsMacOwner`, so any job or script that still names the old scheme will fail. The project is generated, so run `xcodegen generate` in `native/` before `xcodebuild`. No workflow for `native/` exists yet. A check needs a macOS runner with full Xcode and no secrets, and must build with `CODE_SIGNING_ALLOWED=NO`. The package tests (`swift test` in `Packages/SimpleDocsKit`) need no Xcode project.
+The `native-connected` job in `.github/workflows/ci.yml` runs the guard and the package tests. The project is generated, so run `xcodegen generate` in `native/` before `xcodebuild`. Builds need a macOS runner with full Xcode, no secrets and `CODE_SIGNING_ALLOWED=NO`.
 
-## What is in this foundation
+## Not verified
 
-- A sidebar and detail workspace using `NavigationSplitView`, `List`, `ContentUnavailableView` and system controls, so macOS and iOS get native navigation, keyboard support and Dynamic Type. Starwind UI is web-only and is not used here.
-- A "Sample state" toolbar menu to preview empty, sample records, loading and error states.
-- A "Your instance" placeholder for the connected edition: planned onboarding steps marked not implemented, not published or not decided, and an address field that checks format only (https origin, no credentials or path). It saves and contacts nothing, and the Connect button is disabled.
-- Honest status semantics: provider wording is shown separately from a normalized status, "Provider reports complete" is never presented as delivery, and proof approval states (pending, ready, approved, invalidated) are modeled. A job's overall outcome follows a fixed precedence (see `CommunicationJob.outcome`): active work and pending approval come first, completed work beside failed, canceled or unsent deliveries is "partly complete", and settled results stay listed beside an active or pending delivery. Tests cover the precedence table and every combination of statuses.
-- Per-edition capability and limitation screens. The direct edition states that there is no webhook receiver, that unattended capture is not guaranteed, that a local credential can be extracted by someone who controls the device, and that records stay local.
-- Synthetic fixtures only: names marked "Sample", reserved `555 01xx` numbers, `Example Way` addresses.
-
-## Deliberately not included
-
-- No signing identity, team, provisioning, notarization or distribution. Targets build with `CODE_SIGNING_ALLOWED=NO`.
-- No networking or `com.apple.security.network.client` entitlement. Add it only in the change that adds a verified connection.
-- No instance connection, sign-in, token handling, Keychain storage, provider SDKs, WebRTC or local record store. Each needs verification first (see the plan's open decisions).
-- No CI workflow. Workflows live outside `native/`, which this change does not touch. A macOS check can run the commands above on a standard hosted runner.
-
-## Verification and limitations
-
-Verified locally with Xcode 27.2 on macOS 27.2:
-
-- `swift test`: 28 tests pass (outcome precedence table and exhaustive status combinations, instance address checks, onboarding, edition limitations, fixtures, view construction for every edition and scenario, accessibility labels). The outcome tests were also run against the earlier logic and fail there.
-- All three targets build unsigned. Both macOS apps launch.
-
-Not verified:
-
-- **No iOS simulator runtime is installed**, so the iOS app was built for `generic/platform=iOS` but never launched or run in tests.
-- **No UI automation, VoiceOver, keyboard-navigation or Dynamic Type run was performed.** Accessibility is by construction (system controls, combined and explicit labels, text rather than color alone, `help` and hints). It needs a manual pass with VoiceOver, Full Keyboard Access and the largest accessibility text sizes.
-- No signing, App Store Connect setup, privacy policy or review-access plan exists. The package declares macOS 14 and iOS 17 as provisional minimums. Confirm the minimums as the plan's open decisions require.
-- Hardened runtime is set on the macOS targets, but nothing was signed or notarized.
-- The Impeccable design review the plan requires has not been done.
+- **Sign-in against the live instance.** The app needs Managed OAuth turned on for the Access application with `dev.justinharbour.simpledocs:/oauth/callback` allowed. The Worker must accept the bearer token (Access turns it into the assertion) and the `Origin` header. Until that is checked end to end, sign-in may be refused.
+- **No iOS simulator was run**, so the iOS app is built for `generic/platform=iOS` only.
+- **No VoiceOver, keyboard-navigation or Dynamic Type pass.** Labels and system controls are in place; a manual pass is still needed.
+- **Voicemail greeting route** is not on the Worker yet (see above).
+- No signing, notarization or App Store Connect setup. Push notifications are a separate branch.

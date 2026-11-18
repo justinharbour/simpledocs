@@ -1,6 +1,42 @@
 # Connected-instance integration foundation
 
-Status: **foundation only.** `native/Packages/SimpleDocsConnected` is pure Swift logic with tests. It makes no network request, reads no Keychain, stores no token and is not linked into any app target. Native sign-in for self-deployed instances is **not verified**, so every credential decision in this package is a denial. Nothing here shows that an instance exists, that an address belongs to a trusted identity provider, or that any capability is available.
+Status: **linked into the connected apps.** `native/Packages/SimpleDocsConnected` stays pure Swift logic with no networking, Keychain or token handling (the CI guard enforces that). `native/Packages/SimpleDocsOAuth` does the sign-in, Keychain storage and Worker requests, and the connected macOS and iOS apps use both. See `native/README.md` for the screens and endpoints. Sign-in against the live instance is **not verified end to end**: it depends on Managed OAuth being enabled for the Access application, the app's callback being allowed, and the Worker accepting the bearer token and `Origin` header. Local sign-out does not revoke the provider token.
+
+The sections below record the design and the evidence behind it. Where they say a piece is "not integrated" or "unlinked", read that as the state when the section was written; the "Current state" section just below is authoritative.
+
+## Current state
+
+### Layout
+
+| Path | Purpose |
+| --- | --- |
+| `Packages/SimpleDocsConnected` | Pure models and rules with no I/O: Worker JSON types, phone normalization, send spec, status wording, instance address checks. A CI guard keeps networking and auth APIs out. |
+| `Packages/SimpleDocsOAuth` | Sign-in and networking: OAuth flow, Keychain session store, the typed `WorkerAPI` client (bearer token, refresh, 401 handling), and the view models for each screen. Tested with a stub `URLProtocol`. |
+| `Packages/SimpleDocsKit` | Used by the direct edition: editions, capabilities, synthetic fixtures and the shared preview workspace. |
+| `Apps/ConnectedShared` | SwiftUI screens shared by the macOS connected app and iOS. PDFKit and AVFoundation live here. |
+| `Apps/MacConnected` | macOS connected app entry point and menu commands. |
+| `Apps/MacDirect` | macOS direct-provider edition. Unchanged, still a preview with synthetic data. |
+| `Apps/iOS` | iPhone and iPad entry point. |
+| `Tests/ConnectedApp` | App-level XCTest (`SimpleDocsSignInTests` scheme). |
+| `project.yml` | [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec. The `.xcodeproj` is generated and not committed. |
+| `Config` | Info plists and entitlements. |
+
+### Sessions
+
+- The default instance is `https://simpledocs.justinharbour.dev` with team `https://justinharbour.cloudflareaccess.com`. Both can be changed on the sign-in screen, and the last values are remembered.
+- Access and refresh tokens are stored only in the Keychain. Only the addresses are kept in UserDefaults.
+- Requests send `Authorization: Bearer <token>`, plus an `Origin` header on writes to satisfy the Worker's same-origin check.
+- A 401 or an Access redirect refreshes the token once and retries once. If that fails the app shows the sign-in screen with "Your session ended".
+- Sign out clears this device. It does not revoke the token at Cloudflare.
+
+### Details
+
+
+- **Models and rules** (`SimpleDocsConnected`): `WorkerModels` (Codable shapes of the Worker responses), `SendSpec` (phone normalization to E.164, send draft validation, the `spec` JSON), `DeliveryStatus` (status wording that never presents provider acceptance as delivery).
+- **Client** (`SimpleDocsOAuth`): `WorkerAPI` is an actor over an ephemeral `URLSession`. It sends the bearer token, adds `Origin` on writes, refuses redirects, renews the token once on 401 or an Access redirect, then retries once, and reports `sessionExpired` if that fails. `KeychainVault` keeps one session per instance. `ConnectedModel` drives sign-in, restores the session at launch and turns an expired session into the sign-in prompt. `ScreenModels` holds the records, calls, settings and send view models.
+- **Tests**: `swift test` in each package uses a stub `URLProtocol`; no test contacts a real server or provider. Nothing in the tests places a mail order, fax or call.
+- **Refresh** uses `grant_type=refresh_token` against the token endpoint stored at sign-in. Cloudflare's metadata lists `refresh_token` as supported.
+- **Mail** is created, then reviewed for the chosen test or live mode, then approved with the review hash. If the instance reports that mode as unavailable, the letter stays unapproved and the app says nothing was mailed.
 
 It follows the proposed architecture and integration contracts in PR #2 (`docs/architecture.md`, "Native capability boundary" and "Independently operated instances"; `docs/contracts.md`, "Instance onboarding and provisioning"). Those files are not on `develop` yet, so they are not linked. Both are proposals; this package implements only the client-side rules that do not depend on undecided items.
 
@@ -267,12 +303,14 @@ Format validity is **not** instance validity. No code path may describe a parsed
 
 `NativeAuthStatus` has `unknown` and `unsupported` only; there is deliberately no `verified` case. Adding one is a reviewed change that must come with the verified flow. `CredentialPolicy.evaluate` returns a `CredentialDenial` and has no allow result today. The order is: no selection, stale context, origin mismatch, then authentication not verified. Redirects are checked on both the source and the destination and never get an exemption. Callers must not attach a bearer token, cookie or Access token on any denial, and must not fall back to an embedded service token or provider key.
 
-## Not integrated or not verified
+## Limits of the pure package
 
-- **Experimental sign-in UI, not production-ready.** The connected macOS and iOS targets provide explicit instance and issuer confirmation and invoke the in-memory OAuth lifecycle. The callback scheme is not registered or verified with the provider, Worker acceptance is unverified, and workspace data remains sample data. Local sign-out does not revoke a provider token. The direct-provider app remains independent. Push registration is described in [push.md](push.md).
-- **No sign-in.** The Access/OAuth flow, issuer and audience binding, renewal and revocation are undecided (see PR #2 architecture). The package cannot authenticate anyone.
+These describe `SimpleDocsConnected` on its own. Networking, Keychain storage and sign-in live in `SimpleDocsOAuth` (see "Current state"). Items that mention a missing transport or persistence are historical.
+
+- **Sign-in is integrated but unverified against the live instance.** See the status paragraph at the top. Push registration is described in [push.md](push.md).
+- **Historical (package alone):** the Access/OAuth flow, issuer and audience binding, renewal and revocation are undecided (see PR #2 architecture). The package cannot authenticate anyone.
 - **No discovery.** The discovery route, schema and its authenticity binding are undecided. `APIVersion.negotiate` only handles a list the caller supplies, and that list must be treated as untrusted. `InstanceTrust` has a single `userEnteredUnverified` state.
-- **No networking.** No `URLSession`, TLS or certificate policy, redirect delegate, timeout, response-size limit, or error-envelope decoding. `OriginBinding` and `CredentialPolicy` are the checks a future transport must call; the transport itself is unwritten and unreviewed.
+- **No networking in this package.** No `URLSession`, TLS or certificate policy, redirect delegate, timeout, response-size limit, or error-envelope decoding. `OriginBinding` and `CredentialPolicy` are the checks a future transport must call; the transport itself is unwritten and unreviewed.
 - **No persistence.** The registry is in memory. Keychain storage, cache purge, relaunch behaviour and account-switch UI do not exist. `SessionScope` only produces names.
 - **IDN.** Non-ASCII hosts are rejected rather than converted. Whether to convert and how to warn about homograph look-alikes is unresolved; the punycode flag is a display aid only.
 - **Same-origin only.** Cross-origin identity providers are expected for real sign-in. Allowing one requires an explicit, per-instance trusted-issuer design that does not exist, and this package would deny it today.
