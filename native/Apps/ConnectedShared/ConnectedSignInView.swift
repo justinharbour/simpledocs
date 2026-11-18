@@ -20,11 +20,30 @@ import UIKit
     }
 }
 
+struct InboundFaxRecord: Decodable, Identifiable {
+    let id: String
+    let faxId: String
+    let receivedAt: String
+}
+struct VoiceRecordingRecord: Decodable, Identifiable {
+    let recording_id: String
+    let archived_at: String
+    let kind: String?
+    var id: String { recording_id }
+}
+private struct InboundFaxList: Decodable { let records: [InboundFaxRecord]; let pendingCount: Int }
+private struct VoiceRecordingList: Decodable { let recordings: [VoiceRecordingRecord] }
+
 @MainActor @Observable final class SignInModel {
-    var instance = "" { didSet { if instance != oldValue { signOut() } } }
-    var issuer = "" { didSet { if issuer != oldValue { signOut() } } }
+    var instance = "https://simpledocs.justinharbour.dev" { didSet { if instance != oldValue { signOut() } } }
+    var issuer = "https://justinharbour.cloudflareaccess.com" { didSet { if issuer != oldValue { signOut() } } }
     var preparation: SignInPreparation?
-    var message = "No local session."
+    var faxes: [InboundFaxRecord] = []
+    var pendingFaxes = 0
+    var recordings: [VoiceRecordingRecord] = []
+    var loaded = false
+    var message = "Not signed in."
+    private var flow: ConnectedFlow?
     var busy = false
     private var owner: SessionCoordinator?
     private var binding: ContextBinding?
@@ -75,8 +94,9 @@ import UIKit
             message = "Signing in…"
             try await session.signIn(confirmation: confirmation, binding: binding, callback: URL(string: "dev.justinharbour.simpledocs:/oauth/callback")!)
             guard self.session === session else { return }
+            message = "Signed in. Loading records…"
+            await load()
             busy = false
-            message = "Token acquired in memory. Worker access and record loading have not been verified."
         } catch {
             if let attempt {
                 guard self.session === attempt else { return }
