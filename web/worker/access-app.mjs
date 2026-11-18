@@ -42,6 +42,15 @@ if (app.name !== 'Simpledocs' || app.type !== 'self_hosted' || app.domain !== ho
     typeof app.aud !== 'string' || !/^[a-f0-9]{64}$/i.test(app.aud)) {
   throw new Error('Access application does not match the expected policy; refusing deployment');
 }
+// Managed OAuth lets the native apps sign in through the same Access policy.
+const oauth = {
+  enabled: true,
+  dynamic_client_registration: { enabled: true, allowed_uris: ['dev.justinharbour.simpledocs:/oauth/callback'] },
+  grant: { access_token_lifetime: '15m', session_duration: '720h' },
+};
+await api(`${base}/${app.id}`, { method: 'PUT', body: JSON.stringify({
+  ...app, policies: app.policies.map(p => ({ id: p.id, precedence: p.precedence })), oauth_configuration: oauth,
+}) });
 // Telnyx cannot authenticate through Access; these two paths verify Telnyx's
 // Ed25519 signature in the Worker instead. Everything else stays behind Access.
 for (const path of ['/webhooks/telnyx/fax', '/api/webhooks/telnyx/voice']) {

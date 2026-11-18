@@ -6,6 +6,8 @@ public enum WorkerOperation: Sendable, Equatable {
     case readMailDraft(UUID)
     case saveMailDraft(UUID, revision: Int, content: Data)
     case readFax(UUID)
+    case listInboundFaxes
+    case listVoiceRecordings
 }
 
 public enum WorkerPlanError: Error, Equatable, Sendable {
@@ -39,11 +41,17 @@ public enum WorkerPlanner {
         guard let active = registry.active else { throw WorkerPlanError.noActiveInstance }
         guard registry.isCurrent(binding) else { throw WorkerPlanError.staleContext }
 
+        switch operation {
+        case .listInboundFaxes: return try listPlan("inbound-faxes", binding: binding, active: active)
+        case .listVoiceRecordings: return try listPlan("voice/recordings", binding: binding, active: active)
+        default: break
+        }
         let id: UUID
         let route: String
         let method: String
         var body: Data?
         switch operation {
+        case .listInboundFaxes, .listVoiceRecordings: throw WorkerPlanError.invalidIdentifier
         case .readMailDraft(let value):
             (id, route, method) = (value, "mail-drafts", "GET")
         case .readFax(let value):
@@ -75,6 +83,16 @@ public enum WorkerPlanner {
         }
         return WorkerPlan(binding: binding, url: url, method: method,
                           contentType: body == nil ? nil : "application/json", body: body)
+    }
+
+    private static func listPlan(_ route: String, binding: ContextBinding, active: ActiveContext) throws -> WorkerPlan {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = active.scope.origin.host
+        components.port = active.scope.origin.port
+        components.path = "/api/\(route)"
+        guard let url = components.url, OriginBinding.permits(url, for: active.scope.origin) else { throw WorkerPlanError.staleContext }
+        return WorkerPlan(binding: binding, url: url, method: "GET", contentType: nil, body: nil)
     }
 }
 
