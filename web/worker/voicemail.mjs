@@ -4,6 +4,7 @@
 import { fallbackConfig, isLegacyVoice, voicemailConfig } from './voicemail-config.mjs';
 import { phoneOnline } from './voice-presence.mjs';
 import { availabilityOnline, loadAvailability } from './availability-policy.mjs';
+import { assistantForCall } from './ai-voicemail.mjs';
 
 const RING_SECS = 20;
 const RING = 'simpledocs-ring:';
@@ -56,7 +57,8 @@ async function command(env, id, action, body, fetcher) {
   const ended = await env.DB.prepare("SELECT event_id FROM voice_events WHERE call_control_id = ? AND event_type = 'call.hangup' LIMIT 1").bind(id).first();
   if (ended) return;
   const commandId = crypto.randomUUID();
-  const claim = await env.DB.prepare('INSERT OR IGNORE INTO voicemail_commands (call_control_id, action, command_id, outcome) VALUES (?, ?, ?, ?)').bind(id, action, commandId, 'claimed').run();
+  const ai = action === 'ai_assistant_start';
+  const claim = ai ? await env.DB.prepare('INSERT OR IGNORE INTO ai_voicemail_commands (call_control_id, command_id, outcome) VALUES (?, ?, ?)').bind(id, commandId, 'claimed').run() : await env.DB.prepare('INSERT OR IGNORE INTO voicemail_commands (call_control_id, action, command_id, outcome) VALUES (?, ?, ?, ?)').bind(id, action, commandId, 'claimed').run();
   if ((claim.meta?.changes ?? claim.changes) !== 1) return;
   let outcome = 'unknown';
   try {
@@ -64,9 +66,11 @@ async function command(env, id, action, body, fetcher) {
       method: 'POST', redirect: 'manual', headers: auth(env),
       body: JSON.stringify({ ...body, command_id: commandId }),
     });
-    if (response.ok) outcome = 'accepted';
+    outcome = response.ok ? 'accepted' : ai && response.status >= 400 && response.status < 500 ? 'rejected' : 'unknown';
   } catch { /* Unknown outcome: never issue a second command automatically. */ }
-  await env.DB.prepare('UPDATE voicemail_commands SET outcome = ? WHERE call_control_id = ? AND action = ?').bind(outcome, id, action).run();
+  if (ai) await env.DB.prepare('UPDATE ai_voicemail_commands SET outcome = ? WHERE call_control_id = ?').bind(outcome, id).run();
+  else await env.DB.prepare('UPDATE voicemail_commands SET outcome = ? WHERE call_control_id = ? AND action = ?').bind(outcome, id, action).run();
+  return outcome;
 }
 
 // Returns true when the event belongs to the softphone leg, which must not appear in the call log.
@@ -110,6 +114,19 @@ export async function processVoicemail(env, event, payload, fetcher = fetch) {
     if (await ring(env, id, voicemail.marker, payload, fetcher)) return false;
     await command(env, id, 'answer', { client_state: marker }, fetcher);
   } else if (event.event_type === 'call.answered' && payload.client_state === marker) {
+    // An ambiguous start must not also start recording over a potentially live assistant.
+    // Only a definite provider rejection permits the traditional greeting fallback.
+    const prior = await env.DB.prepare('SELECT outcome FROM ai_voicemail_commands WHERE call_control_id = ?').bind(id).first();
+    if (prior && prior.outcome !== 'rejected') return false;
+    if (!prior) {
+      let assistant = null;
+      try { assistant = await assistantForCall(env, id); } catch { /* use ordinary voicemail */ }
+      if (assistant === false) return false;
+      if (assistant) {
+        const result = await command(env, id, 'ai_assistant_start', { assistant, client_state: marker }, fetcher);
+        if (result !== 'rejected') return false;
+      }
+    }
     const body = { client_state: marker, payload: config.greeting, payload_type: 'text', voice: config.voice, language: 'en-US' };
     // Telnyx documents service_level as the basic/premium switch for the legacy female/male voices only.
     if (isLegacyVoice(config.voice)) body.service_level = config.service_level;
