@@ -42,6 +42,18 @@ describe.skipIf(!built)("workflow pages (run `pnpm build` first)", () => {
     expect(doc).toContain('id="detail-view"');
   });
 
+  it("edits the voicemail greeting and voice on the settings page, with no preview call", () => {
+    const doc = read("/settings/");
+    expect(doc).toContain('id="greeting"');
+    expect(doc).toContain('id="greeting-count"');
+    expect(doc).toContain('id="custom-voice"');
+    expect(doc).toContain('id="price"');
+    for (const voice of ["Telnyx.KokoroTTS.af", "AWS.Polly.Joanna-Neural", "AWS.Polly.Joanna"]) expect(doc).toContain(`value="${voice}"`);
+    expect(doc).toContain('value="female"');
+    expect(doc).toContain("next inbound call");
+    expect(doc.toLowerCase()).not.toContain("preview");
+  });
+
   it("has no placeholder, synthetic or unavailable-feature copy anywhere", () => {
     for (const href of pages) {
       const doc = read(href).toLowerCase();
