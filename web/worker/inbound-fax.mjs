@@ -1,7 +1,10 @@
+import { pushLater } from './push.mjs';
 // The public route is independent of Access, and must fail closed before any
 // storage or network operation. Never log payloads, URLs or provider errors.
+import { applyOutboundFaxEvent } from './deliveries.mjs';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TYPES = new Set(['fax.receiving.started', 'fax.media.processing.started', 'fax.received', 'fax.failed']);
+const OUTBOUND_TYPES = new Set(['fax.queued', 'fax.media.processed', 'fax.originated', 'fax.sending.started', 'fax.delivered', 'fax.failed']);
 const MAX_EVENT = 64 * 1024;
 const MAX_PDF = 20 * 1024 * 1024;
 
@@ -59,14 +62,14 @@ async function archiveMedia(env, eventId, faxId, value, fetcher) {
   if (pdf.length < 5 || new TextDecoder().decode(pdf.subarray(0, 5)) !== '%PDF-') throw new Error();
   const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', pdf)), byte => byte.toString(16).padStart(2, '0')).join('');
   const key = `inbound-fax/${faxId.toLowerCase()}/${eventId.toLowerCase()}/${hash}.pdf`;
-  await env.FAX_MEDIA.put(key, pdf, { httpMetadata: { contentType: 'application/pdf' } });
+  await env.FILES.put(key, pdf, { httpMetadata: { contentType: 'application/pdf' } });
   return key;
 }
 
 // Internal only: no route or scheduler invokes this until deployment and
 // account-specific refresh behavior have been reviewed and verified.
 export async function recoverInboundFax(env, eventId, { fetcher = fetch, now = Date.now() } = {}) {
-  if (env.TELNYX_FAX_RECOVERY_ENABLED !== 'true' || env.TELNYX_INBOUND_FAX_ENABLED !== 'true' || !env.TELNYX_API_TOKEN || !env.TELNYX_FAX_CONNECTION_ID || !env.TELNYX_FAX_NUMBER || !env.DB || !env.FAX_MEDIA || typeof eventId !== 'string' || !UUID.test(eventId)) return false;
+  if (env.TELNYX_FAX_RECOVERY_ENABLED !== 'true' || env.TELNYX_INBOUND_FAX_ENABLED !== 'true' || !env.TELNYX_API_TOKEN || !env.TELNYX_FAX_CONNECTION_ID || !env.TELNYX_FAX_NUMBER || !env.DB || !env.FILES || typeof eventId !== 'string' || !UUID.test(eventId)) return false;
   try {
     const receipt = await env.DB.prepare('SELECT event_id, fax_id, occurred_at FROM inbound_fax_unarchived WHERE event_id = ?').bind(eventId).first();
     if (!receipt || receipt.event_id !== eventId || typeof receipt.fax_id !== 'string' || !UUID.test(receipt.fax_id)) return false;
@@ -84,6 +87,7 @@ export async function recoverInboundFax(env, eventId, { fetcher = fetch, now = D
     const saved = await env.DB.prepare("INSERT INTO inbound_fax_events (event_id, fax_id, event_type, occurred_at, received_at, object_key) VALUES (?, ?, 'fax.received', ?, ?, ?) ON CONFLICT(event_id) DO NOTHING")
       .bind(eventId, receipt.fax_id, receipt.occurred_at, new Date(now).toISOString(), objectKey).run();
     if (!saved.success) return false;
+    if (saved.meta?.changes === 1) pushLater(env, { kind: 'fax', id: eventId });
     const archived = await env.DB.prepare("SELECT event_id FROM inbound_fax_events WHERE event_id = ? AND fax_id = ? AND event_type = 'fax.received' AND object_key IS NOT NULL").bind(eventId, receipt.fax_id).first();
     return !!archived;
   } catch { return false; }
@@ -91,7 +95,7 @@ export async function recoverInboundFax(env, eventId, { fetcher = fetch, now = D
 
 export async function handleInboundFax(request, env, { fetcher = fetch, now = Date.now() } = {}) {
   if (request.method !== 'POST') return response(405);
-  if (env.TELNYX_INBOUND_FAX_ENABLED !== 'true' || !env.TELNYX_PUBLIC_KEY || !env.TELNYX_FAX_CONNECTION_ID || !env.TELNYX_FAX_NUMBER || !env.DB || !env.FAX_MEDIA) return response(503);
+  if (env.TELNYX_INBOUND_FAX_ENABLED !== 'true' || !env.TELNYX_PUBLIC_KEY || !env.TELNYX_FAX_CONNECTION_ID || !env.TELNYX_FAX_NUMBER || !env.DB || !env.FILES) return response(503);
   let bytes;
   try { bytes = await bounded(request.body, MAX_EVENT); } catch { return response(413); }
   if (!await verified(bytes, request.headers, env.TELNYX_PUBLIC_KEY, now)) return response(401);
@@ -99,6 +103,14 @@ export async function handleInboundFax(request, env, { fetcher = fetch, now = Da
   try {
     data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)).data;
     payload = data.payload;
+  } catch { return response(400); }
+  if (payload?.direction === 'outbound') {
+    // Outbound delivery tracking: only events for a fax we submitted are applied,
+    // matched by the provider id stored when Telnyx accepted it.
+    if (!UUID.test(data.id) || !UUID.test(payload.fax_id) || !OUTBOUND_TYPES.has(data.event_type) || payload.connection_id !== env.TELNYX_FAX_CONNECTION_ID) return response(400);
+    try { await applyOutboundFaxEvent(env, data.event_type, payload.fax_id); return response(200); } catch { return response(503); }
+  }
+  try {
     if (!UUID.test(data.id) || !UUID.test(payload.fax_id) || !TYPES.has(data.event_type) || payload.direction !== 'inbound' || payload.connection_id !== env.TELNYX_FAX_CONNECTION_ID || payload.to !== env.TELNYX_FAX_NUMBER || typeof data.occurred_at !== 'string' || data.occurred_at.length > 64 || !Number.isFinite(Date.parse(data.occurred_at))) throw new Error();
   } catch { return response(400); }
   try {
@@ -118,6 +130,7 @@ export async function handleInboundFax(request, env, { fetcher = fetch, now = Da
     const result = await env.DB.prepare('INSERT INTO inbound_fax_events (event_id, fax_id, event_type, occurred_at, received_at, object_key) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(event_id) DO NOTHING')
       .bind(data.id, payload.fax_id, data.event_type, data.occurred_at, new Date(now).toISOString(), objectKey).run();
     if (!result.success) throw new Error();
+    if (data.event_type === 'fax.received' && result.meta?.changes === 1) pushLater(env, { kind: 'fax', id: data.id });
     return response(200);
   } catch { return response(503); }
 }

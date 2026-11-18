@@ -54,9 +54,9 @@ const updated = await api(`${base}/${app.id}`, { method: 'PUT', body: JSON.strin
 const confirmed = (await api(`${base}/${app.id}`)).result.oauth_configuration;
 console.log('Managed OAuth:', JSON.stringify({ put: updated.result.oauth_configuration, read: confirmed }));
 if (!confirmed?.enabled) throw new Error('Managed OAuth did not enable');
-// Telnyx cannot authenticate through Access; these two paths verify Telnyx's
+// Telnyx cannot authenticate through Access; these paths verify Telnyx's
 // Ed25519 signature in the Worker instead. Everything else stays behind Access.
-for (const path of ['/webhooks/telnyx/fax', '/api/webhooks/telnyx/voice']) {
+for (const path of ['/webhooks/telnyx/fax', '/api/webhooks/telnyx/voice', '/api/webhooks/telnyx/messaging']) {
   const domain = `${hostname}${path}`;
   const found = [];
   let p = 1, r;

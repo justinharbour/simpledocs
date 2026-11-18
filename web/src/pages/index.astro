@@ -1,15 +1,242 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import PageHeader from "@/components/PageHeader.astro";
+import { Button } from "@/components/starwind/button";
 ---
-<AppLayout title="Overview" description="Your communications workspace.">
-  <PageHeader title="Overview" summary="Send a fax or prepare a paper mail draft." />
-  <section class="mt-10 max-w-2xl" aria-labelledby="channels-heading">
-    <h2 id="channels-heading" class="mb-3 text-lg font-semibold">Channels</h2>
-    <ul class="divide-y divide-border border-y border-border">
-      <li class="flex flex-wrap items-baseline justify-between gap-2 py-4"><a href="/fax/" class="font-medium underline underline-offset-4">Send a fax</a><span class="text-sm text-muted-foreground">Submit a PDF and check its status</span></li>
-      <li class="flex flex-wrap items-baseline justify-between gap-2 py-4"><a href="/compose/" class="font-medium underline underline-offset-4">Paper mail draft</a><span class="text-sm text-muted-foreground">Save a draft; sending is not available here</span></li>
-      <li class="flex flex-wrap items-baseline justify-between gap-2 py-4"><a href="/calls/" class="font-medium underline underline-offset-4">Calls and voicemail</a><span class="text-sm text-muted-foreground">Not yet available</span></li>
-    </ul>
-  </section>
+
+<AppLayout title="Inbox" description="Faxes, voicemail, missed calls and texts.">
+  <PageHeader title="Inbox" summary="Received faxes, voicemail, missed calls and text messages, newest first." />
+
+  <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <div id="filters" role="group" aria-label="Filter inbox" class="max-w-full min-w-0"></div>
+    <Button id="read-all" type="button" variant="outline" size="sm">Mark all read</Button>
+  </div>
+  <div id="inbox-error" hidden class="mb-4"></div>
+
+  <div class="grid gap-6 md:grid-cols-[22rem_minmax(0,1fr)]">
+    <section id="list-pane" aria-labelledby="list-heading" class="min-w-0">
+      <h2 id="list-heading" class="sr-only">Items</h2>
+      <div id="list" aria-live="polite"></div>
+    </section>
+    <section id="detail-pane" hidden aria-labelledby="detail-heading" class="flex min-w-0 flex-col gap-4">
+      <div class="flex flex-wrap items-center gap-2">
+        <Button id="back" type="button" variant="ghost" size="sm" class="md:hidden">Back to inbox</Button>
+        <h2 id="detail-heading" class="text-lg font-semibold"></h2>
+      </div>
+      <div id="detail-actions" class="flex flex-wrap items-center gap-2"></div>
+      <div id="detail-body" class="min-h-0"></div>
+    </section>
+    <div id="no-selection" class="border-border text-muted-foreground hidden items-center justify-center rounded-lg border border-dashed p-8 text-center text-sm md:flex">Select an item to read it here.</div>
+  </div>
+
+  <script>
+    import { api, ago, badgeEl, duration, h, postJson, skeletonRows, when } from "@/lib/ui";
+    import { icon, type IconName } from "@/lib/icons";
+    import { createThread } from "@/lib/sms";
+    import { refreshCount } from "@/lib/unread";
+    import { alert } from "@/components/starwind/alert/variants";
+    import { button } from "@/components/starwind/button/variants";
+    import { tabsList, tabsTrigger } from "@/components/starwind/tabs/variants";
+
+    type Kind = "fax" | "voicemail" | "call" | "sms";
+    type Item = {
+      kind: Kind; id: string; title: string; preview: string; at: string; unread: boolean;
+      previewUrl?: string; downloadUrl?: string; from?: string; to?: string; durationSecs?: number | null;
+      transcript?: string | null; unreadCount?: number; hangupCause?: string | null;
+    };
+
+    const FILTERS = [["all", "All"], ["unread", "Unread"], ["fax", "Faxes"], ["voicemail", "Voicemail"], ["call", "Calls"], ["sms", "Messages"]] as const;
+    const KIND: Record<Kind, { label: string; icon: IconName }> = {
+      fax: { label: "Fax", icon: "fax" },
+      voicemail: { label: "Voicemail", icon: "voicemail" },
+      call: { label: "Missed call", icon: "phoneIncoming" },
+      sms: { label: "Text", icon: "message" },
+    };
+    const EMPTY: Record<string, string> = {
+      all: "Nothing here yet. Faxes sent to +12134147728, and voicemail, missed calls and texts for +12134587846, appear here as they arrive.",
+      unread: "You are all caught up. New faxes, voicemail, missed calls and texts show up here.",
+      fax: "No received faxes yet. Faxes sent to +12134147728 appear here.",
+      voicemail: "No voicemail yet. Messages left for +12134587846 appear here with a player and transcript.",
+      call: "No missed calls. Calls to +12134587846 that nobody answers and that leave no voicemail appear here.",
+      sms: "No text messages yet. Texts to and from +12134587846 appear here.",
+    };
+
+    const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+    const phone = window.matchMedia("(max-width: 767px)");
+    let filter: string = "all";
+    let items: Item[] = [];
+    let loaded = false;
+    let selected: Item | null = null;
+    let thread: ReturnType<typeof createThread> | null = null;
+
+    const key = (i: Item) => `${i.kind}:${i.id}`;
+    const path = (i: Item, action: "read" | "unread") => `/api/inbox/${i.kind}/${encodeURIComponent(i.id)}/${action}`;
+    const query = () => (filter === "all" ? "" : filter === "unread" ? "?filter=unread" : `?type=${filter}`);
+
+    function problem(show: boolean) {
+      const box = el("inbox-error");
+      box.hidden = !show;
+      if (!show) return box.replaceChildren();
+      const node = h("div", alert({ variant: "error" }));
+      node.setAttribute("role", "alert");
+      const retry = h("button", button({ variant: "outline", size: "sm", class: "ml-3" }), "Retry");
+      retry.type = "button";
+      retry.addEventListener("click", () => void load());
+      node.append(document.createTextNode("The inbox could not be loaded."), retry);
+      box.replaceChildren(node);
+    }
+
+    function renderFilters() {
+      const box = el("filters");
+      const tabs = h("div", tabsList({ class: "max-w-full overflow-x-auto" }));
+      for (const [value, label] of FILTERS) {
+        const b = h("button", tabsTrigger({ class: "min-h-9" }), label);
+        b.type = "button";
+        b.setAttribute("aria-pressed", String(filter === value));
+        if (filter === value) b.setAttribute("data-state", "active");
+        b.addEventListener("click", () => { filter = value; loaded = false; renderFilters(); renderList(); void load(); });
+        tabs.append(b);
+      }
+      box.replaceChildren(tabs);
+    }
+
+    function renderList() {
+      const list = el("list");
+      if (!loaded) return list.replaceChildren(skeletonRows(5, "h-16 w-full"));
+      if (!items.length) {
+        const empty = h("div", "border-border flex flex-col gap-1 rounded-lg border border-dashed px-6 py-10 text-center");
+        empty.append(h("p", "font-medium", filter === "unread" ? "No unread items" : "Nothing here yet"), h("p", "text-muted-foreground mx-auto max-w-prose text-sm", EMPTY[filter]));
+        return list.replaceChildren(empty);
+      }
+      const ul = h("ul", "flex flex-col gap-1");
+      for (const i of items) {
+        const li = h("li");
+        const row = h("button", `hover:bg-muted focus-visible:ring-outline/50 flex min-h-11 w-full gap-3 rounded-md px-3 py-2 text-left outline-none focus-visible:ring-3 ${selected && key(selected) === key(i) ? "bg-muted" : ""}`);
+        row.type = "button";
+        if (selected && key(selected) === key(i)) row.setAttribute("aria-current", "true");
+        const body = h("span", "flex min-w-0 flex-1 flex-col gap-0.5");
+        const top = h("span", "flex items-center justify-between gap-2");
+        top.append(h("span", `truncate ${i.unread ? "font-semibold" : "font-medium"}`, i.title));
+        const time = h("time", "text-muted-foreground shrink-0 text-xs", ago(i.at));
+        time.dateTime = i.at; time.title = when(i.at);
+        top.append(time);
+        const kind = h("span", "text-muted-foreground flex items-center gap-1.5 text-xs");
+        kind.append(icon(KIND[i.kind].icon, "size-3.5"), document.createTextNode(KIND[i.kind].label));
+        if (i.unread) kind.append(badgeEl(i.unreadCount && i.unreadCount > 1 ? `${i.unreadCount} unread` : "Unread", "info"));
+        body.append(top, kind, h("span", `text-muted-foreground truncate text-sm ${i.unread ? "text-foreground" : ""}`, i.preview));
+        row.append(body);
+        row.addEventListener("click", () => void open(i));
+        li.append(row); ul.append(li);
+      }
+      list.replaceChildren(ul);
+    }
+
+    function layout() {
+      const open = selected !== null;
+      el("list-pane").hidden = phone.matches && open;
+      el("detail-pane").hidden = !open;
+      el("no-selection").classList.toggle("md:flex", !open);
+    }
+
+    function action(label: string, iconName: IconName, run: () => void, href?: string) {
+      const node = href ? h("a", button({ variant: "outline", size: "sm" })) : h("button", button({ variant: "outline", size: "sm" }));
+      if (href) (node as HTMLAnchorElement).href = href;
+      else (node as HTMLButtonElement).type = "button";
+      node.append(icon(iconName, "size-4"), document.createTextNode(label));
+      if (!href) node.addEventListener("click", run);
+      return node;
+    }
+
+    function fact(label: string, value: string) {
+      const row = h("div", "flex gap-3 text-sm");
+      row.append(h("dt", "text-muted-foreground w-24 shrink-0", label), h("dd", "", value));
+      return row;
+    }
+
+    function viewer(i: Item): HTMLElement {
+      if (i.kind === "sms") {
+        thread = createThread(i.id, { onChange: () => void load(false) });
+        const box = h("div", "flex h-[28rem] min-h-0 flex-col md:h-[calc(100dvh-20rem)]");
+        box.append(thread.el);
+        return box;
+      }
+      const box = h("div", "flex flex-col gap-4");
+      if (i.kind === "fax" && i.previewUrl) {
+        const frame = h("iframe", "border-border h-[70vh] w-full rounded-lg border");
+        frame.src = i.previewUrl; frame.title = "Received fax";
+        box.append(frame);
+      } else if (i.kind === "voicemail" && i.previewUrl) {
+        const audio = document.createElement("audio");
+        audio.controls = true; audio.preload = "metadata"; audio.src = i.previewUrl; audio.className = "w-full max-w-md";
+        audio.setAttribute("aria-label", `Voicemail from ${i.title}`);
+        const facts = h("dl", "flex flex-col gap-1");
+        facts.append(fact("From", i.from ?? "Unknown caller"), fact("Received", when(i.at)));
+        if (i.durationSecs != null) facts.append(fact("Length", duration(i.durationSecs)));
+        const transcript = h("div", "flex flex-col gap-1");
+        transcript.append(h("h3", "text-sm font-medium", "Transcript"), h("p", "text-muted-foreground max-w-prose text-sm whitespace-pre-line", i.transcript || "No transcript yet. It can arrive a little after the recording."));
+        box.append(audio, facts, transcript);
+      } else {
+        const facts = h("dl", "flex flex-col gap-1");
+        facts.append(fact("From", i.from ?? "Unknown caller"), fact("Called", i.to ?? ""), fact("Time", when(i.at)), fact("Result", `Missed, no voicemail left${i.hangupCause ? ` (${i.hangupCause.replaceAll("_", " ")})` : ""}`));
+        box.append(facts);
+      }
+      return box;
+    }
+
+    function close() {
+      thread?.stop(); thread = null; selected = null;
+      layout(); renderList();
+    }
+
+    async function setRead(i: Item, read: boolean) {
+      try {
+        await postJson(path(i, read ? "read" : "unread"), {});
+        i.unread = !read;
+        void refreshCount();
+        return true;
+      } catch { return false; }
+    }
+
+    async function open(i: Item) {
+      thread?.stop(); thread = null;
+      selected = i;
+      el("detail-heading").textContent = i.title;
+      const actions = el("detail-actions");
+      actions.replaceChildren();
+      const number = i.kind === "sms" ? i.id : i.from;
+      if (number) {
+        actions.append(action("Call back", "phone", () => {}, `/calls/?dial=${encodeURIComponent(number)}`));
+        actions.append(action("Reply", "message", () => {}, `/messages/?peer=${encodeURIComponent(number)}`));
+      }
+      if (i.downloadUrl) actions.append(action("Download", "download", () => {}, i.downloadUrl));
+      actions.append(action("Mark unread", "mailOpened", async () => { if (await setRead(i, false)) close(); }));
+      el("detail-body").replaceChildren(viewer(i));
+      layout(); renderList();
+      if (i.unread && await setRead(i, true)) renderList();
+    }
+
+    async function load(showSkeleton = true) {
+      if (showSkeleton && !loaded) renderList();
+      try {
+        const data = await api<{ items: Item[] }>(`/api/inbox${query()}`);
+        problem(false);
+        items = data.items; loaded = true;
+        if (selected) { const current = selected; selected = items.find(x => key(x) === key(current)) ?? current; }
+        renderList();
+      } catch { if (!loaded) { el("list").replaceChildren(); problem(true); } }
+    }
+
+    el("back").addEventListener("click", close);
+    phone.addEventListener("change", layout);
+    el("read-all").addEventListener("click", async () => {
+      try {
+        await postJson(`/api/inbox/read-all${filter === "fax" || filter === "voicemail" || filter === "call" || filter === "sms" ? `?kind=${filter}` : ""}`, {});
+        void refreshCount(); await load(false);
+      } catch { problem(true); }
+    });
+
+    renderFilters(); layout(); void load();
+    setInterval(() => { if (!document.hidden) void load(false); }, 30000);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) void load(false); });
+  </script>
 </AppLayout>

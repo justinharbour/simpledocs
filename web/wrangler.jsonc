@@ -19,6 +19,7 @@
     "TELNYX_WEBRTC_CREDENTIAL_ID": "76d778d0-2352-4186-b1b0-cb97788ba887",
     "TELNYX_VOICE_FROM": "+12134587846",
     "VOICEMAIL_NUMBER": "+12134587846",
+    "SMS_NUMBER": "+12134587846",
     "VOICEMAIL_GREETING": "You have reached Justin. Please leave a message after the tone.",
     "FAX_ALERTS_ENABLED": "true",
     "FAX_ALERT_AFTER_SECONDS": "300",
@@ -31,9 +32,19 @@
   ],
   "triggers": { "crons": ["*/5 * * * *"] },
   "send_email": [{ "name": "FAX_ALERT_EMAIL" }],
+  "queues": {
+    "producers": [{ "binding": "DELIVERIES", "queue": "simpledocs-deliveries-queue-prod" }],
+    "consumers": [{
+      "queue": "simpledocs-deliveries-queue-prod",
+      "max_batch_size": 5,
+      "max_batch_timeout": 2,
+      "max_retries": 5,
+      "retry_delay": 30,
+      "dead_letter_queue": "simpledocs-dlq-queue-prod"
+    }]
+  },
   "r2_buckets": [
-    { "binding": "FAX_MEDIA", "bucket_name": "simpledocs-fax-media" },
-    { "binding": "VOICE_RECORDINGS", "bucket_name": "simpledocs-voice-recordings" }
+    { "binding": "FILES", "bucket_name": "simpledocs-r2-prod" }
   ],
   "d1_databases": [
     { "binding": "DB", "database_name": "simpledocs-d1-prod", "database_id": "b31882a3-2a9e-45de-bfe2-3021785420db", "migrations_dir": "../backend/core/migrations" }

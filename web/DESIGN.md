@@ -4,8 +4,8 @@ Mode: Operate. A quiet working shell where state is always stated honestly. Prod
 
 ## Principles
 
-- **Say what is true.** Unconnected channels show a "Not connected" mark. Never show placeholder metrics or fake rows. Example rows are allowed only when labelled as examples; an unavailable control is disabled and explained, never silently inert.
-- **State is shape plus text,** never colour alone. The state mark is an icon and a label.
+- **Say what is true.** Show only real data and real controls. An empty list says what to do next (a link or one sentence), never "nothing connected". A provider accepting a job is shown as accepted, not delivered; only a provider-reported terminal status says "Delivered", and PostGrid "completed" is worded "Completed by PostGrid".
+- **State is shape plus text,** never colour alone. Status is a Starwind badge with a text label.
 - **Standard Starwind components,** restyled through tokens in `src/styles/starwind.css` only.
 
 ## Tokens
@@ -41,14 +41,18 @@ Title and one-sentence summary, a status notice, then one section with either a 
 
 Skip link to `#main`, `aria-current="page"` on the current link, labelled primary and secondary navigation, visible focus, reduced-motion support, `noindex` while the build is a skeleton.
 
-## Pattern: unavailable control
+## Pattern: send flow and records
 
-Compose, Records and Settings preview flows that have no backend. Each control is disabled and its reason sits next to it.
-
-- Buttons use `UnavailableButton`: outline variant, `disabled` with `focusableWhenDisabled`, and `aria-describedby` pointing at an `UnavailableReason` paragraph that starts with "Not available." and a lock icon.
-- Inputs, checkboxes and switches are disabled and labelled; groups sit in a `fieldset disabled` with a screen-reader legend. Disabled checkboxes and switches also carry `aria-disabled="true"`.
-- Values shown in fields are synthetic and carry a `SyntheticLabel` ("Synthetic example" badge) beside the label. Copy about behavior that is only specified in the contracts is worded "Proposed" or "would", never as fact.
+- Send is a four-step form (document, channels, details, review) that ends on a confirmation page. Pressing Send there is the approval; nothing goes out earlier. Paper mail keeps the test/live switch on that page.
+- Records and call lists load with Starwind skeletons and use an empty state that says what to do. Success and failure use a toast (`toast()` in `src/lib/ui.ts`).
+- Live status is polled from the transmission detail endpoint every few seconds until every channel is terminal.
+- Starwind's checkbox points its `<label for>` at `data-id`, which is not an element id. Name checkboxes with `aria-label` or `aria-labelledby` pointing at a real element instead.
 - Hidden table columns must not hide content: the detail also appears inline in the first cell below `md`.
-- Starwind's checkbox points its `<label for>` at `data-id`, which is not an element id. Name checkboxes with `aria-labelledby` pointing at a real element instead.
-- Delivery status uses `DeliveryStateMark`: an icon plus a text label for each proposed state. Only "Delivered" claims delivery; "Outcome unknown" is neither success nor failure.
-- Disabled controls fall below the 44px target size and have reduced opacity by design. They are not operable, and their meaning is carried by text, not by the control.
+
+## Pattern: inbox, softphone and messages
+
+- Inbox is the home page (`/`). Filter tabs (All, Unread, Faxes, Voicemail, Calls, Messages) sit above a list; a row shows a kind icon with its text label, the sender, a snippet and a relative time with the exact time in the `title`. Unread is bold plus an "Unread" badge, never colour alone. The detail opens beside the list on desktop and full-screen with a Back button below `md`. Opening an item marks it read; "Mark unread" and "Mark all read" undo and bulk it. The nav badge and the tab title carry the unread count (`src/lib/unread.ts`).
+- Softphone connects on page open. The status badge is shape plus text (Connecting, Ready, Offline); Offline shows a Reconnect button. The dial pad is 12 keys, at least 44px, centered at up to 20rem. During a call the same pad sends DTMF and a local tone plays. The in-call panel shows the number, a timer, the state in words, and Mute, Hold, Keypad, speaker and microphone pickers, and End call (error variant). An incoming call is a banner at the top with Answer and Decline and a WebAudio ringtone; browser notifications are enabled only from an explicit button.
+- Messages is two panes (conversations and one thread), one pane with Back on phones. Bubbles show the last status Telnyx reported: "Sending" means accepted, not delivered. A failed message shows the carrier reason and Retry. The composer counts GSM-7 or UCS-2 segments. `createThread()` in `src/lib/sms.ts` is shared by Messages and the Inbox detail.
+- Icons come from `src/lib/icons.ts` (Tabler SVGs bundled at build time) so scripts can draw them without innerHTML of user data.
+

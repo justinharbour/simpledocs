@@ -1,12 +1,182 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import PageHeader from "@/components/PageHeader.astro";
+import AddressFields from "@/components/AddressFields.astro";
+import { Button } from "@/components/starwind/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/starwind/card";
+import { Input } from "@/components/starwind/input";
+import { Label } from "@/components/starwind/label";
+import { Textarea } from "@/components/starwind/textarea";
+
+const voices = [
+  { value: "Telnyx.KokoroTTS.af", name: "Kokoro", note: "Telnyx.KokoroTTS.af: cheapest, recommended default." },
+  { value: "AWS.Polly.Joanna-Neural", name: "Amazon neural", note: "AWS.Polly.Joanna-Neural: roughly 8x the Kokoro price, still under half a cent per call." },
+  { value: "AWS.Polly.Joanna", name: "Amazon standard", note: "AWS.Polly.Joanna: Amazon's standard voice." },
+  { value: "female", name: "Basic", note: "female: Telnyx's basic synthetic voice." },
+];
 ---
-<AppLayout title="Settings" description="Instance settings.">
-  <PageHeader title="Settings" summary="Manage this simpledocs instance." />
-  <section class="mt-10 max-w-2xl" aria-labelledby="settings-heading">
-    <h2 id="settings-heading" class="text-lg font-semibold">Configuration</h2>
-    <p class="mt-3 text-sm text-muted-foreground">Settings cannot currently be changed from this page. The instance operator manages provider and channel configuration.</p>
-    <p class="mt-3 text-sm"><a href="/fax/" class="underline underline-offset-4">Open fax</a></p>
-  </section>
+
+<AppLayout title="Settings" description="Sender details used when sending.">
+  <PageHeader title="Settings" summary="Saved once, then filled in for you on the Send page." />
+  <form id="settings-form" class="flex max-w-2xl flex-col gap-6" novalidate>
+    <Card>
+      <CardHeader>
+        <CardTitle>Sender name</CardTitle>
+        <CardDescription>Shown as the sender on fax cover pages.</CardDescription>
+      </CardHeader>
+      <CardContent class="flex flex-col gap-1.5">
+        <Label for="sender-name">Name</Label>
+        <Input id="sender-name" autocomplete="name" />
+      </CardContent>
+    </Card>
+    <Card>
+      <CardHeader>
+        <CardTitle>Mail return address</CardTitle>
+        <CardDescription>Printed on the envelope of every paper letter. US addresses only.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <AddressFields prefix="from" legend="Return address" />
+      </CardContent>
+    </Card>
+    <div class="flex items-center gap-3">
+      <Button id="save" type="submit" variant="primary">Save settings</Button>
+      <p id="fax-from" class="text-muted-foreground text-sm"></p>
+    </div>
+  </form>
+
+  <form id="voicemail-form" class="mt-6 flex max-w-2xl flex-col gap-6" novalidate>
+    <Card>
+      <CardHeader>
+        <CardTitle>Voicemail greeting</CardTitle>
+        <CardDescription>Spoken to callers before the beep. Changes apply to the next inbound call.</CardDescription>
+      </CardHeader>
+      <CardContent class="flex flex-col gap-6">
+        <div class="flex flex-col gap-1.5">
+          <Label for="greeting">Greeting</Label>
+          <Textarea id="greeting" rows={4} maxlength={1000} aria-describedby="greeting-count" />
+          <p id="greeting-count" class="text-muted-foreground text-sm" aria-live="polite"></p>
+        </div>
+        <fieldset class="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+          <legend class="mb-2 text-sm font-medium">Voice</legend>
+          {voices.map((voice, i) => (
+            <div class="flex items-start gap-3">
+              <input type="radio" name="voice" id={`voice-${i}`} value={voice.value} class="accent-primary mt-1 size-4" />
+              <label for={`voice-${i}`} class="flex flex-col text-sm">
+                <span class="font-medium">{voice.name}</span>
+                <span class="text-muted-foreground">{voice.note}</span>
+              </label>
+            </div>
+          ))}
+          <div class="flex items-start gap-3">
+            <input type="radio" name="voice" id="voice-custom" value="custom" class="accent-primary mt-1 size-4" />
+            <label for="voice-custom" class="flex flex-col text-sm">
+              <span class="font-medium">Custom voice ID</span>
+              <span class="text-muted-foreground">Any other voice, written as Provider.Model.VoiceId.</span>
+            </label>
+          </div>
+          <div id="custom-voice-box" class="flex flex-col gap-1.5 pl-7 sm:col-span-2" hidden>
+            <Label for="custom-voice">Voice ID</Label>
+            <Input id="custom-voice" placeholder="Telnyx.NaturalHD.astra" autocomplete="off" spellcheck="false" />
+          </div>
+        </fieldset>
+        <p id="price" class="text-muted-foreground text-sm" aria-live="polite"></p>
+      </CardContent>
+    </Card>
+    <div class="flex items-center gap-3">
+      <Button id="save-voicemail" type="submit" variant="primary">Save voicemail</Button>
+    </div>
+  </form>
+
+  <script>
+    import { api, postJson, toast } from "@/lib/ui";
+
+    type Settings = { senderName: string; mailFrom: Record<string, string> | null; faxFrom: string };
+    const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+    const fields = () => [...document.querySelectorAll<HTMLInputElement>('[data-address="from"] [data-field]')];
+
+    function fill(settings: Settings) {
+      $<HTMLInputElement>("sender-name").value = settings.senderName;
+      for (const el of fields()) el.value = settings.mailFrom?.[el.dataset.field!] ?? "";
+      $("fax-from").textContent = `Faxes go out from ${settings.faxFrom}.`;
+    }
+
+    type Voicemail = { greeting: string; voice: string; service_level: "basic" | "premium" };
+    const MAX_GREETING = 1000;
+    const presets = [...document.querySelectorAll<HTMLInputElement>('input[name="voice"]')].filter((el) => el.value !== "custom").map((el) => el.value);
+    const radio = (value: string) => document.querySelector<HTMLInputElement>(`input[name="voice"][value="${value}"]`)!;
+    const chosenVoice = () => {
+      const picked = document.querySelector<HTMLInputElement>('input[name="voice"]:checked')?.value ?? "";
+      return picked === "custom" ? $<HTMLInputElement>("custom-voice").value.trim() : picked;
+    };
+
+    // USD per character, list price. Voices outside this table show no estimate.
+    function ratePerCharacter(voice: string): number | null {
+      if (/^Telnyx\.KokoroTTS\.[A-Za-z0-9_-]+$/.test(voice)) return 0.000003;
+      if (/^Telnyx\.NaturalHD\.[A-Za-z0-9_-]+$/.test(voice)) return 0.000048;
+      if (/^AWS\.Polly\.[A-Za-z0-9]+-Neural$/.test(voice)) return 0.000024;
+      if (/^AWS\.Polly\.[A-Za-z0-9]+$/.test(voice)) return 0.000009;
+      return null;
+    }
+
+    function refresh() {
+      const length = $<HTMLTextAreaElement>("greeting").value.trim().length;
+      $("greeting-count").textContent = `${length} of ${MAX_GREETING} characters`;
+      $("custom-voice-box").hidden = !radio("custom").checked;
+      const rate = ratePerCharacter(chosenVoice());
+      $("price").textContent = rate === null ? "" : `Approx. list price per call: $${(length * rate).toFixed(4)} for the greeting.`;
+    }
+
+    function fillVoicemail(config: Voicemail) {
+      $<HTMLTextAreaElement>("greeting").value = config.greeting;
+      const preset = presets.includes(config.voice);
+      radio(preset ? config.voice : "custom").checked = true;
+      $<HTMLInputElement>("custom-voice").value = preset ? "" : config.voice;
+      refresh();
+    }
+
+    for (const id of ["greeting", "custom-voice"]) $(id).addEventListener("input", refresh);
+    for (const el of document.querySelectorAll<HTMLInputElement>('input[name="voice"]')) el.addEventListener("change", refresh);
+
+    api<Voicemail>("/api/settings/voicemail").then(fillVoicemail).catch(() => toast("Voicemail settings could not be loaded. Reload to try again.", "error"));
+
+    $("voicemail-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = $<HTMLButtonElement>("save-voicemail");
+      const voice = chosenVoice();
+      const greeting = $<HTMLTextAreaElement>("greeting").value.trim();
+      if (!greeting) return toast("Enter a greeting for callers.", "error");
+      if (!voice) return toast("Enter a voice ID such as Telnyx.NaturalHD.astra.", "error");
+      button.disabled = true;
+      try {
+        // The basic service level only matters for the legacy female and male voices.
+        const body = { greeting, voice, ...(voice === "female" || voice === "male" ? { service_level: "basic" } : {}) };
+        fillVoicemail(await postJson<Voicemail>("/api/settings/voicemail", body, "PUT"));
+        toast("Voicemail saved. It applies to the next inbound call.", "success");
+      } catch (error) {
+        toast(error instanceof Error ? error.message : "Voicemail could not be saved.", "error");
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    api<Settings>("/api/settings").then(fill).catch(() => toast("Settings could not be loaded. Reload to try again.", "error"));
+
+    $("settings-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = $<HTMLButtonElement>("save");
+      const mailFrom: Record<string, string> = { countryCode: "US" };
+      for (const el of fields()) if (el.value.trim()) mailFrom[el.dataset.field!] = el.value.trim();
+      const hasAddress = fields().some((el) => el.value.trim());
+      button.disabled = true;
+      try {
+        const saved = await postJson<Settings>("/api/settings", { senderName: $<HTMLInputElement>("sender-name").value.trim(), ...(hasAddress ? { mailFrom } : {}) }, "PUT");
+        fill(saved);
+        toast("Settings saved.", "success");
+      } catch (error) {
+        toast(error instanceof Error ? error.message : "Settings could not be saved.", "error");
+      } finally {
+        button.disabled = false;
+      }
+    });
+  </script>
 </AppLayout>

@@ -4,6 +4,7 @@ const json = (value, status = 200) => Response.json(value, { status, headers });
 
 // Subjects are explicitly authorized for this shared inbox, independently of
 // merely possessing an Access assertion. No client-provided actor is accepted.
+export { authorized as inboundFaxAllowed };
 function authorized(actor, configured) {
   if (configured === undefined) return typeof actor === 'string' && actor.length > 0;
   try {
@@ -15,7 +16,7 @@ function authorized(actor, configured) {
 export async function handleInboundFaxRead(request, env, actor, eventId) {
   if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405);
   if (!authorized(actor, env.INBOUND_FAX_ALLOWED_SUBJECTS)) return json({ error: 'Forbidden' }, 403);
-  if (!env.DB || (eventId && !env.FAX_MEDIA)) return json({ error: 'Storage unavailable' }, 503);
+  if (!env.DB || (eventId && !env.FILES)) return json({ error: 'Storage unavailable' }, 503);
   if (eventId && !UUID.test(eventId)) return json({ error: 'Not found' }, 404);
   try {
     if (!eventId) {
@@ -29,8 +30,10 @@ export async function handleInboundFaxRead(request, env, actor, eventId) {
     if (!row?.object_key) return json({ error: 'Not found' }, 404);
     // Object keys are internal DB references, not caller-controlled paths.
     if (!/^inbound-fax\/[0-9a-f-]{36}\/[0-9a-f-]{36}(?:\/[0-9a-f]{64})?\.pdf$/i.test(row.object_key)) throw new Error();
-    const object = await env.FAX_MEDIA.get(row.object_key);
+    const object = await env.FILES.get(row.object_key);
     if (!object?.body) return json({ error: 'Media unavailable' }, 503);
-    return new Response(object.body, { headers: { ...headers, 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="fax.pdf"', 'Content-Security-Policy': "default-src 'none'; sandbox" } });
+    // Inline preview drops the sandbox directive, which blocks the browser PDF viewer.
+    const inline = new URL(request.url).searchParams.get('inline') === '1';
+    return new Response(object.body, { headers: { ...headers, 'Content-Type': 'application/pdf', 'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="fax.pdf"`, 'Content-Security-Policy': inline ? "default-src 'none'; object-src 'self'; frame-ancestors 'self'" : "default-src 'none'; sandbox" } });
   } catch { return json({ error: 'Storage unavailable' }, 503); }
 }

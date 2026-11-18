@@ -1,11 +1,17 @@
-import { processVoicemail, isVoicemailRecording } from './voicemail.mjs';
+import { processVoicemail, isVoicemailRecording, isRingLeg } from './voicemail.mjs';
+import { pushLater } from './push.mjs';
+import { recordCall, recordingMeta } from './voice-calls.mjs';
 const MAX_BODY = 128 * 1024;
 const MAX_AUDIO = 25 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const TYPES = new Set(['call.initiated', 'call.ringing', 'call.answered', 'call.hangup', 'call.speak.ended', 'call.recording.saved']);
+const TYPES = new Set(['call.initiated', 'call.ringing', 'call.answered', 'call.hangup', 'call.speak.ended', 'call.recording.saved', 'call.recording.transcription.saved']);
+const MAX_TRANSCRIPT = 20000;
+
+// Copies a transcript that arrived first onto the archived recording. Safe to repeat.
+const applyTranscript = (db, id) => db.prepare("UPDATE voice_recordings SET transcript = (SELECT t.transcript FROM voice_transcripts t WHERE t.recording_id = voice_recordings.recording_id), transcript_at = datetime('now') WHERE recording_id = ? AND transcript IS NULL AND EXISTS (SELECT 1 FROM voice_transcripts t WHERE t.recording_id = voice_recordings.recording_id AND t.call_control_id = voice_recordings.call_control_id)").bind(id).run();
 const reply = (status, message) => new Response(message, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
 
-async function bounded(stream, limit) {
+export async function bounded(stream, limit) {
   if (!stream) throw new Error('missing body');
   const reader = stream.getReader(); const parts = []; let size = 0;
   try {
@@ -27,7 +33,7 @@ function decode64(value) {
   return Uint8Array.from(atob(value), c => c.charCodeAt(0));
 }
 
-async function verify(bytes, request, publicKey, now) {
+export async function verify(bytes, request, publicKey, now) {
   try {
     const timestamp = request.headers.get('telnyx-timestamp');
     const signature = decode64(request.headers.get('telnyx-signature-ed25519'));
@@ -59,16 +65,31 @@ export async function handleVoiceWebhook(request, env, fetcher = fetch, now = Da
   try { data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)).data; payload = data.payload; } catch { return reply(400, 'Invalid event'); }
   const validString = value => typeof value === 'string' && value.length > 0 && value.length <= 256 && value.trim() === value;
   if (!data || !payload || !validString(data.id) || !TYPES.has(data.event_type) || !validString(payload.call_control_id) ||
-      !validString(data.occurred_at) || !Number.isFinite(Date.parse(data.occurred_at)) || payload.connection_id !== env.TELNYX_VOICE_CONNECTION_ID) return reply(400, 'Invalid event');
+      !validString(data.occurred_at) || !Number.isFinite(Date.parse(data.occurred_at))) return reply(400, 'Invalid event');
   try {
+    // The softphone credential lives on another Telnyx connection, so the transferred leg may report that
+    // connection. It is accepted only when it carries the marker of a ring we started.
+    if (payload.connection_id !== env.TELNYX_VOICE_CONNECTION_ID &&
+        (data.event_type.startsWith('call.recording') || !await isRingLeg(env.DB, payload.client_state))) return reply(400, 'Invalid event');
     await env.DB.prepare('INSERT OR IGNORE INTO voice_events (event_id, event_type, call_control_id, occurred_at) VALUES (?, ?, ?, ?)').bind(data.id, data.event_type, payload.call_control_id, data.occurred_at).run();
     const event = await env.DB.prepare('SELECT event_type, call_control_id, occurred_at FROM voice_events WHERE event_id = ?').bind(data.id).first();
     if (!event || event.event_type !== data.event_type || event.call_control_id !== payload.call_control_id || event.occurred_at !== data.occurred_at) return reply(409, 'Event conflict');
-    if (data.event_type !== 'call.recording.saved') {
-      await processVoicemail(env, data, payload, fetcher);
+    if (data.event_type === 'call.recording.transcription.saved') {
+      const recording = payload.recording_id, text = typeof payload.transcription_text === 'string' ? payload.transcription_text.trim() : '';
+      if (typeof recording !== 'string' || !UUID.test(recording)) return reply(400, 'Invalid recording');
+      if (payload.status !== 'completed' || !text) return reply(200, 'Accepted');
+      await env.DB.prepare('INSERT INTO voice_transcripts (recording_id, call_control_id, transcript) VALUES (?, ?, ?) ON CONFLICT(recording_id) DO NOTHING').bind(recording, payload.call_control_id, text.slice(0, MAX_TRANSCRIPT)).run();
+      await applyTranscript(env.DB, recording);
       return reply(200, 'Accepted');
     }
-    if (!env.VOICE_RECORDINGS) return reply(503, 'Recording storage unavailable');
+    if (data.event_type !== 'call.recording.saved') {
+      const softphoneLeg = await processVoicemail(env, data, payload, fetcher);
+      // The call log is secondary: it must never fail a webhook voicemail depends on. The leg that
+      // rings the softphone is part of the same inbound call, so it is not logged as a second call.
+      if (!softphoneLeg) try { await recordCall(env.DB, data, payload); } catch { /* Telnyx retries are not needed for logging. */ }
+      return reply(200, 'Accepted');
+    }
+    if (!env.FILES) return reply(503, 'Recording storage unavailable');
     const id = payload.recording_id;
     if (typeof id !== 'string' || !UUID.test(id)) return reply(400, 'Invalid recording');
     const existing = await env.DB.prepare('SELECT event_id, call_control_id FROM voice_recordings WHERE recording_id = ?').bind(id).first();
@@ -84,11 +105,14 @@ export async function handleVoiceWebhook(request, env, fetcher = fetch, now = Da
     const eventHash = Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
     const key = `voice/${id.toLowerCase()}/${eventHash}.${format}`;
     const contentType = format === 'mp3' ? 'audio/mpeg' : 'audio/wav';
-    await env.VOICE_RECORDINGS.put(key, audio, { httpMetadata: { contentType } });
+    await env.FILES.put(key, audio, { httpMetadata: { contentType } });
     const kind = await isVoicemailRecording(env.DB, payload) ? 'voicemail' : 'recording';
-    await env.DB.prepare('INSERT OR IGNORE INTO voice_recordings (recording_id, event_id, call_control_id, object_key, content_type, kind) VALUES (?, ?, ?, ?, ?, ?)').bind(id, data.id, payload.call_control_id, key, contentType, kind).run();
+    const meta = await recordingMeta(env.DB, payload);
+    const inserted = await env.DB.prepare('INSERT OR IGNORE INTO voice_recordings (recording_id, event_id, call_control_id, object_key, content_type, kind, direction, from_number, to_number, duration_secs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(id, data.id, payload.call_control_id, key, contentType, kind, meta.direction, meta.from, meta.to, meta.duration).run();
+    if (kind === 'voicemail' && inserted.meta?.changes === 1) pushLater(env, { kind: 'voicemail', id });
     const stored = await env.DB.prepare('SELECT event_id, call_control_id FROM voice_recordings WHERE recording_id = ?').bind(id).first();
     if (!stored || stored.event_id !== data.id || stored.call_control_id !== payload.call_control_id) return reply(409, 'Recording conflict');
+    await applyTranscript(env.DB, id);
     return reply(200, 'Accepted');
   } catch { return reply(503, 'Temporarily unavailable'); }
 }
@@ -96,21 +120,23 @@ export async function handleVoiceWebhook(request, env, fetcher = fetch, now = Da
 export async function handleVoiceRecording(request, env, id) {
   if (request.method !== 'GET') return reply(405, 'Method not allowed');
   if (!UUID.test(id)) return reply(404, 'Not found');
-  if (!env.DB || !env.VOICE_RECORDINGS) return reply(503, 'Unavailable');
+  if (!env.DB || !env.FILES) return reply(503, 'Unavailable');
   try {
     const record = await env.DB.prepare('SELECT object_key, content_type FROM voice_recordings WHERE recording_id = ?').bind(id).first();
     if (!record) return reply(404, 'Not found');
-    const object = await env.VOICE_RECORDINGS.get(record.object_key);
+    const object = await env.FILES.get(record.object_key);
     if (!object) return reply(503, 'Unavailable');
-    return new Response(object.body, { headers: { 'Content-Type': record.content_type, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Disposition': 'inline' } });
+    const download = new URL(request.url).searchParams.get('download') === '1';
+    const ext = record.content_type === 'audio/wav' ? 'wav' : 'mp3';
+    return new Response(object.body, { headers: { 'Content-Type': record.content_type, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Disposition': download ? `attachment; filename="recording-${id}.${ext}"` : 'inline' } });
   } catch { return reply(503, 'Unavailable'); }
 }
 
 export async function listVoiceRecordings(request, env) {
   if (request.method !== 'GET') return reply(405, 'Method not allowed');
-  if (!env.DB || !env.VOICE_RECORDINGS) return reply(503, 'Unavailable');
+  if (!env.DB || !env.FILES) return reply(503, 'Unavailable');
   try {
-    const rows = await env.DB.prepare('SELECT recording_id, archived_at, kind FROM voice_recordings ORDER BY archived_at DESC, recording_id DESC LIMIT 100').all();
+    const rows = await env.DB.prepare('SELECT recording_id, archived_at, kind, direction, from_number, to_number, duration_secs, heard_at, transcript FROM voice_recordings ORDER BY archived_at DESC, recording_id DESC LIMIT 100').all();
     return Response.json({ recordings: rows.results }, { headers: { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } });
   } catch { return reply(503, 'Unavailable'); }
 }
