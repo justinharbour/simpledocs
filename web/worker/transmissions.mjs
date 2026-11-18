@@ -1,9 +1,10 @@
-import { buildCoverPage, countPages, DEFAULT_FROM_NUMBER, DEFAULT_SENDER_NAME } from './cover-page.mjs';
+import { formatDocumentNumber, formatEnvelopeNumber, MAX_DOCUMENT_BYTES, MAX_DOCUMENTS } from '../shared/envelope.mjs';
+import { buildCoverPage, DEFAULT_FROM_NUMBER, DEFAULT_SENDER_NAME } from './cover-page.mjs';
 import { enqueue, isTerminal, mailReviewHash, mark, refreshDelivery, sha256Hex, UUID } from './deliveries.mjs';
+import { assembleEnvelope } from './envelope-pdf.mjs';
 import { contact, mailApiKey } from './mail-send.mjs';
 import { normalizePhone } from './phone.mjs';
 
-const LIMIT = 5 * 1024 * 1024;
 const MAX_FAX_RECIPIENTS = 10;
 const headers = { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' };
 const reply = (body, status = 200) => Response.json(body, { status, headers });
@@ -19,7 +20,7 @@ async function readBounded(request) {
     const { value, done } = await reader.read();
     if (done) break;
     size += value.byteLength;
-    if (size > LIMIT + 65536) { await reader.cancel(); throw new Error('large'); }
+    if (size > MAX_DOCUMENT_BYTES + 65536) { await reader.cancel(); throw new Error('large'); }
     chunks.push(value);
   }
   return new Blob(chunks);
@@ -91,16 +92,17 @@ export async function createTransmission(request, env, actor) {
   if (!env.DB || !env.FILES) return reply({ error: 'Storage unavailable' }, 503);
   let form;
   try { form = await new Response(await readBounded(request), { headers: { 'Content-Type': request.headers.get('content-type') || '' } }).formData(); }
-  catch { return reply({ error: 'Upload a PDF under 5 MB' }, 400); }
-  const file = form.get('document');
-  if (!(file instanceof File) || file.size === 0 || file.size > LIMIT) return reply({ error: 'Upload a PDF under 5 MB' }, 400);
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (new TextDecoder().decode(bytes.slice(0, 5)) !== '%PDF-') return reply({ error: 'That file is not a PDF' }, 400);
-  let pages;
-  try { pages = await countPages(bytes); } catch { return reply({ error: 'That PDF could not be read. Try exporting it again.' }, 400); }
+  catch { return reply({ error: 'Upload PDFs totaling up to 5 MB' }, 400); }
+  // The plural field is intentionally distinct so old Workers reject a new
+  // multi-file request rather than silently sending only its first file.
+  const legacy = form.getAll('document'), ordered = form.getAll('documents');
+  if (legacy.length > 1 || (legacy.length && ordered.length)) return reply({ error: 'Use one document part or ordered documents parts, not both' }, 400);
+  const files = ordered.length ? ordered : legacy;
+  if (!files.length || files.length > MAX_DOCUMENTS || files.some(file => !(file instanceof File) || !file.size) || files.reduce((size, file) => size + file.size, 0) > MAX_DOCUMENT_BYTES) {
+    return reply({ error: `Upload 1 to ${MAX_DOCUMENTS} nonempty PDFs totaling up to 5 MB` }, 400);
+  }
   let spec;
   try { spec = parseSpec(form); } catch { return reply({ error: 'Invalid request' }, 400); }
-  const title = str(spec.title, 200) || str(file.name, 200).replace(/\.pdf$/i, '') || 'Untitled document';
 
   const faxNumbers = [];
   if (spec.fax) {
@@ -124,15 +126,26 @@ export async function createTransmission(request, env, actor) {
   }
   if (!faxNumbers.length && !mail) return reply({ error: 'Choose at least one way to send' }, 400);
 
+  let assembled;
+  try { assembled = await assembleEnvelope(files, faxNumbers.length > 0 && spec.fax.cover?.enabled !== false); }
+  catch (error) { return reply({ error: error instanceof Error ? error.message : 'The PDFs could not be read' }, 400); }
+  const { bytes, pages, documents } = assembled;
+  const title = str(spec.title, 200) || documents[0].name.replace(/\.pdf$/i, '') || 'Untitled document';
+
   const id = crypto.randomUUID();
+  const allocation = await env.DB.prepare("INSERT INTO envelope_numbers (transmission_id) SELECT ? WHERE COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'envelope_numbers'), 0) < 999999 RETURNING number").bind(id).first();
+  if (!allocation) return reply({ error: 'Envelope numbering is exhausted. Contact the instance administrator.' }, 503);
+  const envelopeNumber = formatEnvelopeNumber(allocation.number);
+  const manifest = documents.map((document, i) => ({ ...document, position: i + 1, number: formatDocumentNumber(envelopeNumber, i + 1) }));
   const now = new Date().toISOString();
   const settings = await getSettings(env.DB);
   const sourceKey = `outbound/${id}/document.pdf`;
   await env.FILES.put(sourceKey, bytes, { httpMetadata: { contentType: 'application/pdf' } });
-  await env.DB.prepare('INSERT INTO transmissions (id, actor_id, title, source_key, page_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(id, actor, title, sourceKey, pages, now, now).run();
-  const addDelivery = async (deliveryId, channel, recipient, options, status) => {
-    await env.DB.prepare('INSERT INTO dispatches (id, transmission_id, channel, recipient, options_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(deliveryId, id, channel, recipient, JSON.stringify(options), status, now, now).run();
-    await env.DB.prepare('INSERT INTO timeline (delivery_id, at, status, detail) VALUES (?, ?, ?, ?)').bind(deliveryId, now, status, status === 'awaiting_approval' ? 'Waiting for your review' : null).run();
+  const statements = [env.DB.prepare('INSERT INTO transmissions (id, actor_id, title, source_key, page_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(id, actor, title, sourceKey, pages, now, now)];
+  for (const doc of manifest) statements.push(env.DB.prepare('INSERT INTO envelope_documents (transmission_id, position, name, page_count) VALUES (?, ?, ?, ?)').bind(id, doc.position, doc.name, doc.pageCount));
+  const addDelivery = (deliveryId, channel, recipient, options, status) => {
+    statements.push(env.DB.prepare('INSERT INTO dispatches (id, transmission_id, channel, recipient, options_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(deliveryId, id, channel, recipient, JSON.stringify(options), status, now, now));
+    statements.push(env.DB.prepare('INSERT INTO timeline (delivery_id, at, status, detail) VALUES (?, ?, ?, ?)').bind(deliveryId, now, status, status === 'awaiting_approval' ? 'Waiting for your review' : null));
   };
   const created = [];
   for (const number of faxNumbers) {
@@ -140,22 +153,25 @@ export async function createTransmission(request, env, actor) {
     const options = {};
     if (spec.fax.cover?.enabled !== false) {
       const coverKey = `covers/${id}/${deliveryId}.pdf`;
-      const cover = await buildCoverPage(await coverFields(env, settings, spec.fax.cover, title, number, pages));
+      const fields = await coverFields(env, settings, spec.fax.cover, title, number, pages);
+      if (spec.fax.cover?.includeNumbers === true) fields.numbering = { envelopeNumber, documentNumbers: manifest.map(d => d.number) };
+      const cover = await buildCoverPage(fields);
       await env.FILES.put(coverKey, cover, { httpMetadata: { contentType: 'application/pdf' } });
       options.coverKey = coverKey;
     }
-    await addDelivery(deliveryId, 'fax', number, options, 'queued');
+    addDelivery(deliveryId, 'fax', number, options, 'queued');
     created.push({ id: deliveryId, channel: 'fax', status: 'queued' });
   }
   if (mail) {
     const deliveryId = crypto.randomUUID();
     const content = { ...mail, transmissionId: id, pdfSha256: await sha256Hex(bytes) };
-    await env.DB.prepare('INSERT INTO mail_drafts (id, actor_id, revision, content_json, created_at, updated_at) VALUES (?, ?, 1, ?, ?, ?)').bind(deliveryId, actor, JSON.stringify(content), now, now).run();
-    await addDelivery(deliveryId, 'mail', `${mail.to.firstName}${mail.to.lastName ? ` ${mail.to.lastName}` : ''}, ${mail.to.city} ${mail.to.provinceOrState}`, mail, 'awaiting_approval');
+    statements.push(env.DB.prepare('INSERT INTO mail_drafts (id, actor_id, revision, content_json, created_at, updated_at) VALUES (?, ?, 1, ?, ?, ?)').bind(deliveryId, actor, JSON.stringify(content), now, now));
+    addDelivery(deliveryId, 'mail', `${mail.to.firstName}${mail.to.lastName ? ` ${mail.to.lastName}` : ''}, ${mail.to.city} ${mail.to.provinceOrState}`, mail, 'awaiting_approval');
     created.push({ id: deliveryId, channel: 'mail', status: 'awaiting_approval' });
   }
+  await env.DB.batch(statements);
   for (const item of created) if (item.channel === 'fax') await enqueue(env, id, 'fax', item.id);
-  return reply({ id, deliveries: created }, 202);
+  return reply({ id, envelopeNumber, documents: manifest, deliveries: created }, 202);
 }
 
 const deliveryView = (row, transmissionId, timeline) => ({
@@ -168,18 +184,20 @@ const deliveryView = (row, transmissionId, timeline) => ({
 
 export async function listTransmissions(env, actor) {
   if (!env.DB) return reply({ error: 'Storage unavailable' }, 503);
-  const rows = await env.DB.prepare('SELECT id, title, page_count, created_at, updated_at FROM transmissions WHERE actor_id = ? ORDER BY created_at DESC, id DESC LIMIT 100').bind(actor).all();
+  const rows = await env.DB.prepare('SELECT t.id, t.title, t.page_count, t.created_at, t.updated_at, n.number FROM transmissions t LEFT JOIN envelope_numbers n ON n.transmission_id = t.id WHERE t.actor_id = ? ORDER BY t.created_at DESC, t.id DESC LIMIT 100').bind(actor).all();
   const deliveries = await env.DB.prepare('SELECT transmission_id, id, channel, status FROM dispatches WHERE transmission_id IN (SELECT id FROM transmissions WHERE actor_id = ? ORDER BY created_at DESC, id DESC LIMIT 100)').bind(actor).all();
   const by = new Map();
   for (const d of deliveries.results ?? []) by.set(d.transmission_id, [...(by.get(d.transmission_id) ?? []), { id: d.id, channel: d.channel, status: d.status }]);
-  return reply({ transmissions: (rows.results ?? []).map(r => ({ id: r.id, title: r.title, pageCount: r.page_count, createdAt: r.created_at, updatedAt: r.updated_at, channels: by.get(r.id) ?? [] })) });
+  return reply({ transmissions: (rows.results ?? []).map(r => ({ id: r.id, title: r.title, envelopeNumber: r.number == null ? null : formatEnvelopeNumber(r.number), pageCount: r.page_count, createdAt: r.created_at, updatedAt: r.updated_at, channels: by.get(r.id) ?? [] })) });
 }
 
 export async function getTransmission(env, actor, id, fetcher = fetch) {
   if (!env.DB) return reply({ error: 'Storage unavailable' }, 503);
   if (!UUID.test(id)) return reply({ error: 'Not found' }, 404);
-  const tx = await env.DB.prepare('SELECT id, title, page_count, created_at, updated_at FROM transmissions WHERE id = ? AND actor_id = ?').bind(id, actor).first();
+  const tx = await env.DB.prepare('SELECT t.id, t.title, t.page_count, t.created_at, t.updated_at, n.number FROM transmissions t LEFT JOIN envelope_numbers n ON n.transmission_id = t.id WHERE t.id = ? AND t.actor_id = ?').bind(id, actor).first();
   if (!tx) return reply({ error: 'Not found' }, 404);
+  const envelopeNumber = tx.number == null ? null : formatEnvelopeNumber(tx.number);
+  const documents = envelopeNumber ? ((await env.DB.prepare('SELECT position, name, page_count FROM envelope_documents WHERE transmission_id = ? ORDER BY position').bind(id).all()).results ?? []).map(doc => ({ position: doc.position, name: doc.name, pageCount: doc.page_count, number: formatDocumentNumber(envelopeNumber, doc.position) })) : [];
   let rows = (await env.DB.prepare('SELECT * FROM dispatches WHERE transmission_id = ? ORDER BY created_at, id').bind(id).all()).results ?? [];
   const open = rows.filter(r => ['submitting', 'accepted'].includes(r.status));
   if (open.length) {
@@ -194,7 +212,7 @@ export async function getTransmission(env, actor, id, fetcher = fetch) {
   }
   const settled = deliveries.every(d => isTerminal(d.status));
   const refreshed = await env.DB.prepare('SELECT updated_at FROM transmissions WHERE id = ?').bind(id).first();
-  return reply({ id, title: tx.title, pageCount: tx.page_count, createdAt: tx.created_at, updatedAt: refreshed?.updated_at ?? tx.updated_at, documentUrl: `/api/transmissions/${id}/document`, settled, deliveries });
+  return reply({ id, envelopeNumber, documents, title: tx.title, pageCount: tx.page_count, createdAt: tx.created_at, updatedAt: refreshed?.updated_at ?? tx.updated_at, documentUrl: `/api/transmissions/${id}/document`, settled, deliveries });
 }
 
 async function pdfResponse(env, key, name) {
@@ -263,7 +281,7 @@ export async function listRecords(env, actor, { inboundAllowed, voiceAllowed }) 
   if (!env.DB) return reply({ error: 'Storage unavailable' }, 503);
   const items = [];
   const sent = await (await listTransmissions(env, actor)).json();
-  for (const t of sent.transmissions) items.push({ type: 'transmission', id: t.id, title: t.title, createdAt: t.createdAt, updatedAt: t.updatedAt, channels: t.channels, pageCount: t.pageCount, previewUrl: `/api/transmissions/${t.id}/document`, previewType: 'pdf' });
+  for (const t of sent.transmissions) items.push({ type: 'transmission', id: t.id, title: t.title, envelopeNumber: t.envelopeNumber, createdAt: t.createdAt, updatedAt: t.updatedAt, channels: t.channels, pageCount: t.pageCount, previewUrl: `/api/transmissions/${t.id}/document`, previewType: 'pdf' });
   if (inboundAllowed) {
     const faxes = await env.DB.prepare("SELECT event_id, fax_id, received_at FROM inbound_fax_events WHERE event_type = 'fax.received' AND object_key IS NOT NULL ORDER BY received_at DESC, event_id DESC LIMIT 100").bind().all();
     for (const f of faxes.results ?? []) items.push({ type: 'inbound_fax', id: f.event_id, title: 'Inbound fax', createdAt: f.received_at, updatedAt: f.received_at, channels: [{ channel: 'fax', status: 'received' }], previewUrl: `/api/inbound-faxes/${f.event_id}/pdf?inline=1`, previewType: 'pdf' });

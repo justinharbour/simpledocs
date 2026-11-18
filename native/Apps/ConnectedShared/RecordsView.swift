@@ -77,6 +77,7 @@ struct RecordRow: View {
                     if let date = record.date { Text(date.short).font(.caption).foregroundStyle(.secondary) }
                 }
                 ForEach(record.channels, id: \.self) { StatusBadge(channel: $0.channel, status: $0.status) }
+                if let number = record.envelopeNumber { Text("Envelope \(number)").font(.caption).foregroundStyle(.secondary) }
                 if let pages = record.pageCount {
                     Text("\(pages) \(pages == 1 ? "page" : "pages")").font(.caption).foregroundStyle(.secondary)
                 }
@@ -97,9 +98,17 @@ struct TransmissionView: View {
             if let detail = model.detail {
                 List {
                     Section {
+                        if let number = detail.envelopeNumber { LabeledContent("Envelope", value: number) }
                         LabeledContent("Pages", value: "\(detail.pageCount)")
                         if let date = WorkerDate.parse(detail.createdAt) { LabeledContent("Created", value: date.formatted(date: .abbreviated, time: .shortened)) }
                         if let file = model.document() { DocumentRow(file: file) }
+                    }
+                    if let documents = detail.documents, !documents.isEmpty {
+                        Section("Document order") {
+                            ForEach(documents) { document in
+                                LabeledContent(document.name, value: document.number)
+                            }
+                        }
                     }
                     ForEach(detail.deliveries) { delivery in deliverySection(delivery) }
                 }

@@ -24,6 +24,7 @@ public struct RecordItem: Codable, Sendable, Hashable, Identifiable {
     public let updatedAt: String?
     public let channels: [ChannelStatus]
     public let pageCount: Int?
+    public let envelopeNumber: String?
     public let previewUrl: String?
     public let previewType: String?
     public let kind: String?
@@ -63,6 +64,8 @@ public struct DeliveryDetail: Codable, Sendable, Hashable, Identifiable {
 
 public struct TransmissionDetail: Codable, Sendable, Hashable, Identifiable {
     public let id: String
+    public let envelopeNumber: String?
+    public let documents: [EnvelopeDocument]?
     public let title: String
     public let pageCount: Int
     public let createdAt: String
@@ -76,8 +79,20 @@ public struct TransmissionDetail: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
+public struct EnvelopeDocument: Codable, Sendable, Hashable, Identifiable {
+    public let position: Int
+    public let number: String
+    public let name: String
+    public let pageCount: Int
+    public var id: Int { position }
+}
+
 public struct CreatedDelivery: Codable, Sendable, Hashable { public let id: String; public let channel: String; public let status: String }
-public struct CreatedTransmission: Codable, Sendable { public let id: String; public let deliveries: [CreatedDelivery] }
+public struct CreatedTransmission: Codable, Sendable {
+    public let id: String
+    public let envelopeNumber: String?
+    public let deliveries: [CreatedDelivery]
+}
 
 public struct MailReview: Codable, Sendable {
     public let mode: String

@@ -217,9 +217,35 @@ extension StubbedSuites { @MainActor @Suite struct ScreenModelsTests {
         model.draft.faxList = "213.414.7728"
         model.review()
         await model.send()
-        #expect(model.step == .sent(.init(transmissionID: "t1", faxCount: 1, letterApproved: false, letterProblem: nil)))
+        #expect(model.step == .sent(.init(transmissionID: "t1", envelopeNumber: nil, faxCount: 1, letterApproved: false, letterProblem: nil)))
         #expect(StubProtocol.requests.map(\.url.path) == ["/api/transmissions"])
         #expect(String(decoding: StubProtocol.requests[0].body, as: UTF8.self).contains("+12134147728"))
+    }
+
+    @Test func uploadsMultipleDocumentsInReviewedOrder() async throws {
+        StubProtocol.reset(["POST /api/transmissions": [ok(#"{"id":"t1","envelopeNumber":"000001","deliveries":[{"id":"d1","channel":"fax","status":"queued"}]}"#, status: 202)]])
+        let model = SendModel(session: try signedIn())
+        model.choose(data: pdf, name: "one.pdf", pageCount: 1)
+        model.choose(data: pdf, name: "two.pdf", pageCount: 2)
+        model.choose(data: pdf, name: "too-long.pdf", pageCount: 98)
+        #expect(model.documentError?.contains("100 pages") == true)
+        model.draft.faxList = "(512) 555-0100"
+        model.draft.cover.includeNumbers = true
+        model.review()
+        #expect(model.step == .order)
+        model.moveDocument(from: 1, to: 0)
+        model.review()
+        model.backFromReview()
+        #expect(model.step == .order && model.documents.map(\.name) == ["two.pdf", "one.pdf"])
+        model.review()
+        await model.send()
+        guard case .sent(let summary) = model.step else { Issue.record("Expected send result"); return }
+        #expect(summary.envelopeNumber == "000001")
+        let text = String(decoding: StubProtocol.requests[0].body, as: UTF8.self)
+        let first = try #require(text.range(of: #"name="documents"; filename="two.pdf""#))
+        let second = try #require(text.range(of: #"name="documents"; filename="one.pdf""#))
+        #expect(first.lowerBound < second.lowerBound)
+        #expect(text.contains(#""includeNumbers":true"#))
     }
 
     @Test func mailSendReviewsThenApprovesWithTheChosenMode() async throws {
@@ -239,7 +265,7 @@ extension StubbedSuites { @MainActor @Suite struct ScreenModelsTests {
         #expect(!model.needsLiveConfirmation && model.sendButtonTitle == "Send test letter")
         model.review()
         await model.send()
-        #expect(model.step == .sent(.init(transmissionID: "t1", faxCount: 0, letterApproved: true, letterProblem: nil)))
+        #expect(model.step == .sent(.init(transmissionID: "t1", envelopeNumber: nil, faxCount: 0, letterApproved: true, letterProblem: nil)))
         #expect(StubProtocol.requests.map(\.url.path) == ["/api/transmissions", "/api/transmissions/t1/mail/d2/review", "/api/transmissions/t1/mail/d2/approve"])
         #expect(StubProtocol.requests[1].url.query == "mode=test")
         let approval = try #require(JSONSerialization.jsonObject(with: StubProtocol.requests[2].body) as? [String: Any])

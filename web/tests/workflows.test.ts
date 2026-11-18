@@ -17,9 +17,11 @@ describe.skipIf(!built)("workflow pages (run `pnpm build` first)", () => {
     for (const gone of ["compose", "fax", "mail"]) expect(existsSync(`${dist}${gone}/index.html`)).toBe(false);
   });
 
-  it("walks through four steps ending in a review before anything is sent", () => {
+  it("walks through five steps, orders documents and reviews before sending", () => {
     const doc = read("/send/");
-    for (const step of [1, 2, 3, 4]) expect(doc).toContain(`data-step="${step}"`);
+    for (const step of [1, 2, 3, 4, 5]) expect(doc).toContain(`data-step="${step}"`);
+    expect(doc).toContain('id="document-order"');
+    expect(doc).toContain('id="cover-numbers"');
     expect(doc).toContain("Review and confirm");
     expect(doc).toContain("Nothing is sent until you press Send");
     expect(doc).toContain('id="dropzone"');

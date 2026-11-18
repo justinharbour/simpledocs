@@ -105,6 +105,7 @@ public enum MailMode: String, CaseIterable, Sendable, Identifiable {
 
 public struct CoverOptions: Sendable, Equatable {
     public var enabled = true
+    public var includeNumbers = false
     public var to = ""
     public var from = ""
     public var subject = ""
@@ -147,7 +148,7 @@ public struct SendDraft: Sendable, Equatable {
 
     /// The JSON the Worker expects in the `spec` multipart field.
     public func spec(fallbackTitle: String, date: Date = Date()) throws -> Data {
-        struct Cover: Encodable { let enabled: Bool; let to: String; let from: String; let subject: String; let message: String; let date: String }
+        struct Cover: Encodable { let enabled: Bool; let includeNumbers: Bool; let to: String; let from: String; let subject: String; let message: String; let date: String }
         struct Fax: Encodable { let recipients: [String]; let cover: Cover }
         struct Mail: Encodable { let to: MailContact; let from: MailContact; let color: Bool; let doubleSided: Bool; let mailingClass: String }
         struct Spec: Encodable { let title: String; let fax: Fax?; let mail: Mail? }
@@ -156,7 +157,7 @@ public struct SendDraft: Sendable, Equatable {
         day.dateFormat = "yyyy-MM-dd"
         let name = title.trimmed.isEmpty ? fallbackTitle : title.trimmed
         let fax = channels.hasFax ? Fax(recipients: self.fax.numbers, cover: Cover(
-            enabled: cover.enabled, to: cover.to.trimmed, from: cover.from.trimmed,
+            enabled: cover.enabled, includeNumbers: cover.enabled && cover.includeNumbers, to: cover.to.trimmed, from: cover.from.trimmed,
             subject: cover.subject.trimmed, message: cover.message.trimmed, date: day.string(from: date))) : nil
         let mail = channels.hasMail ? Mail(to: mailTo, from: mailFrom, color: color, doubleSided: doubleSided,
                                           mailingClass: firstClass ? "first_class" : "standard_class") : nil

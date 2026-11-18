@@ -286,6 +286,8 @@ import SimpleDocsConnected
 /// A PDF chosen for sending. The page count comes from PDFKit in the app, which owns that framework.
 public struct PickedDocument: Equatable, Sendable {
     public static let limit = 5 * 1024 * 1024
+    public static let maxDocuments = 10
+    public static let maxPages = 100
     public let data: Data
     public let name: String
     public let pageCount: Int
@@ -305,10 +307,11 @@ public struct PickedDocument: Equatable, Sendable {
 }
 
 @MainActor @Observable public final class SendModel {
-    public enum Step: Equatable { case compose, review, sending, sent(SentSummary) }
+    public enum Step: Equatable { case compose, order, review, sending, sent(SentSummary) }
 
     public struct SentSummary: Equatable, Sendable {
         public let transmissionID: String
+        public let envelopeNumber: String?
         public let faxCount: Int
         public let letterApproved: Bool
         /// Set when the letter exists but was not approved, so nothing was mailed.
@@ -316,7 +319,9 @@ public struct PickedDocument: Equatable, Sendable {
     }
 
     public var draft = SendDraft()
-    public private(set) var document: PickedDocument?
+    public private(set) var documents: [PickedDocument] = []
+    public var document: PickedDocument? { documents.first }
+    public var pageCount: Int { documents.reduce(0) { $0 + $1.pageCount } }
     public private(set) var step = Step.compose
     public private(set) var error: String?
     public private(set) var documentError: String?
@@ -334,14 +339,27 @@ public struct PickedDocument: Equatable, Sendable {
     }
 
     public func choose(data: Data, name: String, pageCount: Int?) {
+        guard step == .compose else { return }
         if let problem = PickedDocument.problem(for: data) { documentError = problem; return }
         guard let pageCount, pageCount > 0 else { documentError = "That PDF could not be read. Try exporting it again."; return }
+        guard documents.count < PickedDocument.maxDocuments else { documentError = "Choose up to 10 PDFs."; return }
+        guard documents.reduce(data.count, { $0 + $1.byteCount }) <= PickedDocument.limit else { documentError = "Choose PDFs totaling up to 5 MB."; return }
+        guard pageCount <= PickedDocument.maxPages - self.pageCount else { documentError = "Choose up to 100 pages in total."; return }
         documentError = nil
-        document = PickedDocument(data: data, name: name, pageCount: pageCount)
+        documents.append(PickedDocument(data: data, name: name, pageCount: pageCount))
     }
 
     public func rejectDocument(_ message: String) { documentError = message }
-    public func clearDocument() { document = nil }
+    public func removeDocument(at index: Int) {
+        guard step == .compose, documents.indices.contains(index) else { return }
+        documents.remove(at: index); documentError = nil
+    }
+
+    public func moveDocument(from: Int, to: Int) {
+        guard step == .order, documents.indices.contains(from), documents.indices.contains(to), from != to else { return }
+        let moved = documents.remove(at: from)
+        documents.insert(moved, at: to)
+    }
 
     /// Fills sender details once from the instance settings so the cover page and return address start right.
     public func prefill() async {
@@ -355,13 +373,18 @@ public struct PickedDocument: Equatable, Sendable {
     public func review() {
         error = nil
         guard canReview else { return }
-        step = .review
+        switch step {
+        case .compose: step = documents.count > 1 ? .order : .review
+        case .order: step = .review
+        default: break
+        }
     }
 
     public func backToCompose() { error = nil; step = .compose }
+    public func backFromReview() { error = nil; step = documents.count > 1 ? .order : .compose }
 
     public func reset() {
-        draft = SendDraft(); document = nil; error = nil; documentError = nil; step = .compose; prefilled = false
+        draft = SendDraft(); documents = []; error = nil; documentError = nil; step = .compose; prefilled = false
     }
 
     public func send() async {
@@ -370,8 +393,8 @@ public struct PickedDocument: Equatable, Sendable {
         error = nil
         do {
             let spec = try draft.spec(fallbackTitle: document.title)
-            let (data, name) = (document.data, document.name)
-            let created = try await session.call { try await $0.createTransmission(pdf: data, filename: name, spec: spec) }
+            let files = documents.map { (data: $0.data, name: $0.name) }
+            let created = try await session.call { try await $0.createTransmission(documents: files, spec: spec) }
             var approved = false
             var problem: String?
             if draft.channels.hasMail, let letter = created.deliveries.first(where: { $0.channel == "mail" }) {
@@ -385,7 +408,7 @@ public struct PickedDocument: Equatable, Sendable {
                     approved = true
                 } catch { problem = describe(error) }
             }
-            step = .sent(SentSummary(transmissionID: created.id, faxCount: created.deliveries.filter { $0.channel == "fax" }.count,
+            step = .sent(SentSummary(transmissionID: created.id, envelopeNumber: created.envelopeNumber, faxCount: created.deliveries.filter { $0.channel == "fax" }.count,
                                      letterApproved: approved, letterProblem: problem))
         } catch is CancellationError {
             step = .review
