@@ -87,12 +87,48 @@ const voices = [
     </div>
   </form>
 
+  <form id="hours-form" class="mt-6 flex max-w-2xl flex-col gap-6">
+    <Card><CardHeader><CardTitle>Incoming call hours</CardTitle><CardDescription>Schedule uses this timezone. A day can end after midnight; equal start and end are not allowed. Use the phone to switch between online, offline, and schedule.</CardDescription></CardHeader>
+      <CardContent class="flex flex-col gap-4">
+        <div class="flex flex-col gap-1.5"><Label for="timezone">IANA timezone</Label><Input id="timezone" placeholder="America/New_York" required /></div>
+        {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((day, i) => <div class="grid grid-cols-[1fr_1fr_1fr] items-center gap-2"><label class="text-sm"><input type="checkbox" data-day={i} /> {day}</label><input class="border-border rounded border p-2 text-sm" type="time" data-start={i} aria-label={`${day} start`} /><input class="border-border rounded border p-2 text-sm" type="time" data-end={i} aria-label={`${day} end`} /></div>)}
+        <p class="text-muted-foreground text-sm">No checked days means always offline in schedule mode. Times use UTC until you choose a timezone.</p>
+      </CardContent></Card>
+    <div><Button type="submit" variant="primary">Save hours</Button></div>
+  </form>
+  <form id="knowledge-form" class="mt-6 flex max-w-2xl flex-col gap-6">
+    <Card><CardHeader><CardTitle>AI knowledgebase</CardTitle><CardDescription>Only add information you want shared with callers and the AI provider. Empty by default. The assistant is instructed to say it does not know when information is absent.</CardDescription></CardHeader>
+      <CardContent class="flex flex-col gap-1.5"><Label for="knowledge">Information for the assistant</Label><Textarea id="knowledge" rows={10} maxlength={12000} /></CardContent></Card>
+    <div><Button type="submit" variant="primary">Save knowledgebase</Button></div>
+  </form>
+
   <script>
     import { api, postJson, toast } from "@/lib/ui";
 
     type Settings = { senderName: string; mailFrom: Record<string, string> | null; faxFrom: string };
     const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
     const fields = () => [...document.querySelectorAll<HTMLInputElement>('[data-address="from"] [data-field]')];
+    type Availability = { mode: string; timezone: string; intervals: { day: number; start: string; end: string }[] };
+    let policy: Availability | null = null;
+    api<Availability>("/api/voice/availability").then(value => {
+      policy = value; $<HTMLInputElement>("timezone").value = value.timezone;
+      for (const interval of value.intervals) {
+        const check = document.querySelector<HTMLInputElement>(`[data-day="${interval.day}"]`)!;
+        check.checked = true;
+        document.querySelector<HTMLInputElement>(`[data-start="${interval.day}"]`)!.value = interval.start;
+        document.querySelector<HTMLInputElement>(`[data-end="${interval.day}"]`)!.value = interval.end;
+      }
+    }).catch(() => toast("Hours could not be loaded.", "error"));
+    $("hours-form").addEventListener("submit", async event => {
+      event.preventDefault(); if (!policy) return toast("Reload to load hours before saving.", "error");
+      const intervals = [...document.querySelectorAll<HTMLInputElement>('[data-day]:checked')].map(check => ({ day: Number(check.dataset.day), start: document.querySelector<HTMLInputElement>(`[data-start="${check.dataset.day}"]`)!.value, end: document.querySelector<HTMLInputElement>(`[data-end="${check.dataset.day}"]`)!.value }));
+      try { policy = await postJson<Availability>("/api/voice/availability", { ...policy, timezone: $<HTMLInputElement>("timezone").value.trim(), intervals }, "PUT"); toast("Hours saved.", "success"); } catch { toast("Hours could not be saved. Check the timezone and times.", "error"); }
+    });
+    api<{ knowledge: string }>("/api/settings/ai-knowledge").then(value => { $<HTMLTextAreaElement>("knowledge").value = value.knowledge; }).catch(() => toast("Knowledgebase could not be loaded.", "error"));
+    $("knowledge-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      try { await postJson("/api/settings/ai-knowledge", { knowledge: $<HTMLTextAreaElement>("knowledge").value }, "PUT"); toast("Knowledgebase saved.", "success"); } catch { toast("Knowledgebase could not be saved.", "error"); }
+    });
 
     function fill(settings: Settings) {
       $<HTMLInputElement>("sender-name").value = settings.senderName;

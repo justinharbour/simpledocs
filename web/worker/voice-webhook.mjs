@@ -4,7 +4,7 @@ import { recordCall, recordingMeta } from './voice-calls.mjs';
 const MAX_BODY = 128 * 1024;
 const MAX_AUDIO = 25 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const TYPES = new Set(['call.initiated', 'call.ringing', 'call.answered', 'call.hangup', 'call.speak.ended', 'call.recording.saved', 'call.recording.transcription.saved']);
+const TYPES = new Set(['call.initiated', 'call.ringing', 'call.answered', 'call.hangup', 'call.speak.ended', 'call.recording.saved', 'call.recording.transcription.saved', 'call.conversation.created', 'call.conversation.ended', 'call.conversation.start_failed', 'call.conversation_insights.generated']);
 const MAX_TRANSCRIPT = 20000;
 
 // Copies a transcript that arrived first onto the archived recording. Safe to repeat.

@@ -3,6 +3,8 @@
 // the original (still unanswered) leg. When the phone is offline voicemail answers immediately.
 import { fallbackConfig, isLegacyVoice, voicemailConfig } from './voicemail-config.mjs';
 import { phoneOnline } from './voice-presence.mjs';
+import { availabilityOnline, loadAvailability } from './availability-policy.mjs';
+import { assistantForCall } from './ai-voicemail.mjs';
 
 const RING_SECS = 20;
 const RING = 'simpledocs-ring:';
@@ -28,7 +30,7 @@ const auth = env => ({ Authorization: `Bearer ${env.TELNYX_API_TOKEN}`, 'Content
 
 // Returns true when the softphone is being rung (or already was), so voicemail must wait for the outcome.
 async function ring(env, id, marker, payload, fetcher) {
-  try { if (!env.TELNYX_WEBRTC_CREDENTIAL_ID || !await phoneOnline(env.DB)) return false; } catch { return false; }
+  try { if (!env.TELNYX_WEBRTC_CREDENTIAL_ID || !availabilityOnline(await loadAvailability(env.DB)) || !await phoneOnline(env.DB)) return false; } catch { return false; }
   const claim = await env.DB.prepare("INSERT OR IGNORE INTO voicemail_rings (call_control_id, outcome) VALUES (?, 'claimed')").bind(id).run();
   if ((claim.meta?.changes ?? claim.changes) !== 1) return true;
   let outcome = 'rejected';
@@ -51,21 +53,45 @@ async function ring(env, id, marker, payload, fetcher) {
   return outcome !== 'rejected';
 }
 
-async function command(env, id, action, body, fetcher) {
+async function command(env, id, action, body, fetcher, claimedId = null) {
   const ended = await env.DB.prepare("SELECT event_id FROM voice_events WHERE call_control_id = ? AND event_type = 'call.hangup' LIMIT 1").bind(id).first();
   if (ended) return;
-  const commandId = crypto.randomUUID();
-  const claim = await env.DB.prepare('INSERT OR IGNORE INTO voicemail_commands (call_control_id, action, command_id, outcome) VALUES (?, ?, ?, ?)').bind(id, action, commandId, 'claimed').run();
-  if ((claim.meta?.changes ?? claim.changes) !== 1) return;
+  const commandId = claimedId ?? crypto.randomUUID();
+  const ai = action === 'ai_assistant_start';
+  if (!claimedId) {
+    const claim = ai ? await env.DB.prepare('INSERT OR IGNORE INTO ai_voicemail_commands (call_control_id, command_id, outcome) VALUES (?, ?, ?)').bind(id, commandId, 'claimed').run() : await env.DB.prepare('INSERT OR IGNORE INTO voicemail_commands (call_control_id, action, command_id, outcome) VALUES (?, ?, ?, ?)').bind(id, action, commandId, 'claimed').run();
+    if ((claim.meta?.changes ?? claim.changes) !== 1) return;
+  }
   let outcome = 'unknown';
   try {
     const response = await fetcher(`https://api.telnyx.com/v2/calls/${encodeURIComponent(id)}/actions/${action}`, {
       method: 'POST', redirect: 'manual', headers: auth(env),
       body: JSON.stringify({ ...body, command_id: commandId }),
+      ...((ai || action === 'answer') ? { signal: AbortSignal.timeout(8000) } : {}),
     });
-    if (response.ok) outcome = 'accepted';
+    // A 4xx alone does not prove that no assistant is active (Telnyx also
+    // documents an already-active error). Do not start competing voicemail.
+    outcome = response.ok ? 'accepted' : 'unknown';
   } catch { /* Unknown outcome: never issue a second command automatically. */ }
-  await env.DB.prepare('UPDATE voicemail_commands SET outcome = ? WHERE call_control_id = ? AND action = ?').bind(outcome, id, action).run();
+  if (action === 'answer' && outcome === 'unknown') console.error('Voicemail answer outcome unknown; no automatic competing recovery');
+  if (ai) await env.DB.prepare('UPDATE ai_voicemail_commands SET outcome = ? WHERE call_control_id = ?').bind(outcome, id).run();
+  else await env.DB.prepare('UPDATE voicemail_commands SET outcome = ? WHERE call_control_id = ? AND action = ?').bind(outcome, id, action).run();
+  return outcome;
+}
+
+// Claim the assistant before issuing answer so duplicate/reordered deliveries
+// never attach twice or start a second assistant after answer.
+async function answerVoicemail(env, id, marker, fetcher) {
+  const commandId = crypto.randomUUID();
+  const claim = await env.DB.prepare("INSERT OR IGNORE INTO voicemail_commands (call_control_id, action, command_id, outcome) VALUES (?, 'answer', ?, 'claimed')").bind(id, commandId).run();
+  if ((claim.meta?.changes ?? claim.changes) !== 1) return;
+  let assistant;
+  try { assistant = await assistantForCall(env, id); } catch { assistant = null; }
+  if (assistant === false) { console.error('Voicemail assistant session already claimed; answer not issued'); return; }
+  if (assistant) {
+    await env.DB.prepare('INSERT OR IGNORE INTO ai_voicemail_commands (call_control_id, command_id, outcome) VALUES (?, ?, ?)').bind(id, crypto.randomUUID(), 'claimed').run();
+  }
+  await command(env, id, 'answer', { client_state: marker, ...(assistant ? { assistant } : {}) }, fetcher, commandId);
 }
 
 // Returns true when the event belongs to the softphone leg, which must not appear in the call log.
@@ -88,7 +114,7 @@ export async function processVoicemail(env, event, payload, fetcher = fetch) {
     if (answered) return true;
     let config;
     try { config = await voicemailConfig(env); } catch { config = fallbackConfig(env); }
-    if (config.greeting) await command(env, call.call_control_id, 'answer', { client_state: btoa(`simpledocs-voicemail:${legMarker}`) }, fetcher);
+    if (config.greeting) await answerVoicemail(env, call.call_control_id, btoa(`simpledocs-voicemail:${legMarker}`), fetcher);
     return true;
   }
   // Stored settings win; a settings read failure falls back to the environment greeting and default voice.
@@ -107,8 +133,18 @@ export async function processVoicemail(env, event, payload, fetcher = fetch) {
   const marker = btoa(`simpledocs-voicemail:${voicemail.marker}`);
   if (event.event_type === 'call.initiated' && payload.direction === 'incoming' && payload.to === env.VOICEMAIL_NUMBER) {
     if (await ring(env, id, voicemail.marker, payload, fetcher)) return false;
-    await command(env, id, 'answer', { client_state: marker }, fetcher);
+    await answerVoicemail(env, id, marker, fetcher);
   } else if (event.event_type === 'call.answered' && payload.client_state === marker) {
+    const prior = await env.DB.prepare('SELECT outcome FROM ai_voicemail_commands WHERE call_control_id = ?').bind(id).first();
+    if (prior) return false;
+    const body = { client_state: marker, payload: config.greeting, payload_type: 'text', voice: config.voice, language: 'en-US' };
+    if (isLegacyVoice(config.voice)) body.service_level = config.service_level;
+    await command(env, id, 'speak', body, fetcher);
+  } else if (event.event_type === 'call.conversation.start_failed') {
+    // The provider guarantees that this answer-with-assistant attempt created
+    // no conversation and left the call answered. A prior claim binds it to us.
+    const prior = await env.DB.prepare('SELECT outcome FROM ai_voicemail_commands WHERE call_control_id = ?').bind(id).first();
+    if (!prior) return false;
     const body = { client_state: marker, payload: config.greeting, payload_type: 'text', voice: config.voice, language: 'en-US' };
     // Telnyx documents service_level as the basic/premium switch for the legacy female/male voices only.
     if (isLegacyVoice(config.voice)) body.service_level = config.service_level;

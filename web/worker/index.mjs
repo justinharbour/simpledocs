@@ -12,6 +12,8 @@ import { handleMail, listUnresolvedMail } from './mail-send.mjs';
 import { handleVoiceWebhook, handleVoiceRecording, listVoiceRecordings } from './voice-webhook.mjs';
 import { handleVoiceSession } from './voice-session.mjs';
 import { handlePresence } from './voice-presence.mjs';
+import { handleAvailability } from './availability-policy.mjs';
+import { handleAiTool, handleKnowledge, listAiRequests, deleteAiRequest, expireAiSessions } from './ai-voicemail.mjs';
 import { handleSms, handleSmsWebhook } from './sms.mjs';
 import { handleInbox } from './inbox.mjs';
 import { handleVoicemailSettings } from './voicemail-config.mjs';
@@ -39,6 +41,7 @@ export function createWorker(resolveKeys = issuer => {
     if (result === 'unavailable') console.error('Pending fax alert unavailable');
     if (result === 'accepted') await notifyPush(env, { kind: 'fax-attention' });
     try { await reconcileDeliveries(withPush(env, ctx)); } catch { console.error('Delivery reconcile unavailable'); }
+    try { await expireAiSessions(env); } catch { console.error('AI session cleanup unavailable'); }
     try { await cleanupPortal(env); } catch { console.error('Portal cleanup unavailable'); }
   },
   queue(batch, env, ctx) { return handleQueue(batch, withPush(env, ctx)); },
@@ -49,6 +52,8 @@ export function createWorker(resolveKeys = issuer => {
     // This one endpoint uses Telnyx's signature, not a browser Access JWT.
     if (url.pathname === '/api/webhooks/telnyx/voice') return handleVoiceWebhook(request, env);
     if (url.pathname === '/api/webhooks/telnyx/messaging') return handleSmsWebhook(request, env);
+    const aiTool = /^\/api\/webhooks\/telnyx\/ai\/(voicemail|callback|sms)$/.exec(url.pathname);
+    if (aiTool) return handleAiTool(request, env, aiTool[1]);
     // These exact paths use recipient sessions rather than owner Access identity.
     if (PORTAL_PATHS.includes(url.pathname) && url.origin === env.PORTAL_ORIGIN) return portal(request, env);
     const expected = env.ACCESS_AUDIENCE;
@@ -88,9 +93,14 @@ export function createWorker(resolveKeys = issuer => {
     if ((url.pathname === '/api/voice/recordings' || url.pathname.startsWith('/api/voice/recordings/') || url.pathname === '/api/voice/calls') && !voiceOwner) {
       return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
     }
-    const ownerOnly = url.pathname === '/api/voice/presence' || url.pathname.startsWith('/api/sms/');
+    const ownerOnly = url.pathname === '/api/voice/presence' || url.pathname === '/api/voice/availability' || url.pathname.startsWith('/api/sms/');
     if (ownerOnly && !voiceOwner) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
     if (url.pathname === '/api/voice/presence') return handlePresence(request, env);
+    if (url.pathname === '/api/voice/availability') return handleAvailability(request, env);
+    if (url.pathname === '/api/voice/ai-requests') return voiceOwner ? listAiRequests(request, env) : new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+    const aiRequest = /^\/api\/voice\/ai-requests\/([a-f0-9]{64})$/.exec(url.pathname);
+    if (aiRequest) return voiceOwner ? deleteAiRequest(request, env, aiRequest[1]) : new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+    if (url.pathname === '/api/settings/ai-knowledge') return voiceOwner ? handleKnowledge(request, env) : new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
     if (url.pathname.startsWith('/api/sms/')) return handleSms(request, env);
     if (url.pathname === '/api/inbox' || url.pathname.startsWith('/api/inbox/')) {
       return handleInbox(request, env, { fax: inboundFaxAllowed(actor, env.INBOUND_FAX_ALLOWED_SUBJECTS), voice: voiceOwner });

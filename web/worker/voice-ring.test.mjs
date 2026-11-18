@@ -62,6 +62,27 @@ test('offline phone: voicemail answers immediately, exactly as before', async ()
   assert.equal(t.commands.some(c => c.url.includes('telephony_credentials')), false);
 });
 
+test('answer attaches AI once and explicit startup failure falls back once', async () => {
+  for (const failed of [false, true]) {
+    const { env } = setup({ TELNYX_AI_ASSISTANT_ID: 'assistant-test', AI_TOOL_BASE_URL: 'https://example.test' });
+    const t = telnyx();
+    const fetcher = t.fetcher;
+    await post(env, fetcher, 'call.initiated', 'init', incoming);
+    const answer = t.commands.find(c => c.url.endsWith('/answer'));
+    await post(env, fetcher, 'call.answered', 'answered', { client_state: answer.body.client_state });
+    await post(env, fetcher, 'call.answered', 'answered', { client_state: answer.body.client_state });
+    assert.deepEqual(t.actions(), ['answer']);
+    assert.equal(answer.body.assistant.id, 'assistant-test');
+    assert.equal(answer.body.assistant.tools.length, 3);
+    if (failed) {
+      await post(env, fetcher, 'call.conversation.start_failed', 'failed', {});
+      await post(env, fetcher, 'call.conversation.start_failed', 'failed', {});
+      await post(env, fetcher, 'call.answered', 'answered-again', { client_state: answer.body.client_state });
+      assert.deepEqual(t.actions(), ['answer', 'speak']);
+    }
+  }
+});
+
 test('online phone: rings the softphone with a timeout, then answers voicemail when nobody picks up', async () => {
   const { env, db } = setup(); goOnline(db); const t = telnyx();
   await post(env, t.fetcher, 'call.initiated', 'init', incoming);
