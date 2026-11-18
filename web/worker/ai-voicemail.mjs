@@ -54,9 +54,10 @@ export async function handleAiTool(request, env, kind) {
     const body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await bounded(request.body, 8192)));
     if (typeof body.details !== 'string' || !body.details.trim() || body.details.length > 4000 || (kind === 'sms' && body.consent !== true)) return json({ error: 'Invalid request or consent' }, 400);
     const details = body.details.trim();
-    await env.DB.prepare('INSERT OR IGNORE INTO ai_voicemail_requests (call_control_id, kind, details, consent, created_at) VALUES (?, ?, ?, ?, ?)').bind(call, kind, details, kind === 'sms' ? 1 : 0, new Date().toISOString()).run();
+    // A model assertion is not evidence of consent. Never persist it as verified.
+    await env.DB.prepare('INSERT OR IGNORE INTO ai_voicemail_requests (call_control_id, kind, details, consent, created_at) VALUES (?, ?, ?, 0, ?)').bind(call, kind, details, new Date().toISOString()).run();
     const stored = await env.DB.prepare('SELECT details, consent FROM ai_voicemail_requests WHERE call_control_id = ? AND kind = ?').bind(call, kind).first();
-    if (stored.details !== details || stored.consent !== (kind === 'sms' ? 1 : 0)) return json({ error: 'A different request was already saved' }, 409);
+    if (stored.details !== details) return json({ error: 'A different request was already saved' }, 409);
     return json({ result: kind === 'sms' ? 'Request saved for owner review. No text has been sent.' : 'Request saved.' });
   } catch { return json({ error: 'Request unavailable' }, 503); }
 }
@@ -64,7 +65,7 @@ export async function handleAiTool(request, env, kind) {
 export async function listAiRequests(request, env) {
   if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405);
   try {
-    const rows = await env.DB.prepare('SELECT call_control_id, kind, details, consent, created_at FROM ai_voicemail_requests ORDER BY created_at DESC LIMIT 100').all();
+    const rows = await env.DB.prepare('SELECT call_control_id, kind, details, created_at FROM ai_voicemail_requests ORDER BY created_at DESC LIMIT 100').all();
     return json({ requests: await Promise.all(rows.results.map(async ({ call_control_id, ...row }) => ({ ...row, id: await digest(`${call_control_id}:${row.kind}`) }))) });
   }
   catch { return json({ error: 'Requests unavailable' }, 503); }

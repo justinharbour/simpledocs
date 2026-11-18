@@ -53,24 +53,27 @@ async function ring(env, id, marker, payload, fetcher) {
   return outcome !== 'rejected';
 }
 
-async function command(env, id, action, body, fetcher) {
+async function command(env, id, action, body, fetcher, claimedId = null) {
   const ended = await env.DB.prepare("SELECT event_id FROM voice_events WHERE call_control_id = ? AND event_type = 'call.hangup' LIMIT 1").bind(id).first();
   if (ended) return;
-  const commandId = crypto.randomUUID();
+  const commandId = claimedId ?? crypto.randomUUID();
   const ai = action === 'ai_assistant_start';
-  const claim = ai ? await env.DB.prepare('INSERT OR IGNORE INTO ai_voicemail_commands (call_control_id, command_id, outcome) VALUES (?, ?, ?)').bind(id, commandId, 'claimed').run() : await env.DB.prepare('INSERT OR IGNORE INTO voicemail_commands (call_control_id, action, command_id, outcome) VALUES (?, ?, ?, ?)').bind(id, action, commandId, 'claimed').run();
-  if ((claim.meta?.changes ?? claim.changes) !== 1) return;
+  if (!claimedId) {
+    const claim = ai ? await env.DB.prepare('INSERT OR IGNORE INTO ai_voicemail_commands (call_control_id, command_id, outcome) VALUES (?, ?, ?)').bind(id, commandId, 'claimed').run() : await env.DB.prepare('INSERT OR IGNORE INTO voicemail_commands (call_control_id, action, command_id, outcome) VALUES (?, ?, ?, ?)').bind(id, action, commandId, 'claimed').run();
+    if ((claim.meta?.changes ?? claim.changes) !== 1) return;
+  }
   let outcome = 'unknown';
   try {
     const response = await fetcher(`https://api.telnyx.com/v2/calls/${encodeURIComponent(id)}/actions/${action}`, {
       method: 'POST', redirect: 'manual', headers: auth(env),
       body: JSON.stringify({ ...body, command_id: commandId }),
-      ...(ai ? { signal: AbortSignal.timeout(8000) } : {}),
+      ...((ai || action === 'answer') ? { signal: AbortSignal.timeout(8000) } : {}),
     });
     // A 4xx alone does not prove that no assistant is active (Telnyx also
     // documents an already-active error). Do not start competing voicemail.
     outcome = response.ok ? 'accepted' : 'unknown';
   } catch { /* Unknown outcome: never issue a second command automatically. */ }
+  if (action === 'answer' && outcome === 'unknown') console.error('Voicemail answer outcome unknown; no automatic competing recovery');
   if (ai) await env.DB.prepare('UPDATE ai_voicemail_commands SET outcome = ? WHERE call_control_id = ?').bind(outcome, id).run();
   else await env.DB.prepare('UPDATE voicemail_commands SET outcome = ? WHERE call_control_id = ? AND action = ?').bind(outcome, id, action).run();
   return outcome;
@@ -79,15 +82,16 @@ async function command(env, id, action, body, fetcher) {
 // Claim the assistant before issuing answer so duplicate/reordered deliveries
 // never attach twice or start a second assistant after answer.
 async function answerVoicemail(env, id, marker, fetcher) {
-  const prior = await env.DB.prepare("SELECT outcome FROM voicemail_commands WHERE call_control_id = ? AND action = 'answer'").bind(id).first();
-  if (prior) return;
+  const commandId = crypto.randomUUID();
+  const claim = await env.DB.prepare("INSERT OR IGNORE INTO voicemail_commands (call_control_id, action, command_id, outcome) VALUES (?, 'answer', ?, 'claimed')").bind(id, commandId).run();
+  if ((claim.meta?.changes ?? claim.changes) !== 1) return;
   let assistant;
   try { assistant = await assistantForCall(env, id); } catch { assistant = null; }
-  if (assistant === false) return;
+  if (assistant === false) { console.error('Voicemail assistant session already claimed; answer not issued'); return; }
   if (assistant) {
     await env.DB.prepare('INSERT OR IGNORE INTO ai_voicemail_commands (call_control_id, command_id, outcome) VALUES (?, ?, ?)').bind(id, crypto.randomUUID(), 'claimed').run();
   }
-  await command(env, id, 'answer', { client_state: marker, ...(assistant ? { assistant } : {}) }, fetcher);
+  await command(env, id, 'answer', { client_state: marker, ...(assistant ? { assistant } : {}) }, fetcher, commandId);
 }
 
 // Returns true when the event belongs to the softphone leg, which must not appear in the call log.

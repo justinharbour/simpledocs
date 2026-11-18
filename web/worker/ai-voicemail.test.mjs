@@ -41,4 +41,7 @@ test('per-call tools require matching bearer and call ID, consent and replay con
   assert.equal((await handleAiTool(request(token, 'call-1', body), env, 'sms')).status, 200);
   assert.equal((await handleAiTool(request(token, 'call-1', { ...body, details: 'different' }), env, 'sms')).status, 409);
   assert.equal(db.prepare('SELECT count(*) n FROM ai_voicemail_requests').get().n, 1);
+  assert.equal(db.prepare('SELECT consent FROM ai_voicemail_requests').get().consent, 0);
+  const listed = await (await listAiRequests(new Request('https://example.test/api/voice/ai-requests'), env)).json();
+  assert.equal('consent' in listed.requests[0], false);
 });
