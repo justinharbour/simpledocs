@@ -9,7 +9,10 @@ tvOS release today.
 
 ## GitHub setup and flow
 
-The `develop` push workflow runs release-please against the root manifest. It
+The `develop` push workflow runs release-please with the explicit manifest and
+configuration for the `native` component only. Web/backend-only commits do not
+independently trigger a native version bump. Native release tags use
+`native-vMAJOR.MINOR.PATCH`. It
 opens a conventional-title release PR to `develop`; merge it through the normal
 review and CI process. The subsequent `develop` push creates a GitHub release
 and tag. Promote `develop` to `main` through the normal reviewed promotion PR.
@@ -52,7 +55,7 @@ that contract, but #72 was not merged into this branch. Coordinate and verify
 the deployed backend contract before distributing a build; otherwise fax review
 cannot be assumed functional.
 
-`version.txt` and `.release-please-manifest.json` start at 0.0.0, not a claim
+`native/version.txt` and `.release-please-manifest.json` start at 0.0.0, not a claim
 that a version was shipped. Confirm existing GitHub tags and App Store Connect
 versions before first release; bootstrap or update the manifest/version to the
 actual last release if necessary. Conventional commits control release-please's

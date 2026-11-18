@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Published release tag already promoted to main (vMAJOR.MINOR.PATCH)
+        description: Published native tag already promoted to main (native-vMAJOR.MINOR.PATCH)
         required: true
         type: string
 permissions: {}
@@ -31,13 +31,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$TAG" =~ ^native-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           gh release view "$TAG" --json isDraft,isPrerelease --jq 'select(.isDraft == false and .isPrerelease == false) | .isDraft' | grep -qx false
           sha=$(git rev-parse "refs/tags/$TAG^{commit}")
           git merge-base --is-ancestor "$sha" origin/main
-          [[ "$(git show "$sha:version.txt" | tr -d '\r\n')" == "${TAG#v}" ]]
+          [[ "$(git show "$sha:native/version.txt" | tr -d '\r\n')" == "${TAG#native-v}" ]]
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#native-v}" >> "$GITHUB_OUTPUT"
   testflight:
     needs: resolve
     runs-on: xcode-27
