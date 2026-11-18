@@ -18,6 +18,35 @@ async function create(env, messages, pinChannel = 'none') {
   return { ...await r.json(), token: messages.at(-1).text.match(/\/portal#([\w-]+)/)[1] };
 }
 async function exchange(env, token) { const r = await portal(req('/portal/exchange', { token }), env); return { r, cookie: r.headers.get('set-cookie')?.split(';')[0] }; }
+test('session insertion and consumption roll back together on database failure', async () => {
+  const { env, db, messages } = setup(), d = await create(env, messages);
+  db.exec("CREATE TRIGGER fail_consumption BEFORE UPDATE OF consumed_at ON portal_deliveries BEGIN SELECT RAISE(ABORT, 'injected'); END");
+  await assert.rejects(exchange(env, d.token));
+  assert.equal(db.prepare('SELECT consumed_at FROM portal_deliveries').get().consumed_at, null);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM portal_sessions').get().n, 0);
+  db.exec('DROP TRIGGER fail_consumption');
+  assert.equal((await exchange(env, d.token)).r.status, 200);
+});
+test('concurrent link exchanges produce exactly one session', async () => {
+  const { env, db, messages } = setup(), d = await create(env, messages);
+  const results = await Promise.all([exchange(env, d.token), exchange(env, d.token)]);
+  assert.deepEqual(results.map(x => x.r.status).sort(), [200, 404]);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM portal_sessions').get().n, 1);
+});
+test('failed delivery registration leaves a retryable orphan cleanup intent', async () => {
+  const { env, db, objects, messages } = setup();
+  env.FILES.delete = async key => { objects.delete(key); };
+  db.exec("CREATE TRIGGER fail_portal BEFORE INSERT ON portal_deliveries BEGIN SELECT RAISE(ABORT, 'injected'); END");
+  await assert.rejects(createEmailDelivery(req('/x', { email: 'a@example.test', pinChannel: 'none' }), env, 'owner', tx));
+  assert.equal(messages.length, 0);
+  const intent = db.prepare('SELECT * FROM portal_object_intents').get();
+  assert.ok(objects.has(intent.object_key));
+  await cleanupPortal(env, intent.cleanup_after - 1);
+  assert.ok(objects.has(intent.object_key));
+  await cleanupPortal(env, intent.cleanup_after);
+  assert.equal(objects.has(intent.object_key), false);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM portal_object_intents').get().n, 0);
+});
 test('encrypted copy, single-use link, session and revocation', async () => {
   const { env, db, objects, messages } = setup(); const d = await create(env, messages); const stored = db.prepare('SELECT * FROM portal_deliveries').get();
   assert.notEqual(stored.token_hash, d.token); assert.equal(new TextDecoder().decode(objects.get(stored.object_key)).includes('private'), false);

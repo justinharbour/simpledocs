@@ -1,11 +1,144 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { PDFDocument, decodePDFRawStream } from 'pdf-lib';
 import { createWorker } from './index.mjs';
+import { processDelivery } from './queue-consumer.mjs';
 import { approveMail, createTransmission, getTransmission, getTransmissionFile, listRecords, listTransmissions, reviewMail } from './transmissions.mjs';
 import { address, jsonRequest, makeEnv, samplePdf, sendRequest } from './test-env.mjs';
+import { portal, revokeEmailDelivery } from './email-portal.mjs';
+import { newPortalToken } from './portal-crypto.mjs';
 
 const actor = 'owner';
 const faxSpec = { title: 'Lease', fax: { recipients: ['(512) 555-0100', '512.555.0101'], cover: { enabled: true, to: 'Ada', message: 'Hello' } } };
+
+async function pdfFile(name, widths) {
+  const pdf = await PDFDocument.create();
+  for (const width of widths) pdf.addPage([width, 792]);
+  return new File([await pdf.save()], name, { type: 'application/pdf' });
+}
+
+test('recipient receives the encrypted ordered packet, isolated and revocable', async () => {
+  const messages = [];
+  const { env, objects } = makeEnv({ PORTAL_ORIGIN: 'https://example.test', PORTAL_KEY: newPortalToken(), PORTAL_SENDER: 'test@example.test', PORTAL_EMAIL: { send: async m => messages.push(m) } });
+  const response = await createTransmission(await sendRequest({ email: { email: 'a@example.test', pinChannel: 'none' } }, [await pdfFile('z.pdf', [612, 600]), await pdfFile('a.pdf', [601])]), env, actor);
+  const result = await response.json();
+  assert.equal(result.deliveries[0].status, 'accepted');
+  assert.deepEqual(result.documents.map(d => d.number), ['00000101', '00000102']);
+  assert.equal((await getTransmission(env, 'other', result.id)).status, 404);
+  const token = messages[0].text.match(/\/portal#([\w-]+)/)[1];
+  const headers = { origin: 'https://example.test', 'cf-connecting-ip': '192.0.2.1', 'content-type': 'application/json' };
+  const get = cookie => portal(new Request('https://example.test/portal/document', { headers: cookie ? { cookie } : {} }), env);
+  assert.equal((await get()).status, 404);
+  const exchange = await portal(new Request('https://example.test/portal/exchange', { method: 'POST', headers, body: JSON.stringify({ token }) }), env);
+  const cookie = exchange.headers.get('set-cookie').split(';')[0];
+  const bytes = new Uint8Array(await (await get(cookie)).arrayBuffer());
+  assert.deepEqual(bytes, objects.get(`outbound/${result.id}/document.pdf`));
+  assert.deepEqual((await PDFDocument.load(bytes)).getPages().map(p => p.getWidth()), [612, 600, 601]);
+  const encrypted = [...objects.entries()].find(([key]) => key.startsWith('portal/'))[1];
+  assert.notDeepEqual(encrypted, bytes);
+  assert.equal((await revokeEmailDelivery(jsonRequest('/x', {}), env, 'other', result.id, result.deliveries[0].id)).status, 404);
+  assert.equal((await revokeEmailDelivery(jsonRequest('/x', {}), env, actor, result.id, result.deliveries[0].id)).status, 200);
+  assert.equal((await get(cookie)).status, 404);
+});
+
+test('email intent commits atomically with transmission and remains visible if invocation fails', async () => {
+  const { env, db } = makeEnv();
+  db.exec("CREATE TRIGGER fail_claim BEFORE UPDATE OF status ON email_attempts BEGIN SELECT RAISE(ABORT, 'injected'); END");
+  await createTransmission(await sendRequest({ email: { email: 'a@example.test', pinChannel: 'none' } }, await samplePdf(1)), env, actor);
+  const row = db.prepare('SELECT t.id, a.status FROM transmissions t JOIN email_attempts a ON a.transmission_id = t.id').get();
+  assert.equal(row.status, 'pending');
+  assert.equal((await (await getTransmission(env, actor, row.id)).json()).deliveries.find(d => d.channel === 'email').status, 'unknown');
+});
+
+test('numbered envelope uses the selected document/page order in both outbound provider payloads', async () => {
+  const { env, objects, queue } = makeEnv();
+  const spec = { fax: { recipients: [faxSpec.fax.recipients[0]], cover: { includeNumbers: true } }, mail: { to: address, from: address } };
+  // Duplicate filenames do not collapse distinct parts; order is not sorted by name or page count.
+  const files = [await pdfFile('z.pdf', [612, 600]), await pdfFile('a.pdf', [601]), await pdfFile('a.pdf', [602])];
+  const response = await createTransmission(await sendRequest(spec, files), env, actor);
+  assert.equal(response.status, 202);
+  const { id, envelopeNumber, documents, deliveries } = await response.json();
+  assert.equal(envelopeNumber, '000001');
+  assert.deepEqual(documents, [
+    { name: 'z.pdf', pageCount: 2, position: 1, number: '00000101' },
+    { name: 'a.pdf', pageCount: 1, position: 2, number: '00000102' },
+    { name: 'a.pdf', pageCount: 1, position: 3, number: '00000103' },
+  ]);
+  const detail = await (await getTransmission(env, actor, id)).json();
+  assert.deepEqual(detail.documents, documents);
+  assert.equal(detail.envelopeNumber, envelopeNumber);
+  const source = objects.get(`outbound/${id}/document.pdf`);
+  const doc = await getTransmissionFile(env, actor, id, 'document');
+  assert.deepEqual(new Uint8Array(await doc.arrayBuffer()), source);
+  assert.equal(queue.sent.length, 1);
+
+  const mailId = deliveries.find(d => d.channel === 'mail').id;
+  const review = await (await reviewMail(new Request('https://example.test/x?mode=test'), env, actor, id, mailId)).json();
+  assert.equal(review.pageCount, 4);
+  assert.equal((await approveMail(jsonRequest('/x', { confirmed: true, mode: 'test', reviewHash: review.reviewHash }), env, actor, id, mailId)).status, 202);
+  const calls = [];
+  const fetcher = async (url, { body }) => {
+    calls.push(url);
+    if (url === 'https://api.telnyx.com/v2/media') {
+      const faxPdf = await PDFDocument.load(await body.get('media').arrayBuffer());
+      assert.deepEqual(faxPdf.getPages().map(p => p.getWidth()), [612, 612, 600, 601, 602]);
+      const streams = faxPdf.getPage(0).node.Contents();
+      const content = Buffer.from(decodePDFRawStream(streams.lookup(0)).decode()).toString('ascii');
+      for (const number of [envelopeNumber, ...documents.map(d => d.number)]) {
+        assert.ok(content.includes(Buffer.from(number).toString('hex').toUpperCase()));
+      }
+      return Response.json({ data: { media_name: body.get('media_name') } });
+    }
+    if (url === 'https://api.telnyx.com/v2/faxes') return Response.json({ data: { id: 'fax_synthetic' } }, { status: 202 });
+    if (url === 'https://api.postgrid.com/print-mail/v1/letters') {
+      const pdf = new Uint8Array(await body.get('pdf').arrayBuffer());
+      assert.deepEqual(pdf, source, 'exact PDF bound to the mail review');
+      assert.deepEqual((await PDFDocument.load(pdf)).getPages().map(p => p.getWidth()), [612, 600, 601, 602]);
+      return Response.json({ object: 'letter', id: 'letter_synthetic' }, { status: 201 });
+    }
+    throw new Error(`Unexpected local test URL: ${url}`);
+  };
+  for (const message of queue.sent) assert.equal(await processDelivery(env, message, 1, fetcher), 'ack');
+  assert.deepEqual(calls, ['https://api.telnyx.com/v2/media', 'https://api.telnyx.com/v2/faxes', 'https://api.postgrid.com/print-mail/v1/letters']);
+});
+
+test('blocks excessive, non-PDF and interactive multipart inputs before allocating a number or writing objects', async () => {
+  const { env, db, objects, queue } = makeEnv();
+  const plain = await pdfFile('normal.pdf', [612]);
+  const interactive = await PDFDocument.create();
+  const page = interactive.addPage();
+  interactive.getForm().createTextField('name').addToPage(page);
+  const formFile = new File([await interactive.save()], 'form.pdf');
+  const big = new File([new Uint8Array(3 * 1024 * 1024)], 'large.pdf');
+  const long = await pdfFile('long.pdf', Array(100).fill(612));
+  for (const [files, error] of [
+    [Array(11).fill(plain), /1 to 10/],
+    [[plain, new File(['x'], 'fake.pdf')], /PDF files only/],
+    [[big, big], /5 MB/],
+    [[long, plain], /100 pages/],
+    [[formFile], /interactive/],
+  ]) {
+    const response = await createTransmission(await sendRequest(faxSpec, files), env, actor);
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, error);
+  }
+  assert.equal(db.prepare('SELECT count(*) AS n FROM envelope_numbers').get().n, 0);
+  assert.equal(objects.size, 0);
+  assert.equal(queue.sent.length, 0);
+});
+
+test('legacy records remain readable by UUID and are not renumbered', async () => {
+  const { env, db } = makeEnv();
+  const id = crypto.randomUUID(), key = `outbound/${id}/document.pdf`;
+  const now = new Date().toISOString();
+  db.prepare('INSERT INTO transmissions VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, actor, 'Legacy', key, 1, now, now);
+  const bytes = await samplePdf(1);
+  await env.FILES.put(key, bytes);
+  const detail = await (await getTransmission(env, actor, id)).json();
+  assert.equal(detail.envelopeNumber, null);
+  assert.deepEqual(detail.documents, []);
+  assert.deepEqual(new Uint8Array(await (await getTransmissionFile(env, actor, id, 'document')).arrayBuffer()), bytes);
+});
 
 test('create writes the envelope, queued fax rows and one message per fax channel', async () => {
   const { env, db, objects, queue } = makeEnv();

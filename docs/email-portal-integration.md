@@ -66,15 +66,12 @@ Do not log raw URLs, cookies, provider payloads, codes, or document contents.
 
 ## Integration contract with ordered envelopes
 
-This draft snapshots the current single `transmissions.source_key` under an
-independently generated delivery ID; it does not change any envelope or bundle
-IDs. The parallel ordered-document work must supply an immutable, ordered
-snapshot adapter of opaque document IDs and server-owned object keys before
-integration. Encrypt each document against its delivery and opaque document ID;
-never accept an object key from recipient input. Decide owner-facing delivery
-status, transaction/cleanup semantics, revocation and multi-document UI jointly.
-Migration `0040_email_portal.sql` is intentionally independent; coordinate its
-number if the parallel branch uses it.
+The ordered envelope is assembled into one server-owned PDF at
+`transmissions.source_key`. The portal encrypts a snapshot of those exact bytes
+under an independently generated delivery ID. It neither accepts recipient object
+keys nor changes the UUID or display numbers. Document numbers and ordered
+manifest are available in the owner's records; the recipient downloads the
+combined PDF, which is not stamped with those numbers.
 
 ## Configuration, after review only
 
@@ -90,7 +87,9 @@ Configuration failures are retained in Records. A crash or timeout at the
 provider boundary remains unknown; do not retry without checking. Scheduled
 cleanup removes expired sessions, old rate buckets, and up to 50 expired or
 revoked encrypted copies per run while retaining delivery and consent metadata.
-A failure before the email attempt row is created, or between encrypted R2 write
-and database insertion, still needs reconciliation; R2 lifecycle policies should
-be considered for orphan cleanup. Existing delivery rows from the earlier draft
-are not backfilled into email_attempts.
+The email intent is inserted in the same D1 batch as the transmission. A
+cleanup intent precedes the encrypted R2 write; an unregistered object becomes
+eligible for deletion after eight days and failed deletions are retried. This
+depends on the scheduled cleanup running. Existing delivery rows from the
+earlier draft are not backfilled into email_attempts. Other outbound source and
+cover objects have separate lifecycle concerns outside this portal cleanup.

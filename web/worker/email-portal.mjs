@@ -33,7 +33,7 @@ async function session(r, env) {
 }
 
 // Owner API is called only after the Worker has verified its Access JWT.
-export async function createEmailDelivery(r, env, actor, transmissionId) {
+export async function createEmailDelivery(r, env, actor, transmissionId, fromTransmission = false) {
   if (r.method !== 'POST') return fail(405);
   if (!env.DB) return fail(503);
   if (r.headers.get('origin') !== new URL(r.url).origin) return fail(403);
@@ -42,7 +42,9 @@ export async function createEmailDelivery(r, env, actor, transmissionId) {
   const tx = await env.DB.prepare('SELECT source_key FROM transmissions WHERE id = ? AND actor_id = ?').bind(transmissionId, actor).first();
   if (!tx) return fail();
   const recipient = typeof b?.email === 'string' ? b.email.slice(0, 254) : '';
-  const claimed = await env.DB.prepare("INSERT INTO email_attempts (transmission_id, actor_id, recipient, status, created_at) VALUES (?, ?, ?, 'preparing', ?) ON CONFLICT(transmission_id) DO NOTHING").bind(transmissionId, actor, recipient, Date.now()).run();
+  const claimed = fromTransmission
+    ? await env.DB.prepare("UPDATE email_attempts SET status = 'preparing' WHERE transmission_id = ? AND actor_id = ? AND status = 'pending'").bind(transmissionId, actor).run()
+    : await env.DB.prepare("INSERT INTO email_attempts (transmission_id, actor_id, recipient, status, created_at) VALUES (?, ?, ?, 'preparing', ?) ON CONFLICT(transmission_id) DO NOTHING").bind(transmissionId, actor, recipient, Date.now()).run();
   if (claimed.meta.changes !== 1) return json({ error: 'Email was already attempted for this transmission. Check Records before sending again.' }, 409);
   const reject = async (message, status = 503) => {
     await env.DB.prepare("UPDATE email_attempts SET status = 'failed', error = ? WHERE transmission_id = ? AND status = 'preparing'").bind(message, transmissionId).run();
@@ -63,8 +65,12 @@ export async function createEmailDelivery(r, env, actor, transmissionId) {
   const id = crypto.randomUUID(), token = newPortalToken(), now = Date.now();
   const encrypted = await encryptPortalDocument(key, bytes, id, 'source');
   const objectKey = `portal/${id}/source.enc`;
+  await env.DB.prepare('INSERT INTO portal_object_intents (object_key, cleanup_after) VALUES (?, ?)').bind(objectKey, now + 8 * 86400000).run();
   await env.FILES.put(objectKey, encrypted.ciphertext);
-  await env.DB.prepare('INSERT INTO portal_deliveries (id, transmission_id, actor_id, recipient, token_hash, expires_at, object_key, iv, pin_channel, pin_phone, pin_state, send_status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(id, transmissionId, actor, b.email, await portalTokenHash(token), now + 7 * 86400000, objectKey, encrypted.iv, b.pinChannel, phone, b.pinChannel === 'none' ? 'none' : 'pending', 'submitting', now).run();
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO portal_deliveries (id, transmission_id, actor_id, recipient, token_hash, expires_at, object_key, iv, pin_channel, pin_phone, pin_state, send_status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(id, transmissionId, actor, b.email, await portalTokenHash(token), now + 7 * 86400000, objectKey, encrypted.iv, b.pinChannel, phone, b.pinChannel === 'none' ? 'none' : 'pending', 'submitting', now),
+    env.DB.prepare('DELETE FROM portal_object_intents WHERE object_key = ?').bind(objectKey),
+  ]);
   // Persist the no-retry boundary before the provider call. A crash after this
   // claim leaves an honest unknown outcome, even if the provider accepted it.
   await env.DB.prepare("UPDATE email_attempts SET status = 'unknown', delivery_id = ? WHERE transmission_id = ? AND status = 'preparing'").bind(id, transmissionId).run();
@@ -94,6 +100,13 @@ export async function cleanupPortal(env, now = Date.now()) {
   if (!env.DB || typeof env.FILES?.delete !== 'function') return;
   await env.DB.prepare('DELETE FROM portal_sessions WHERE expires_at <= ?').bind(now).run();
   await env.DB.prepare('DELETE FROM portal_limits WHERE period < ?').bind(Math.floor(now / 3600000) - 1).run();
+  const orphans = await env.DB.prepare('SELECT object_key FROM portal_object_intents WHERE cleanup_after <= ? ORDER BY cleanup_after LIMIT 50').bind(now).all();
+  for (const row of orphans.results ?? []) {
+    try {
+      await env.FILES.delete(row.object_key);
+      await env.DB.prepare('DELETE FROM portal_object_intents WHERE object_key = ?').bind(row.object_key).run();
+    } catch { /* retry in the next scheduled run */ }
+  }
   const rows = await env.DB.prepare("SELECT id, object_key FROM portal_deliveries WHERE (expires_at <= ? OR revoked_at IS NOT NULL) AND object_key <> '' ORDER BY expires_at LIMIT 50").bind(now).all();
   for (const row of rows.results ?? []) {
     try {
@@ -123,10 +136,13 @@ export async function portal(r, env, fetcher = fetch) {
   if (path === '/portal/exchange' && r.method === 'POST') {
     let b, hash; try { b = await body(r); hash = await portalTokenHash(b.token); } catch { return fail(400); }
     const now = Date.now();
-    const row = await env.DB.prepare('UPDATE portal_deliveries SET consumed_at = ? WHERE token_hash = ? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > ? RETURNING id, expires_at').bind(now, hash, now).first();
-    if (!row) return fail();
     const value = newPortalToken();
-    await env.DB.prepare('INSERT INTO portal_sessions (session_hash, delivery_id, expires_at) VALUES (?, ?, ?)').bind(await portalTokenHash(value), row.id, Math.min(row.expires_at, now + 1800000)).run();
+    const sessionHash = await portalTokenHash(value);
+    const results = await env.DB.batch([
+      env.DB.prepare('INSERT INTO portal_sessions (session_hash, delivery_id, expires_at) SELECT ?, id, MIN(expires_at, ?) FROM portal_deliveries WHERE token_hash = ? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > ?').bind(sessionHash, now + 1800000, hash, now),
+      env.DB.prepare('UPDATE portal_deliveries SET consumed_at = ? WHERE token_hash = ? AND consumed_at IS NULL AND EXISTS (SELECT 1 FROM portal_sessions WHERE session_hash = ? AND delivery_id = portal_deliveries.id)').bind(now, hash, sessionHash),
+    ]);
+    if (results[0].meta.changes !== 1 || results[1].meta.changes !== 1) return fail();
     return json({ status: 'ok' }, 200, { 'Set-Cookie': cookie(value) });
   }
   const s = await session(r, env); if (!s) return fail();

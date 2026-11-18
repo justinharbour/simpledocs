@@ -3,7 +3,6 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import PageHeader from "@/components/PageHeader.astro";
 import AddressFields from "@/components/AddressFields.astro";
 import UploadIcon from "@tabler/icons/outline/upload.svg";
-import PdfIcon from "@tabler/icons/outline/file-type-pdf.svg";
 import PrinterIcon from "@tabler/icons/outline/printer.svg";
 import MailIcon from "@tabler/icons/outline/mail.svg";
 import { Alert, AlertDescription } from "@/components/starwind/alert";
@@ -16,15 +15,16 @@ import { Progress } from "@/components/starwind/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/starwind/select";
 import { Switch } from "@/components/starwind/switch";
 import { Textarea } from "@/components/starwind/textarea";
+import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs";
 ---
 
-<AppLayout title="Send" description="Send one PDF by fax, paper mail, or email.">
-  <PageHeader title="Send" summary="Choose a PDF once, then send it by fax, paper mail, or email." />
+<AppLayout title="Send" description="Send an envelope by fax, paper mail, or email.">
+  <PageHeader title="Send" summary="Put your PDFs in one envelope, then send it by fax, paper mail, or email." />
 
   <div id="wizard" class="max-w-3xl">
     <div class="mb-6">
-      <p id="step-label" class="mb-2 text-sm font-medium" aria-live="polite">Step 1 of 4: Document</p>
-      <Progress id="step-progress" value={25} max={100} variant="primary" aria-label="Progress through the form" />
+      <p id="step-label" class="mb-2 text-sm font-medium" aria-live="polite">Step 1 of 5: Documents</p>
+      <Progress id="step-progress" value={20} max={100} variant="primary" aria-label="Progress through the form" />
     </div>
 
     <div id="form-error" hidden class="mb-4">
@@ -32,39 +32,32 @@ import { Textarea } from "@/components/starwind/textarea";
     </div>
 
     <section data-step="1" aria-labelledby="s1">
-      <h2 id="s1" class="mb-3 text-lg font-semibold">Choose the PDF</h2>
+      <h2 id="s1" tabindex="-1" class="mb-3 text-lg font-semibold">Choose the PDFs</h2>
       <div
         id="dropzone"
         role="button"
         tabindex="0"
-        aria-label="Choose a PDF. Drop a file here or press Enter to browse."
+        aria-label="Add PDFs. Drop files here or press Enter to browse."
         class="border-muted-foreground/40 hover:bg-muted/50 focus-visible:ring-outline/50 data-[over=true]:border-primary data-[over=true]:bg-primary/5 flex min-h-56 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-8 text-center outline-none focus-visible:ring-3"
       >
         <UploadIcon class="text-muted-foreground size-10" aria-hidden="true" />
-        <p class="text-base font-medium">Drop a PDF here, or click to browse</p>
-        <p class="text-muted-foreground text-sm">One PDF, up to 5 MB.</p>
+        <p class="text-base font-medium">Drop PDFs here, or click to browse</p>
+        <p class="text-muted-foreground text-sm">Up to {MAX_DOCUMENTS} PDFs, 5 MB and {MAX_DOCUMENT_PAGES} pages total.</p>
       </div>
-      <input id="file-input" type="file" accept="application/pdf,.pdf" class="sr-only" tabindex="-1" aria-hidden="true" />
-      <div id="file-card" hidden class="mt-4">
-        <Card>
-          <CardContent class="flex flex-col gap-4">
-            <div class="flex flex-wrap items-center gap-3">
-              <PdfIcon class="text-primary size-8 shrink-0" aria-hidden="true" />
-              <div class="min-w-0 flex-1">
-                <p id="file-name" class="truncate font-medium"></p>
-                <p id="file-meta" class="text-muted-foreground text-sm"></p>
-              </div>
-              <Button id="file-replace" type="button" variant="outline" size="sm">Replace</Button>
-              <Button id="file-remove" type="button" variant="ghost" size="sm">Remove</Button>
-            </div>
-            <iframe id="file-preview" title="Preview of the selected PDF" class="border-border h-96 w-full rounded-lg border"></iframe>
-          </CardContent>
-        </Card>
-      </div>
+      <input id="file-input" type="file" multiple accept="application/pdf,.pdf" class="sr-only" tabindex="-1" aria-hidden="true" />
+      <p id="file-count" class="text-muted-foreground mt-3 text-sm" role="status"></p>
+      <ul id="file-list" class="mt-2 flex flex-col gap-2"></ul>
     </section>
 
     <section data-step="2" hidden aria-labelledby="s2">
-      <h2 id="s2" class="mb-1 text-lg font-semibold">How should it go out?</h2>
+      <h2 id="s2" tabindex="-1" class="mb-1 text-lg font-semibold">Set the document order</h2>
+      <p class="text-muted-foreground mb-3 text-sm">Drag a document or use Move up and Move down. Every delivery follows this order.</p>
+      <ol id="document-order" class="flex list-decimal flex-col gap-2 pl-6"></ol>
+      <p id="order-status" role="status" class="sr-only"></p>
+    </section>
+
+    <section data-step="3" hidden aria-labelledby="s3">
+      <h2 id="s3" tabindex="-1" class="mb-1 text-lg font-semibold">How should it go out?</h2>
       <p class="text-muted-foreground mb-3 text-sm">Pick one or more. They go out as one send.</p>
       <div class="grid gap-3 sm:grid-cols-2">
         <div data-channel-card="fax" class="border-border hover:bg-muted/50 data-[on=true]:border-primary data-[on=true]:bg-primary/5 cursor-pointer rounded-xl border p-4">
@@ -91,8 +84,8 @@ import { Textarea } from "@/components/starwind/textarea";
       </div>
     </section>
 
-    <section data-step="3" hidden aria-labelledby="s3">
-      <h2 id="s3" class="mb-3 text-lg font-semibold">Details</h2>
+    <section data-step="4" hidden aria-labelledby="s4">
+      <h2 id="s4" tabindex="-1" class="mb-3 text-lg font-semibold">Details</h2>
       <div class="flex flex-col gap-6">
         <Card data-panel="email">
           <CardHeader><CardTitle>Email</CardTitle><CardDescription>The recipient receives a single-use link that expires after seven days.</CardDescription></CardHeader>
@@ -115,7 +108,7 @@ import { Textarea } from "@/components/starwind/textarea";
             <div class="flex items-center justify-between gap-4">
               <div>
                 <p class="font-medium" id="cover-label">Include a cover page</p>
-                <p class="text-muted-foreground text-sm">Added in front of your document.</p>
+                <p class="text-muted-foreground text-sm">Added before the first document.</p>
               </div>
               <div data-switch="cover"><Switch id="cover-switch" defaultChecked aria-labelledby="cover-label" /></div>
             </div>
@@ -126,6 +119,11 @@ import { Textarea } from "@/components/starwind/textarea";
                 <div class="flex flex-col gap-1.5"><Label for="cover-subject">Subject</Label><Input id="cover-subject" autocomplete="off" /></div>
                 <div class="flex flex-col gap-1.5"><Label for="cover-date">Date</Label><Input id="cover-date" type="date" /></div>
                 <div class="flex flex-col gap-1.5"><Label for="cover-message">Message</Label><Textarea id="cover-message" rows={4} /></div>
+                <div class="flex items-center gap-2">
+                  <input type="checkbox" id="cover-numbers" class="border-input text-primary size-4 rounded" />
+                  <Label for="cover-numbers">List envelope and document numbers on the cover</Label>
+                </div>
+                <p class="text-muted-foreground text-sm">Numbers are assigned when you send and won’t appear in this preview.</p>
                 <p id="cover-pages" class="text-muted-foreground text-sm"></p>
               </div>
               <div class="flex flex-col gap-1.5">
@@ -169,8 +167,8 @@ import { Textarea } from "@/components/starwind/textarea";
       </div>
     </section>
 
-    <section data-step="4" hidden aria-labelledby="s4">
-      <h2 id="s4" class="mb-1 text-lg font-semibold">Review and confirm</h2>
+    <section data-step="5" hidden aria-labelledby="s5">
+      <h2 id="s5" tabindex="-1" class="mb-1 text-lg font-semibold">Review and confirm</h2>
       <p class="text-muted-foreground mb-3 text-sm">Nothing is sent until you press Send.</p>
       <Card>
         <CardContent class="flex flex-col gap-4">
@@ -210,19 +208,20 @@ import { Textarea } from "@/components/starwind/textarea";
     import { normalizePhone } from "@/lib/phone";
     import { watchTransmission, approveLetter } from "@/lib/detail";
     import { api, formatBytes, h, skeletonRows, toast } from "@/lib/ui";
+    import { MAX_DOCUMENTS, MAX_DOCUMENT_BYTES, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs";
+    import { renderDocumentOrder } from "@/lib/document-order";
 
     const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-    const MAX = 5 * 1024 * 1024;
-    const TITLES = ["Document", "How to send", "Details", "Review and confirm"];
+    const TITLES = ["Documents", "Document order", "How to send", "Details", "Review and confirm"];
 
-    let file: File | null = null;
-    let pages = 0;
-    let objectUrl = "";
+    const documents: { file: File; pages: number }[] = [];
+    const pageCount = () => documents.reduce((total, doc) => total + doc.pages, 0);
+    const totalBytes = () => documents.reduce((total, doc) => total + doc.file.size, 0);
+    let loading = false;
     let step = 1;
     let settings = { senderName: "", mailFrom: null as Record<string, string> | null, faxFrom: "+12134147728" };
 
     const dropzone = $("dropzone"), input = $<HTMLInputElement>("file-input");
-    const card = $("file-card");
 
     const channelOn = (name: string) => document.querySelector(`[data-channel="${name}"]`)?.getAttribute("aria-checked") === "true";
     const switchOn = (name: string) => document.querySelector(`[data-switch="${name}"] [data-slot="switch-button"]`)?.getAttribute("aria-checked") === "true";
@@ -236,41 +235,56 @@ import { Textarea } from "@/components/starwind/textarea";
     }
     const clearError = () => { $("form-error").hidden = true; };
 
-    async function setFile(next: File) {
+    function renderFiles() {
+      const list = $("file-list"); list.replaceChildren();
+      $("file-count").textContent = documents.length ? `${documents.length} ${documents.length === 1 ? "PDF" : "PDFs"} · ${formatBytes(totalBytes())}` : "";
+      documents.forEach(({ file, pages }, index) => {
+        const row = h("li", "border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3");
+        const name = h("span", "min-w-0 break-all text-sm", `${file.name} · ${pages} ${pages === 1 ? "page" : "pages"}`);
+        const remove = h("button", "text-sm underline underline-offset-4", "Remove");
+        remove.type = "button";
+        remove.setAttribute("aria-label", `Remove ${file.name}, document ${index + 1}`);
+        remove.addEventListener("click", () => {
+          if (loading) return;
+          documents.splice(index, 1); clearError(); renderFiles();
+          (list.querySelectorAll("button")[Math.min(index, documents.length - 1)] ?? dropzone).focus();
+        });
+        row.append(name, remove); list.append(row);
+      });
+    }
+
+    async function addFiles(files: File[]) {
+      if (!files.length || loading) return;
       clearError();
-      if (next.size === 0 || next.size > MAX) return showError("That file is too large. Choose a PDF up to 5 MB.");
-      const head = await next.slice(0, 5).text();
-      if (head !== "%PDF-") return showError("That file is not a PDF. Choose a PDF.");
-      let count = 0;
+      if (files.length + documents.length > MAX_DOCUMENTS) return showError(`Choose up to ${MAX_DOCUMENTS} PDFs.`);
+      if (files.some((file) => !file.size) || files.reduce((sum, file) => sum + file.size, totalBytes()) > MAX_DOCUMENT_BYTES) return showError("Choose nonempty PDFs totaling up to 5 MB.");
+      loading = true;
+      $<HTMLButtonElement>("next").disabled = true;
+      $("file-count").textContent = "Checking PDFs…";
       try {
         const { PDFDocument } = await import("pdf-lib");
-        count = (await PDFDocument.load(new Uint8Array(await next.arrayBuffer()), { updateMetadata: false })).getPageCount();
-      } catch { return showError("That PDF could not be read. Try exporting it again."); }
-      file = next; pages = count;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-      objectUrl = URL.createObjectURL(next);
-      $("file-name").textContent = next.name;
-      $("file-meta").textContent = `${formatBytes(next.size)} · ${count} ${count === 1 ? "page" : "pages"}`;
-      $<HTMLIFrameElement>("file-preview").src = objectUrl;
-      card.hidden = false;
-      dropzone.hidden = true;
-      if (!value("cover-subject")) $<HTMLInputElement>("cover-subject").value = next.name.replace(/\.pdf$/i, "");
-    }
-    function clearFile() {
-      file = null; pages = 0; input.value = "";
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-      objectUrl = ""; $<HTMLIFrameElement>("file-preview").removeAttribute("src");
-      card.hidden = true; dropzone.hidden = false;
+        const added = [];
+        let total = pageCount();
+        for (const file of files) {
+          if (await file.slice(0, 5).text() !== "%PDF-") return showError("Choose PDF files only.");
+          const pdf = await PDFDocument.load(new Uint8Array(await file.arrayBuffer()), { updateMetadata: false, throwOnInvalidObject: true });
+          const pages = pdf.getPageCount();
+          if (!pages) throw new Error();
+          total += pages;
+          if (total > MAX_DOCUMENT_PAGES) return showError(`Choose up to ${MAX_DOCUMENT_PAGES} pages in total.`);
+          added.push({ file, pages });
+        }
+        documents.push(...added);
+      } catch { showError("A PDF could not be read. Export an unencrypted copy and try again."); }
+      finally { loading = false; $<HTMLButtonElement>("next").disabled = false; renderFiles(); }
     }
 
     dropzone.addEventListener("click", () => input.click());
     dropzone.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
-    input.addEventListener("change", () => { const f = input.files?.[0]; if (f) void setFile(f); });
+    input.addEventListener("change", () => { void addFiles(Array.from(input.files ?? [])); input.value = ""; });
     for (const type of ["dragenter", "dragover"]) dropzone.addEventListener(type, (e) => { e.preventDefault(); dropzone.dataset.over = "true"; });
     for (const type of ["dragleave", "drop"]) dropzone.addEventListener(type, () => { dropzone.dataset.over = "false"; });
-    dropzone.addEventListener("drop", (e) => { e.preventDefault(); const f = (e as DragEvent).dataTransfer?.files?.[0]; if (f) void setFile(f); });
-    $("file-replace").addEventListener("click", () => input.click());
-    $("file-remove").addEventListener("click", clearFile);
+    dropzone.addEventListener("drop", (e) => { e.preventDefault(); void addFiles(Array.from((e as DragEvent).dataTransfer?.files ?? [])); });
 
     // Whole card toggles its checkbox.
     for (const cardEl of document.querySelectorAll<HTMLElement>("[data-channel-card]")) {
@@ -292,19 +306,23 @@ import { Textarea } from "@/components/starwind/textarea";
     }
 
     function goto(next: number) {
+      const changed = step !== next;
       step = next;
       for (const section of document.querySelectorAll<HTMLElement>("[data-step]")) section.hidden = Number(section.dataset.step) !== step;
-      $("step-label").textContent = `Step ${step} of 4: ${TITLES[step - 1]}`;
-      const percent = step * 25;
+      $("step-label").textContent = `Step ${step} of ${TITLES.length}: ${TITLES[step - 1]}`;
+      const percent = step * 20;
       const bar = $("step-progress");
       bar.setAttribute("aria-valuenow", String(percent));
       const indicator = bar.querySelector<HTMLElement>('[data-slot="progress-indicator"]');
       if (indicator) indicator.style.transform = `translateX(-${100 - percent}%)`;
       $("back").classList.toggle("invisible", step === 1);
-      $("next").textContent = step === 4 ? "Send" : "Next";
+      $("next").textContent = step === 5 ? "Send" : "Next";
       clearError(); sync();
-      if (step === 3) { prepareDetails(); void refreshCover(); }
-      if (step === 4) renderSummary();
+      if (step === 1) renderFiles();
+      if (step === 2) renderDocumentOrder($("document-order"), $("order-status"), documents);
+      if (step === 4) { prepareDetails(); void refreshCover(); }
+      if (step === 5) renderSummary();
+      if (changed) $(`s${step}`).focus({ preventScroll: true });
       window.scrollTo({ top: 0 });
     }
 
@@ -330,11 +348,11 @@ import { Textarea } from "@/components/starwind/textarea";
       if (!value("cover-from")) $<HTMLInputElement>("cover-from").value = settings.senderName;
       if (!value("cover-date")) $<HTMLInputElement>("cover-date").value = new Date().toISOString().slice(0, 10);
       writeAddress("from", settings.mailFrom);
-      $("cover-pages").textContent = `${pages + 1} pages including the cover.`;
+      $("cover-pages").textContent = `${pageCount() + 1} pages including the cover.`;
     }
 
     function coverBody() {
-      return { title: value("cover-subject"), to: value("cover-to"), from: value("cover-from"), subject: value("cover-subject"), message: value("cover-message"), date: value("cover-date"), pages, recipient: faxNumbers()[0] ? normalizePhone(faxNumbers()[0]) ?? "" : "" };
+      return { title: documents[0]?.file.name.replace(/\.pdf$/i, ""), to: value("cover-to"), from: value("cover-from"), subject: value("cover-subject"), message: value("cover-message"), date: value("cover-date"), pages: pageCount(), recipient: faxNumbers()[0] ? normalizePhone(faxNumbers()[0]) ?? "" : "" };
     }
     let coverUrl = "", coverTimer: ReturnType<typeof setTimeout> | undefined, coverSeq = 0;
     async function refreshCover() {
@@ -356,9 +374,9 @@ import { Textarea } from "@/components/starwind/textarea";
     $("email-pin").addEventListener("change", sync);
 
     function validate(): string {
-      if (step === 1 && !file) return "Choose a PDF to continue.";
-      if (step === 2 && !channelOn("fax") && !channelOn("mail") && !channelOn("email")) return "Pick at least one sending method.";
-      if (step === 3) {
+      if (step === 1 && !documents.length) return "Choose at least one PDF to continue.";
+      if (step === 3 && !channelOn("fax") && !channelOn("mail") && !channelOn("email")) return "Pick at least one sending method.";
+      if (step === 4) {
         if (channelOn("email")) {
           if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value("email-recipient"))) return "Enter a valid recipient email address.";
           if (value("email-pin") !== "none" && !normalizePhone(value("email-phone"))) return "Enter a valid verification phone number.";
@@ -378,13 +396,13 @@ import { Textarea } from "@/components/starwind/textarea";
     function renderSummary() {
       const dl = $("summary"); dl.replaceChildren();
       const add = (term: string, text: string) => { dl.append(h("dt", "text-muted-foreground", term), h("dd", "font-medium whitespace-pre-line", text)); };
-      add("Document", `${file?.name} (${pages} ${pages === 1 ? "page" : "pages"})`);
+      add("Document order", documents.map(({ file, pages }, i) => `${i + 1}. ${file.name} (${pages} ${pages === 1 ? "page" : "pages"})`).join("\n"));
       if (channelOn("email")) { add("Email to", value("email-recipient")); add("Verification", value("email-pin") === "none" ? "Email link only" : `${value("email-pin") === "sms" ? "SMS" : "Voice call"} to ${value("email-phone")}, with recipient consent`); }
       if (channelOn("fax")) {
         const list = faxNumbers().map((n) => normalizePhone(n)!);
         add("Fax to", list.join("\n"));
         add("Fax from", settings.faxFrom);
-        add("Cover page", switchOn("cover") ? `Yes (${pages + 1} pages sent per number)` : "No");
+        add("Cover page", switchOn("cover") ? `Yes (${pageCount() + 1} pages per fax)${$<HTMLInputElement>("cover-numbers").checked ? "; list envelope and document numbers" : ""}` : "No");
       }
       if (channelOn("mail")) {
         const to = readAddress("to"), from = readAddress("from");
@@ -402,12 +420,13 @@ import { Textarea } from "@/components/starwind/textarea";
       const button = $<HTMLButtonElement>("next");
       button.disabled = true; $("back").setAttribute("disabled", "");
       const mail = channelOn("mail"), mode = selectValue("mode") === "live" ? "live" : "test";
-      const spec: Record<string, unknown> = { title: file!.name.replace(/\.pdf$/i, "") };
-      if (channelOn("fax")) spec.fax = { recipients: faxNumbers().map((n) => normalizePhone(n)), cover: switchOn("cover") ? { enabled: true, to: value("cover-to"), from: value("cover-from"), subject: value("cover-subject"), message: value("cover-message"), date: value("cover-date") } : { enabled: false } };
+      const spec: Record<string, unknown> = {};
+      if (channelOn("fax")) spec.fax = { recipients: faxNumbers().map((n) => normalizePhone(n)), cover: switchOn("cover") ? { enabled: true, includeNumbers: $<HTMLInputElement>("cover-numbers").checked, to: value("cover-to"), from: value("cover-from"), subject: value("cover-subject"), message: value("cover-message"), date: value("cover-date") } : { enabled: false } };
       if (mail) spec.mail = { to: readAddress("to"), from: readAddress("from"), color: switchOn("color"), doubleSided: switchOn("duplex"), mailingClass: selectValue("class") || "first_class" };
       if (channelOn("email")) spec.email = { email: value("email-recipient"), pinChannel: value("email-pin"), phone: value("email-phone") };
       const form = new FormData();
-      form.set("document", file!); form.set("spec", JSON.stringify(spec));
+      for (const { file } of documents) form.append(documents.length === 1 ? "document" : "documents", file);
+      form.set("spec", JSON.stringify(spec));
       try {
         const created = await api<{ id: string; deliveries: { id?: string; channel: string; status: string; error?: string }[] }>("/api/transmissions", { method: "POST", body: form });
         $("wizard").hidden = true; $("result").hidden = false;
@@ -432,7 +451,7 @@ import { Textarea } from "@/components/starwind/textarea";
     $("next").addEventListener("click", () => {
       const problem = validate();
       if (problem) return showError(problem);
-      if (step === 4) void submit(); else goto(step + 1);
+      if (step === 5) void submit(); else goto(step + 1);
     });
     $("back").addEventListener("click", () => { if (step > 1) goto(step - 1); });
     document.addEventListener("click", () => setTimeout(sync, 0));
