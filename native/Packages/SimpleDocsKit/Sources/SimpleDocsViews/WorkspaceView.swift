@@ -24,11 +24,6 @@ public struct WorkspaceView: View {
                 detail
             }
         }
-        .toolbar {
-            ToolbarItem {
-                scenarioMenu
-            }
-        }
     }
 
     @ViewBuilder
@@ -45,19 +40,6 @@ public struct WorkspaceView: View {
         }
     }
 
-    private var scenarioMenu: some View {
-        Menu {
-            Picker("Sample state", selection: $model.scenario) {
-                ForEach(SyntheticScenario.allCases) { scenario in
-                    Text(scenario.title).tag(scenario)
-                }
-            }
-        } label: {
-            Label("Sample state", systemImage: "testtube.2")
-        }
-        .help("Choose which synthetic state to preview")
-        .accessibilityHint("Changes the synthetic sample data shown. No real data is loaded.")
-    }
 }
 
 struct PreviewNotice: View {
@@ -84,42 +66,13 @@ struct RecordsView: View {
     let model: WorkspaceModel
 
     var body: some View {
-        Group {
-            switch model.jobs {
-            case .loading:
-                ProgressView("Loading sample records")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .failed(let message):
-                ContentUnavailableView {
-                    Label("Records unavailable", systemImage: "exclamationmark.octagon")
-                } description: {
-                    Text(message)
-                } actions: {
-                    Button("Show sample records") { model.scenario = .populated }
-                }
-            case .loaded(let jobs) where jobs.isEmpty:
-                ContentUnavailableView(
-                    "No records",
-                    systemImage: "tray",
-                    description: Text("Sent and received faxes, calls, voicemail and mail will appear here once an account is connected.")
-                )
-            case .loaded(let jobs):
-                List {
-                    Section {
-                        PreviewNotice(edition: model.edition)
-                    }
-                    Section("Sample records") {
-                        ForEach(jobs) { job in
-                            NavigationLink {
-                                JobDetailView(job: job)
-                            } label: {
-                                JobRow(job: job)
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        ContentUnavailableView(
+            "Records unavailable",
+            systemImage: "tray",
+            description: Text(model.edition.requiresInstance
+                ? "This app cannot load communication records yet. Use your instance's web workspace to check available records."
+                : "This app cannot load communication records from providers yet.")
+        )
         .navigationTitle("Records")
     }
 }

@@ -20,11 +20,30 @@ import UIKit
     }
 }
 
+struct InboundFaxRecord: Decodable, Identifiable {
+    let id: String
+    let faxId: String
+    let receivedAt: String
+}
+struct VoiceRecordingRecord: Decodable, Identifiable {
+    let recording_id: String
+    let archived_at: String
+    let kind: String?
+    var id: String { recording_id }
+}
+private struct InboundFaxList: Decodable { let records: [InboundFaxRecord]; let pendingCount: Int }
+private struct VoiceRecordingList: Decodable { let recordings: [VoiceRecordingRecord] }
+
 @MainActor @Observable final class SignInModel {
-    var instance = "" { didSet { if instance != oldValue { signOut() } } }
-    var issuer = "" { didSet { if issuer != oldValue { signOut() } } }
+    var instance = "https://simpledocs.justinharbour.dev" { didSet { if instance != oldValue { signOut() } } }
+    var issuer = "https://justinharbour.cloudflareaccess.com" { didSet { if issuer != oldValue { signOut() } } }
     var preparation: SignInPreparation?
-    var message = "No local session. Workspace records are samples."
+    var faxes: [InboundFaxRecord] = []
+    var pendingFaxes = 0
+    var recordings: [VoiceRecordingRecord] = []
+    var loaded = false
+    var message = "Not signed in."
+    private var flow: ConnectedFlow?
     var busy = false
     private var owner: SessionCoordinator?
     private var binding: ContextBinding?
@@ -66,25 +85,48 @@ import UIKit
             let browser = OAuthBrowser(anchorProvider: anchor)
             self.browser = browser
             let adapter = adapterFactory?(browser) ?? ConnectedHTTP(browser: browser)
-            let session = AppSession(flow: ConnectedFlow(owner: owner, adapter: adapter))
+            let flow = ConnectedFlow(owner: owner, adapter: adapter)
+            let session = AppSession(flow: flow)
+            self.flow = flow
             attempt = session
             self.session = session
             busy = true
             message = "Signing in…"
             try await session.signIn(confirmation: confirmation, binding: binding, callback: URL(string: "dev.justinharbour.simpledocs:/oauth/callback")!)
             guard self.session === session else { return }
+            message = "Signed in. Loading records…"
+            await load()
             busy = false
-            message = "Token acquired in memory. Worker access has not been verified; workspace records are samples."
         } catch {
             if let attempt {
                 guard self.session === attempt else { return }
             }
             busy = false
-            message = "Sign-in did not complete. OAuth configuration and callback support must be verified."
+            message = "Sign-in did not complete."
+        }
+    }
+
+    func load() async {
+        guard let flow else { return }
+        do {
+            let faxData = try await flow.perform(.listInboundFaxes)
+            let voiceData = try await flow.perform(.listVoiceRecordings)
+            let faxList = try JSONDecoder().decode(InboundFaxList.self, from: faxData)
+            let voiceList = try JSONDecoder().decode(VoiceRecordingList.self, from: voiceData)
+            faxes = faxList.records
+            pendingFaxes = faxList.pendingCount
+            recordings = voiceList.recordings
+            loaded = true
+            message = "Signed in."
+        } catch {
+            message = "Signed in, but records could not be loaded."
         }
     }
 
     func signOut() {
+        flow?.clear()
+        flow = nil
+        faxes = []; pendingFaxes = 0; recordings = []; loaded = false
         session?.signOut()
         browser?.cancel()
         session = nil
@@ -93,7 +135,7 @@ import UIKit
         binding = nil
         preparation = nil
         busy = false
-        message = "Local session cleared. Provider revocation was not attempted."
+        message = "Signed out on this device."
     }
 }
 
@@ -102,8 +144,7 @@ struct ConnectedSignInView: View {
 
     var body: some View {
         Form {
-            Section("Experimental connected sign-in") {
-                Text("The workspace shows sample data, not records from your instance. Sign-in requires a configured OAuth callback and does not yet connect the workspace.")
+            Section("simpledocs") {
                 TextField("Instance HTTPS origin", text: $model.instance)
                     .autocorrectionDisabled()
                 TextField("Cloudflare Access issuer", text: $model.issuer)
@@ -117,7 +158,29 @@ struct ConnectedSignInView: View {
                     Button("Confirm and sign in") { Task { await model.signIn() } }.disabled(model.busy)
                 }
             }
-            Section { Text(model.message); Button("Sign out locally") { model.signOut() } }
+            if model.loaded {
+                Section("Received faxes") {
+                    if model.pendingFaxes > 0 { Text("\(model.pendingFaxes) received fax(es) not yet archived") }
+                    if model.faxes.isEmpty { Text("No archived faxes.") }
+                    ForEach(model.faxes) { fax in
+                        VStack(alignment: .leading) {
+                            Text("Fax \(fax.faxId.prefix(8))")
+                            Text(fax.receivedAt).font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Section("Voicemail and recordings") {
+                    if model.recordings.isEmpty { Text("No recordings.") }
+                    ForEach(model.recordings) { item in
+                        VStack(alignment: .leading) {
+                            Text(item.kind ?? "recording")
+                            Text(item.archived_at).font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Button("Refresh") { Task { await model.load() } }
+            }
+            Section { Text(model.message); Button("Sign out") { model.signOut() } }
         }
         .padding()
     }
