@@ -97,7 +97,7 @@ async function sendMail(env, row, fetcher) {
   const now = new Date().toISOString();
   const claim = await env.DB.prepare("INSERT INTO mail_intents (draft_id, actor_id, revision, review_hash, payload_json, status, confirmed_at, updated_at, provider_mode) SELECT id, actor_id, revision, ?, ?, 'submitting', ?, ?, ? FROM mail_drafts WHERE id = ? AND actor_id = ? AND revision = ? ON CONFLICT DO NOTHING")
     .bind(approval.reviewHash, JSON.stringify(summary), now, now, approval.mode, row.id, row.actor_id, draft.revision).run();
-  if (claim.meta.changes !== 1) throw new Waiting('Waiting for another letter order to be acknowledged');
+  if (claim.meta.changes !== 1) throw new Waiting('Waiting for another letter to finish submitting');
   await mark(env.DB, row.id, 'submitting');
   let status = 'unknown'; let providerId = null; let rejected = false;
   try {
@@ -113,7 +113,9 @@ async function sendMail(env, row, fetcher) {
     await mark(env.DB, row.id, 'failed', { error: 'PostGrid rejected the letter; nothing was mailed' });
     return;
   }
-  await env.DB.prepare("UPDATE mail_intents SET status = ?, provider_id = ?, updated_at = ? WHERE draft_id = ? AND status = 'submitting'").bind(status, providerId, new Date().toISOString(), row.id).run();
+  // The confirmation page was the owner's sign-off, so an accepted order never blocks the next letter.
+  const settledAt = new Date().toISOString();
+  await env.DB.prepare("UPDATE mail_intents SET status = ?, provider_id = ?, updated_at = ?, acknowledged_at = CASE WHEN ? = 'accepted' THEN ? ELSE acknowledged_at END WHERE draft_id = ? AND status = 'submitting'").bind(status, providerId, settledAt, status, settledAt, row.id).run();
   if (status === 'accepted') await mark(env.DB, row.id, 'accepted', { providerId, providerStatus: 'accepted' });
   else await mark(env.DB, row.id, 'unknown', { error: 'PostGrid did not confirm this letter. Check PostGrid before sending again.' });
 }
