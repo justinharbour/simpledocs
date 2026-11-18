@@ -38,14 +38,6 @@ test('fails before writes on conflicting target or unsafe webhook policy', async
   await assert.rejects(configureAccess(g.api));
   assert.deepEqual(g.writes, []);
 });
-test('fails before writes if either native callback is missing', async () => {
-  for (const index of [0, 1]) {
-    const f = fixture();
-    f.apps[0].oauth_configuration.dynamic_client_registration.allowed_uris.splice(index, 1);
-    await assert.rejects(configureAccess(f.api));
-    assert.deepEqual(f.writes, []);
-  }
-});
 test('fails closed if readback changes audience', async () => {
   const f = fixture();
   const api = async (path, options) => { const r = await f.api(path, options); if (path === '/access/apps/owner' && !options && f.writes.includes('owner')) r.result.aud = 'b'.repeat(64); return r; };

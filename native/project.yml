@@ -46,6 +46,7 @@ targets:
         product: SimpleDocsOAuth
       - package: SimpleDocsDirect
         product: SimpleDocsDirect
+      - target: SimpleDocsShareMac
     settings:
       base:
         # Confirm App IDs and provisioning with the Apple Developer account before signing.
@@ -56,6 +57,26 @@ targets:
         GENERATE_INFOPLIST_FILE: "YES"
         INFOPLIST_KEY_CFBundleDisplayName: simpledocs
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+  SimpleDocsShareMac:
+    type: app-extension
+    platform: macOS
+    sources: [Apps/ShareMac]
+    info:
+      path: Config/Share-Mac-Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).ShareViewController"
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsFileWithMaxCount: 1
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.justinharbour.simpledocs.share
+        PRODUCT_NAME: simpledocs Share
+        CODE_SIGN_ENTITLEMENTS: Config/Share-Mac.entitlements
+        GENERATE_INFOPLIST_FILE: "YES"
+        APPLICATION_EXTENSION_API_ONLY: "YES"
   SimpleDocsiOS:
     type: application
     platform: iOS
