@@ -30,6 +30,7 @@ struct DirectWorkspace: View {
     @State private var submitting = false
     @State private var sendMessage: String?
     @State private var sharedFiles: [URL] = []
+    @Environment(\.scenePhase) private var scenePhase
     private let store = CredentialStore()
 
     var body: some View {
@@ -94,6 +95,7 @@ struct DirectWorkspace: View {
             .formStyle(.grouped)
             .navigationTitle("Provider connection")
             .onAppear { checkKey(); refreshSharedFiles() }
+            .onChange(of: scenePhase) { _, phase in if phase == .active { refreshSharedFiles() } }
             .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf]) { result in
                 guard case .success(let url) = result else { return }
                 loadPDF(url)
@@ -171,6 +173,7 @@ struct DirectWorkspace: View {
     }
 
     private func sendFax(_ reviewedPDF: Data) async {
+        guard !submitting else { return }
         submitting = true
         defer { submitting = false }
         do {

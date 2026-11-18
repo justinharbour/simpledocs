@@ -98,6 +98,7 @@ import SimpleDocsConnected
     public private(set) var faxReview: (deliveryID: String, review: FaxReview, url: URL)?
 
     public func reviewFax(_ delivery: DeliveryDetail) async {
+        guard approvingID == nil else { return }
         approvalError = nil; approvingID = delivery.id; faxReview = nil
         defer { approvingID = nil }
         do {
@@ -118,7 +119,7 @@ import SimpleDocsConnected
     public func cancelFaxReview() { faxReview = nil; approvalError = nil }
 
     public func approveFax(_ delivery: DeliveryDetail) async {
-        guard let shown = faxReview, shown.deliveryID == delivery.id else { return }
+        guard approvingID == nil, let shown = faxReview, shown.deliveryID == delivery.id else { return }
         approvalError = nil; approvingID = delivery.id
         defer { approvingID = nil }
         do {
