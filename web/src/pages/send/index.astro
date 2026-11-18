@@ -224,7 +224,7 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
     const totalBytes = () => documents.reduce((total, doc) => total + doc.file.size, 0);
     let loading = false;
     let step = 1;
-    let settings = { senderName: "", mailFrom: null as Record<string, string> | null, faxFrom: "+12134147728" };
+    let settings = { senderName: "", mailFrom: null as Record<string, string> | null, faxFrom: "+12134147728", faxEstimate: null as { rate: number; source: string; url: string | null } | null };
 
     const dropzone = $("dropzone"), input = $<HTMLInputElement>("file-input");
 
@@ -410,7 +410,8 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
       }
       const count = new Set(faxNumbers().map((n) => normalizePhone(n))).size;
       const pages = (pageCount() + (switchOn("cover") ? 1 : 0)) * count;
-      $("estimate").textContent = channelOn("fax") ? `Fax page-fee estimate: $${(pages * 0.007).toFixed(3)} for ${pages} pages at Telnyx's published $0.007/page list rate (telnyx.com/pricing/fax, checked November 2026). This is only a component, not a total or quote: SIP transmission, destination tariffs, taxes, retries and account pricing are excluded or unknown.${channelOn("mail") ? " Paper-mail pricing is unavailable." : ""}` : "Paper-mail pricing is unavailable; PostGrid charges may apply. This is not a quote.";
+      const rate = settings.faxEstimate;
+      $("estimate").textContent = channelOn("fax") ? `${rate ? `Fax page-fee estimate: $${(pages * rate.rate).toFixed(6)} for ${pages} pages at $${rate.rate}/page. ${rate.source}${rate.url ? ` (${rate.url})` : ""}.` : "Fax page-fee estimate unavailable."} This is only a component, not a total or quote: SIP transmission, destination tariffs, taxes, retries and account pricing are excluded or unknown.${channelOn("mail") ? " Paper-mail pricing is unavailable." : ""}` : "Paper-mail pricing is unavailable; PostGrid charges may apply. This is not a quote.";
       const hint = () => { $("mode-hint").textContent = selectValue("mode") === "live" ? "A real, paid letter will be mailed." : "Nothing will be printed or mailed. Use this to check the flow."; };
       hint();
       document.querySelector('[data-select="mode"]')!.addEventListener("click", () => setTimeout(hint, 50));
@@ -427,8 +428,8 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
       const form = new FormData();
       // Cover numbering is also a required feature when selected: an older
       // Worker would accept the legacy field but silently ignore includeNumbers.
-      const numberedCover = channelOn("fax") && switchOn("cover") && $<HTMLInputElement>("cover-numbers").checked;
-      const field = $<HTMLInputElement>("page-numbers").checked ? "numberedDocuments" : documents.length === 1 && !numberedCover ? "document" : "documents";
+      // Older workers must reject preparation, never send before this review.
+      const field = $<HTMLInputElement>("page-numbers").checked ? "preparedNumberedDocuments" : "preparedDocuments";
       for (const { file } of documents) form.append(field, file);
       form.set("spec", JSON.stringify(spec));
       try {

@@ -58,7 +58,11 @@ export async function getSettings(db) {
 
 export async function handleSettings(request, env, actor) {
   if (!env.DB) return reply({ error: 'Storage unavailable' }, 503);
-  if (request.method === 'GET') return reply({ ...(await getSettings(env.DB)), faxFrom: env.TELNYX_FAX_FROM || DEFAULT_FROM_NUMBER });
+  if (request.method === 'GET') {
+    const raw = env.FAX_ESTIMATE_USD_PER_PAGE;
+    const rate = typeof raw === 'string' && /^(?:0|[1-9]\d{0,2})(?:\.\d{1,6})?$/.test(raw) ? Number(raw) : null;
+    return reply({ ...(await getSettings(env.DB)), faxFrom: env.TELNYX_FAX_FROM || DEFAULT_FROM_NUMBER, faxEstimate: rate === null ? { rate: 0.007, source: 'Telnyx published list rate, checked November 2026', url: 'https://telnyx.com/pricing/fax' } : { rate, source: 'Instance-configured page rate; verify with your provider', url: null } });
+  }
   if (request.method !== 'PUT') return reply({ error: 'Method not allowed' }, 405);
   if (!sameOrigin(request)) return reply({ error: 'Invalid origin' }, 403);
   let body;
@@ -117,10 +121,10 @@ export async function createTransmission(request, env, actor) {
   catch { return reply({ error: 'Upload PDFs totaling up to 5 MB' }, 400); }
   // The plural field is intentionally distinct so old Workers reject a new
   // multi-file request rather than silently sending only its first file.
-  const legacy = form.getAll('document'), ordered = form.getAll('documents'), numbered = form.getAll('numberedDocuments');
-  if (legacy.length > 1 || [legacy, ordered, numbered].filter(parts => parts.length).length > 1) return reply({ error: 'Use only one document upload field' }, 400);
+  const legacy = form.getAll('document'), ordered = form.getAll('documents'), numbered = form.getAll('numberedDocuments'), prepared = form.getAll('preparedDocuments'), preparedNumbered = form.getAll('preparedNumberedDocuments');
+  if (legacy.length > 1 || [legacy, ordered, numbered, prepared, preparedNumbered].filter(parts => parts.length).length > 1) return reply({ error: 'Use only one document upload field' }, 400);
   // Opt-in uses its own field so a Worker without header support fails closed.
-  const files = numbered.length ? numbered : ordered.length ? ordered : legacy;
+  const files = preparedNumbered.length ? preparedNumbered : prepared.length ? prepared : numbered.length ? numbered : ordered.length ? ordered : legacy;
   if (!files.length || files.length > MAX_DOCUMENTS || files.some(file => !(file instanceof File) || !file.size) || files.reduce((size, file) => size + file.size, 0) > MAX_DOCUMENT_BYTES) {
     return reply({ error: `Upload 1 to ${MAX_DOCUMENTS} nonempty PDFs totaling up to 5 MB` }, 400);
   }
@@ -150,7 +154,7 @@ export async function createTransmission(request, env, actor) {
   if (!faxNumbers.length && !mail) return reply({ error: 'Choose at least one way to send' }, 400);
 
   let assembled;
-  try { assembled = await assembleEnvelope(files, faxNumbers.length > 0 && spec.fax.cover?.enabled !== false, numbered.length > 0); }
+  try { assembled = await assembleEnvelope(files, faxNumbers.length > 0 && spec.fax.cover?.enabled !== false, numbered.length > 0 || preparedNumbered.length > 0); }
   catch (error) { return reply({ error: error instanceof Error ? error.message : 'The PDFs could not be read' }, 400); }
   const { pages, documents } = assembled;
   const title = str(spec.title, 200) || documents[0].name.replace(/\.pdf$/i, '') || 'Untitled document';
@@ -298,9 +302,9 @@ export async function approveFax(request, env, actor, id, deliveryId) {
   if (ctx.row.status !== 'awaiting_approval' || ctx.reviewHash !== body.reviewHash) return reply({ error: 'Fax review no longer matches' }, 409);
   if (env.FAX_ENABLED !== 'true' || !env.TELNYX_API_TOKEN || !env.TELNYX_FAX_CONNECTION_ID || env.TELNYX_FAX_FROM !== ctx.options.from) return reply({ error: 'Fax configuration changed or is unavailable; prepare a new fax' }, 503);
   const now = new Date().toISOString();
-  const changed = await env.DB.prepare("UPDATE dispatches SET status = 'queued', updated_at = ? WHERE id = ? AND status = 'awaiting_approval' AND options_json = ?").bind(now, deliveryId, ctx.row.options_json).run();
+  const changed = await env.DB.prepare("UPDATE dispatches SET status = 'queued', updated_at = ? WHERE id = ? AND transmission_id = ? AND channel = 'fax' AND recipient = ? AND status = 'awaiting_approval' AND options_json = ?").bind(now, deliveryId, id, ctx.row.recipient, ctx.row.options_json).run();
   if (changed.meta.changes !== 1) return reply({ error: 'Fax already approved or changed' }, 409);
-  await env.DB.prepare("INSERT INTO timeline (delivery_id, at, status, detail) VALUES (?, ?, 'queued', 'Fax proof approved')").bind(deliveryId, now).run();
+  try { await env.DB.prepare("INSERT INTO timeline (delivery_id, at, status, detail) VALUES (?, ?, 'queued', 'Fax proof approved')").bind(deliveryId, now).run(); } catch { /* The queue backstop still recovers an approved delivery. */ }
   await enqueue(env, id, 'fax', deliveryId);
   return reply({ status: 'queued' });
 }

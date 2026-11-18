@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { readdirSync, readFileSync } from 'node:fs';
 import { PDFDocument } from 'pdf-lib';
+import { approveFax, reviewFax } from './transmissions.mjs';
 
 const dir = new URL('../../backend/core/migrations/', import.meta.url);
 
@@ -59,3 +60,8 @@ export async function sendRequest(spec, pdf, url = 'https://example.test/api/tra
 }
 
 export const jsonRequest = (path, body, method = 'POST') => new Request(`https://example.test${path}`, { method, body: JSON.stringify(body), headers: { origin: 'https://example.test', 'content-type': 'application/json' } });
+
+export async function approveTestFax(env, actor, id, deliveryId) {
+  const review = await (await reviewFax(new Request('https://example.test/x'), env, actor, id, deliveryId)).json();
+  return approveFax(jsonRequest('/x', { confirmed: true, reviewHash: review.reviewHash }), env, actor, id, deliveryId);
+}
