@@ -7,7 +7,7 @@ The Worker sends a push to every registered iPhone and Mac when an inbound fax i
 1. After sign-in, the app asks for notification permission and registers with APNs.
 2. The device token is POSTed to `/api/push/devices` with the app's own OAuth session. Debug builds send `sandbox`, release builds send `production`.
 3. The Worker (`web/worker/push.mjs`) signs an ES256 provider token with the `.p8` key, caches it for 50 minutes, and POSTs to `api.push.apple.com` or `api.sandbox.push.apple.com` depending on the device row. A 410, `Unregistered` or `BadDeviceToken` response deletes the device row.
-4. Tapping a notification opens the app and refreshes the record lists. It does not navigate to the record: the apps have no record detail screen yet.
+4. Tapping a notification opens the app and refreshes the screen you are on. It does not navigate to the specific record.
 
 Sending does nothing until the four secrets below exist. Registered devices are kept in the D1 table `push_devices` (migration `0030_push_devices.sql`).
 

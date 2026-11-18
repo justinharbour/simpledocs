@@ -3,11 +3,13 @@ import SwiftUI
 @main
 struct SimpleDocsConnectedApp: App {
     @NSApplicationDelegateAdaptor(PushAppDelegate.self) private var pushDelegate
+    @State private var environment = ConnectedEnvironment()
+
     var body: some Scene {
         WindowGroup {
-            ConnectedSignInView()
-                .frame(minWidth: 720, minHeight: 480)
+            ConnectedRoot(environment: environment)
+                .frame(minWidth: 760, minHeight: 520)
         }
-        .commands { SidebarCommands() }
+        .commands { ConnectedCommands(environment: environment) }
     }
 }

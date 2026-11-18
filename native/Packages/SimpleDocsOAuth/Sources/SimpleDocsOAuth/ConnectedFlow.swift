@@ -14,11 +14,20 @@ public enum ConnectedFlowError: Error { case invalidResponse, noSession, invalid
     func send(plan: WorkerPlan, bearer: String) async throws -> Data
 }
 
-/// Experimental in-memory orchestration. It is not wired to any application target.
+/// What a finished sign-in leaves behind: the tokens plus what is needed to renew them.
+public struct SignInGrant: Sendable {
+    public let tokens: ExpiringTokens
+    public let clientID: String
+    public let tokenEndpoint: URL
+    public let issuer: String
+}
+
+/// Sign-in orchestration. The caller persists `grant` (see `SessionVault`) once sign-in succeeds.
 @MainActor public final class ConnectedFlow {
     private let owner: SessionCoordinator
     private let adapter: any ConnectedFlowAdapter
     private var session: (binding: ContextBinding, tokens: ExpiringTokens)?
+    public private(set) var grant: SignInGrant?
 
     public init(owner: SessionCoordinator, adapter: any ConnectedFlowAdapter) {
         self.owner = owner
@@ -29,6 +38,7 @@ public enum ConnectedFlowError: Error { case invalidResponse, noSession, invalid
                        now: @escaping @MainActor () -> Date = Date.init) async throws {
         owner.cancel()
         session = nil
+        grant = nil
         guard confirmation.binding == binding, let active = owner.registry.active, owner.registry.isCurrent(binding),
               active.scope.origin.canonical == confirmation.resource else { throw CoordinatorError.staleContext }
         let trust = try CloudflareTrust(registry: owner.registry, binding: binding, configuredTeam: confirmation.issuer)
@@ -59,7 +69,9 @@ public enum ConnectedFlowError: Error { case invalidResponse, noSession, invalid
         let exchangeStarted = now()
         let tokens = try await owner.run(binding: binding) { try await self.adapter.exchange(request, registry: snapshot) }
         guard owner.registry.isCurrent(binding), tokens.resource == active.scope.origin.canonical + "/" else { throw CoordinatorError.staleContext }
-        session = (binding, try ExpiringTokens(tokens: tokens, receivedAt: exchangeStarted))
+        let expiring = try ExpiringTokens(tokens: tokens, receivedAt: exchangeStarted)
+        session = (binding, expiring)
+        grant = SignInGrant(tokens: expiring, clientID: registered.client_id, tokenEndpoint: endpoints.token, issuer: trust.team.canonical)
     }
 
     public func perform(_ operation: WorkerOperation, now: Date = Date()) async throws -> Data {
@@ -74,5 +86,5 @@ public enum ConnectedFlowError: Error { case invalidResponse, noSession, invalid
         return try await owner.run(binding: session.binding) { try await self.adapter.send(plan: plan, bearer: tokens.accessToken) }
     }
 
-    public func clear() { owner.cancel(); session = nil }
+    public func clear() { owner.cancel(); session = nil; grant = nil }
 }

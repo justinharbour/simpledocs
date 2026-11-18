@@ -1,0 +1,170 @@
+import SimpleDocsConnected
+import SimpleDocsOAuth
+import SwiftUI
+
+struct RecordsView: View {
+    let model: RecordsModel
+    let session: ConnectedModel
+    @Binding var opening: String?
+    @State private var path: [String] = []
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            content
+                .navigationTitle("Records")
+                .navigationDestination(for: String.self) { id in
+                    TransmissionView(model: TransmissionModel(session: session, id: id), onChange: { Task { await model.load(quiet: true) } })
+                }
+                .toolbar {
+                    ToolbarItem { Button { Task { await model.load() } } label: { Label("Refresh", systemImage: "arrow.clockwise") } }
+                }
+        }
+        .task { await model.load() }
+        .task(id: model.hasActive) { await model.watch() }
+        .onChange(of: opening) { _, id in
+            if let id { path = [id]; opening = nil }
+        }
+        .onAppear { if let id = opening { path = [id]; opening = nil } }
+    }
+
+    @ViewBuilder private var content: some View {
+        if model.records.isEmpty, let message = model.phase.error {
+            ErrorBanner(message: message) { Task { await model.load() } }.padding()
+        } else if model.records.isEmpty && model.phase != .loaded {
+            ProgressView("Loading records…").frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if model.records.isEmpty {
+            ContentUnavailableView("No records yet", systemImage: "tray",
+                                   description: Text("Faxes and letters you send, received faxes and voicemails show up here. Choose Send to start."))
+        } else {
+            list
+        }
+    }
+
+    private var list: some View {
+        List {
+            if let message = model.phase.error { ErrorBanner(message: message) { Task { await model.load() } }.listRowSeparator(.hidden) }
+            ForEach(model.records) { record in
+                if record.type == .transmission {
+                    NavigationLink(value: record.id) { RecordRow(record: record) }
+                } else {
+                    RecordRow(record: record)
+                }
+            }
+        }
+        .refreshable { await model.load() }
+    }
+}
+
+struct RecordRow: View {
+    let record: RecordItem
+
+    private var symbol: String {
+        switch record.type {
+        case .transmission: "paperplane"
+        case .inboundFax: "arrow.down.doc"
+        case .recording: "voicemail"
+        case .other: "doc"
+        }
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 24).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(record.title).font(.headline).lineLimit(1)
+                    Spacer()
+                    if let date = record.date { Text(date.short).font(.caption).foregroundStyle(.secondary) }
+                }
+                ForEach(record.channels, id: \.self) { StatusBadge(channel: $0.channel, status: $0.status) }
+                if let pages = record.pageCount {
+                    Text("\(pages) \(pages == 1 ? "page" : "pages")").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+struct TransmissionView: View {
+    @State var model: TransmissionModel
+    var onChange: () -> Void = {}
+    @State private var mode = MailMode.test
+
+    var body: some View {
+        Group {
+            if let detail = model.detail {
+                List {
+                    Section {
+                        LabeledContent("Pages", value: "\(detail.pageCount)")
+                        if let date = WorkerDate.parse(detail.createdAt) { LabeledContent("Created", value: date.formatted(date: .abbreviated, time: .shortened)) }
+                        if let file = model.document() { DocumentRow(file: file) }
+                    }
+                    ForEach(detail.deliveries) { delivery in deliverySection(delivery) }
+                }
+            } else if let message = model.phase.error {
+                ErrorBanner(message: message) { Task { await model.load() } }.padding()
+            } else {
+                ProgressView("Loading…")
+            }
+        }
+        .navigationTitle(model.detail?.title ?? "Record")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .task { await model.watch() }
+        .refreshable { await model.load() }
+    }
+
+    @ViewBuilder private func deliverySection(_ delivery: DeliveryDetail) -> some View {
+        Section {
+            StatusBadge(channel: delivery.channel, status: delivery.status)
+            if let note = DeliveryStatus.note(channel: delivery.channel, status: delivery.status, needsApproval: delivery.needsApproval) {
+                Text(note).font(.footnote).foregroundStyle(.secondary)
+            }
+            if let error = delivery.error { Label(error, systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(.red) }
+            if let provider = delivery.providerStatus, !provider.isEmpty {
+                LabeledContent("Provider reported", value: provider)
+            }
+            if delivery.needsApproval { approval(delivery) }
+            ForEach(Array(delivery.timeline.enumerated()), id: \.offset) { _, step in
+                HStack(alignment: .firstTextBaseline) {
+                    Text(DeliveryStatus.label(step.status)).font(.callout)
+                    if let detail = step.detail, !detail.isEmpty { Text(detail).font(.caption).foregroundStyle(.secondary) }
+                    Spacer()
+                    if let date = WorkerDate.parse(step.at) { Text(date.short).font(.caption).foregroundStyle(.secondary) }
+                }
+                .accessibilityElement(children: .combine)
+            }
+            if let cover = model.cover(delivery) { DocumentRow(file: cover) }
+        } header: {
+            Text("\(DeliveryStatus.channelLabel(delivery.channel)) · \(delivery.channel == "fax" ? PhoneNumber.display(delivery.recipient) : delivery.recipient)")
+        }
+    }
+
+    @ViewBuilder private func approval(_ delivery: DeliveryDetail) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let shown = model.mailReview, shown.deliveryID == delivery.id {
+                Text("Review for \(shown.review.mode) mode").font(.subheadline.weight(.medium))
+                Text(shown.review.notice).font(.footnote).foregroundStyle(.secondary)
+                Text(MailMode(rawValue: shown.review.mode)?.detail ?? "").font(.footnote)
+                HStack {
+                    Button("Cancel") { model.cancelReview() }
+                    Spacer()
+                    if model.approvingID == delivery.id { ProgressView().controlSize(.small) }
+                    Button(shown.review.mode == "live" ? "Mail a real letter" : "Confirm test letter") {
+                        Task { await model.approveMail(delivery); onChange() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!shown.review.available || model.approvingID != nil)
+                }
+            } else {
+                Picker("Mode", selection: $mode) { ForEach(MailMode.allCases) { Text($0.label).tag($0) } }.pickerStyle(.segmented)
+                Button("Review letter") { Task { await model.reviewMail(delivery, mode: mode) } }
+                    .disabled(model.approvingID != nil)
+            }
+            if let error = model.approvalError { Text(error).font(.footnote).foregroundStyle(.orange) }
+        }
+    }
+}
