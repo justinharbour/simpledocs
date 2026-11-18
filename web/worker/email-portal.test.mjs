@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { makeEnv, samplePdf, sendRequest } from './test-env.mjs';
 import { createEmailDelivery, portal, revokeEmailDelivery } from './email-portal.mjs';
 import { newPortalToken } from './portal-crypto.mjs';
-import { approveEmail, createTransmission, getTransmission, reviewEmail } from './transmissions.mjs';
+import { approveEmail, createTransmission, getTransmission, listRecipients, reviewEmail } from './transmissions.mjs';
 
 const origin = 'https://example.test';
 const legacy = 'https://legacy.example.test';
@@ -31,6 +31,25 @@ async function setup(pinChannel = 'none', send) {
 }
 
 const cookieFrom = response => response.headers.get('set-cookie')?.split(';')[0];
+
+test('email recipient history includes only actor-scoped submitted portal deliveries, deduplicated without verification data', async () => {
+  const { env, db } = await setup('sms');
+  const history = async actor => (await listRecipients(req('/api/recipients'), env, actor)).json();
+  assert.deepEqual((await history('owner')).email, ['recipient@example.test']);
+  assert.deepEqual((await history('other')).email, []);
+  const clone = db.prepare(`INSERT INTO portal_deliveries (id, transmission_id, actor_id, recipient, token_hash, expires_at, object_key, iv, key_id, pin_channel, pin_phone, pin_state, send_status, created_at)
+    SELECT ?, transmission_id, ?, ?, ?, expires_at, object_key, iv, key_id, pin_channel, pin_phone, pin_state, ?, ? FROM portal_deliveries WHERE id = ?`);
+  const id = db.prepare('SELECT id FROM portal_deliveries').get().id;
+  clone.run('duplicate', 'owner', 'RECIPIENT@example.test', 'hash1', 'unknown', Date.now() + 1, id);
+  clone.run('unsubmitted', 'owner', 'no-send@example.test', 'hash2', 'failed', Date.now() + 2, id);
+  clone.run('other', 'other', 'private@example.test', 'hash3', 'accepted', Date.now() + 3, id);
+  const prepared = await createTransmission(await sendRequest({ email: { email: 'pending@example.test', pinChannel: 'none' } }, await samplePdf(1)), env, 'owner');
+  assert.equal(prepared.status, 202);
+  const result = await history('owner');
+  assert.deepEqual(result.email, ['RECIPIENT@example.test']);
+  assert.equal(JSON.stringify(result).includes('+12125550100'), false);
+  assert.deepEqual((await history('other')).email, ['private@example.test']);
+});
 
 test('prepared email cannot send before explicit review and delivers the reviewed PDF', async () => {
   const messages = [];

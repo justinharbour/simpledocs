@@ -96,6 +96,7 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
           <CardHeader><CardTitle>Email</CardTitle><CardDescription>The recipient receives a single-use link that expires after seven days.</CardDescription></CardHeader>
           <CardContent class="flex flex-col gap-4">
             <div class="flex flex-col gap-1.5"><Label for="email-recipient">Recipient email</Label><Input id="email-recipient" type="email" autocomplete="email" /></div>
+            <div class="flex flex-col gap-1.5"><label for="previous-email" class="text-sm">Use a previous email recipient</label><select id="previous-email" class="border-input rounded-md border p-2"><option value="">Choose a previous recipient</option></select><p class="text-muted-foreground text-sm">Only the email address is reused. Choose phone verification separately.</p></div>
             <div class="flex flex-col gap-1.5"><label for="email-pin" class="text-sm font-medium">Additional phone verification</label><select id="email-pin" class="border-border bg-background rounded-md border p-2"><option value="none">None</option><option value="sms">SMS code</option><option value="voice">Voice call code</option></select></div>
             <div id="email-phone-fields" hidden class="flex flex-col gap-1.5"><Label for="email-phone">Recipient phone number</Label><Input id="email-phone" type="tel" autocomplete="tel" /><p class="text-muted-foreground text-sm">The recipient must agree before the automated message or call is sent.</p></div>
           </CardContent>
@@ -430,7 +431,7 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
       const count = new Set(faxNumbers().map((n) => normalizePhone(n))).size;
       const pages = (pageCount() + (switchOn("cover") ? 1 : 0)) * count;
       const rate = settings.faxEstimate;
-      $("estimate").textContent = channelOn("fax") ? `${rate ? `Fax page-fee estimate: $${(pages * rate.rate).toFixed(6)} for ${pages} pages at $${rate.rate}/page. ${rate.source}${rate.url ? ` (${rate.url})` : ""}.` : "Fax page-fee estimate unavailable."} This is only a component, not a total or quote: SIP transmission, destination tariffs, taxes, retries and account pricing are excluded or unknown.${channelOn("mail") ? " Paper-mail pricing is unavailable." : ""}` : "Paper-mail pricing is unavailable; PostGrid charges may apply. This is not a quote.";
+      $("estimate").textContent = channelOn("fax") ? `${rate ? `Fax page-fee estimate: $${(pages * rate.rate).toFixed(6)} for ${pages} pages at $${rate.rate}/page. ${rate.source}${rate.url ? ` (${rate.url})` : ""}.` : "Fax page-fee estimate unavailable."} This is only a component, not a total or quote: SIP transmission, destination tariffs, taxes, retries and account pricing are excluded or unknown.${channelOn("mail") ? " Paper-mail pricing is unavailable." : ""}` : channelOn("mail") ? "Paper-mail pricing is unavailable; PostGrid charges may apply. This is not a quote." : "";
       const hint = () => { $("mode-hint").textContent = selectValue("mode") === "live" ? "A real, paid letter will be mailed." : "Nothing will be printed or mailed. Use this to check the flow."; };
       hint();
       document.querySelector('[data-select="mode"]')!.addEventListener("click", () => setTimeout(hint, 50));
@@ -506,10 +507,19 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
     document.addEventListener("click", () => setTimeout(sync, 0));
 
     api<typeof settings>("/api/settings").then((s) => { settings = s; }).catch(() => { /* defaults are fine */ });
-    api<{ fax: string[]; mail: Address[] }>("/api/recipients").then(({ fax, mail }) => {
-      const faxSelect = $<HTMLSelectElement>("previous-fax"), mailSelect = $<HTMLSelectElement>("previous-mail");
+    api<{ fax: string[]; mail: Address[]; email?: string[] }>("/api/recipients").then(({ fax, mail, email = [] }) => {
+      const faxSelect = $<HTMLSelectElement>("previous-fax"), mailSelect = $<HTMLSelectElement>("previous-mail"), emailSelect = $<HTMLSelectElement>("previous-email");
       fax.forEach((number) => faxSelect.add(new Option(number, number)));
       mail.forEach((address, index) => mailSelect.add(new Option([address.firstName, address.lastName, address.addressLine1, address.city, address.provinceOrState].filter(Boolean).join(", "), String(index))));
+      email.forEach((address) => emailSelect.add(new Option(address, address)));
+      emailSelect.addEventListener("change", () => {
+        if (!emailSelect.value) return;
+        $<HTMLInputElement>("email-recipient").value = emailSelect.value;
+        $<HTMLSelectElement>("email-pin").value = "none";
+        $<HTMLInputElement>("email-phone").value = "";
+        $("email-phone-fields").hidden = true;
+        emailSelect.value = "";
+      });
       faxSelect.addEventListener("change", () => {
         if (!faxSelect.value) return;
         const numbers = faxNumbers();

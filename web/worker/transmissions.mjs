@@ -20,6 +20,10 @@ export async function listRecipients(request, env, actor) {
   if (request.method !== 'GET') return reply({ error: 'Method not allowed' }, 405);
   if (!env.DB) return reply({ error: 'Storage unavailable' }, 503);
   const rows = await env.DB.prepare("SELECT d.channel, d.recipient, d.options_json FROM dispatches d JOIN transmissions t ON t.id = d.transmission_id WHERE t.actor_id = ? AND d.channel IN ('fax', 'mail') ORDER BY d.created_at DESC LIMIT 200").bind(actor).all();
+  // Portal deliveries are persisted at the provider's no-retry boundary; pending,
+  // preparing and failed attempts are not evidence of an email submission.
+  // Include older portal deliveries that predate email_attempts.
+  const emailRows = await env.DB.prepare("SELECT recipient FROM portal_deliveries WHERE actor_id = ? AND send_status IN ('unknown', 'accepted') ORDER BY created_at DESC LIMIT 200").bind(actor).all();
   const fax = [], mail = [], seenFax = new Set(), seenMail = new Set();
   for (const row of rows.results ?? []) {
     if (row.channel === 'fax') {
@@ -33,7 +37,13 @@ export async function listRecipients(request, env, actor) {
       } catch { /* Ignore malformed or older dispatches. */ }
     }
   }
-  return reply({ fax, mail });
+  const email = [], seenEmail = new Set();
+  for (const row of emailRows.results ?? []) {
+    const address = typeof row.recipient === 'string' ? row.recipient.trim() : '';
+    const key = address.toLowerCase();
+    if (address.length <= 254 && /^[^\s@<>\r\n]+@[^\s@<>\r\n]+\.[^\s@<>\r\n]+$/.test(address) && !seenEmail.has(key)) { seenEmail.add(key); email.push(address); }
+  }
+  return reply({ fax, mail, email });
 }
 
 async function readBounded(request) {

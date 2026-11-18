@@ -48,7 +48,7 @@ test('fax proof is actor-scoped, approval bound, and packet tampering fails clos
   assert.equal(db.prepare('SELECT status FROM dispatches WHERE id = ?').get(deliveryId).status, 'failed');
   const recipients = await (await listRecipients(new Request('https://example.test/x'), env, actor)).json();
   assert.equal(recipients.fax.length, 2);
-  assert.deepEqual(await (await listRecipients(new Request('https://example.test/x'), env, 'other')).json(), { fax: [], mail: [] });
+  assert.deepEqual(await (await listRecipients(new Request('https://example.test/x'), env, 'other')).json(), { fax: [], mail: [], email: [] });
 });
 
 for (const headers of [false, true]) test(`ordered fax and mail payloads ${headers ? 'with' : 'without'} page headers`, async () => {
