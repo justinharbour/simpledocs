@@ -14,6 +14,8 @@ export type Delivery = {
 };
 export type Detail = {
   id: string;
+  envelopeNumber?: string | null;
+  documents?: { position: number; number: string; name: string; pageCount: number }[];
   title: string;
   pageCount: number;
   createdAt: string;
@@ -78,6 +80,14 @@ function info(detail: Detail): DocumentFragment {
   const head = h("div", "flex flex-wrap items-baseline justify-between gap-2");
   head.append(h("h3", "text-lg font-semibold", detail.title), h("span", "text-muted-foreground text-sm", `${detail.pageCount} ${detail.pageCount === 1 ? "page" : "pages"}`));
   frag.append(head, h("p", "text-muted-foreground mt-1 text-sm", `Created ${when(detail.createdAt)} · last change ${when(detail.updatedAt)}`));
+  if (detail.envelopeNumber) {
+    frag.append(h("p", "mt-3 text-sm font-medium", `Envelope ${detail.envelopeNumber}`));
+    const documents = h("ol", "mt-1 flex list-decimal flex-col gap-1 pl-5 text-sm");
+    for (const doc of detail.documents ?? []) {
+      documents.append(h("li", "break-all", `${doc.number} · ${doc.name} (${doc.pageCount} ${doc.pageCount === 1 ? "page" : "pages"})`));
+    }
+    frag.append(documents);
+  }
   const list = h("div", "mt-4 flex flex-col gap-3");
   for (const delivery of detail.deliveries) list.append(row(delivery));
   frag.append(list);

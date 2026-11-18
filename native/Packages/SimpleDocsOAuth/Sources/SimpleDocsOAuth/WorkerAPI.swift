@@ -71,13 +71,23 @@ public actor WorkerAPI {
     }
 
     public func createTransmission(pdf: Data, filename: String, spec: Data) async throws -> CreatedTransmission {
+        try await createTransmission(documents: [(data: pdf, name: filename)], spec: spec)
+    }
+
+    public func createTransmission(documents: [(data: Data, name: String)], spec: Data, numberDocumentPages: Bool = false, numberFaxCover: Bool = false) async throws -> CreatedTransmission {
         let boundary = "simpledocs-" + UUID().uuidString
         var body = Data()
         func add(_ text: String) { body.append(Data(text.utf8)) }
-        let safeName = filename.filter { $0 != "\"" && $0 != "\r" && $0 != "\n" }
-        add("--\(boundary)\r\nContent-Disposition: form-data; name=\"document\"; filename=\"\(safeName)\"\r\nContent-Type: application/pdf\r\n\r\n")
-        body.append(pdf)
-        add("\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"spec\"\r\nContent-Type: application/json\r\n\r\n")
+        // Older Workers must reject unsupported requests, not silently send
+        // a subset or omit requested page or fax cover numbers.
+        let field = numberDocumentPages ? "numberedDocuments" : documents.count == 1 && !numberFaxCover ? "document" : "documents"
+        for document in documents {
+            let safeName = document.name.filter { $0 != "\"" && $0 != "\\" && !$0.isNewline && ($0.asciiValue.map { $0 >= 32 && $0 < 127 } ?? true) }
+            add("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(field)\"; filename=\"\(safeName.isEmpty ? "document.pdf" : safeName)\"\r\nContent-Type: application/pdf\r\n\r\n")
+            body.append(document.data)
+            add("\r\n")
+        }
+        add("--\(boundary)\r\nContent-Disposition: form-data; name=\"spec\"\r\nContent-Type: application/json\r\n\r\n")
         body.append(spec)
         add("\r\n--\(boundary)--\r\n")
         let data = try await send("POST", "/api/transmissions", body: body, contentType: "multipart/form-data; boundary=\(boundary)")
