@@ -3,8 +3,9 @@ import { PORTAL_PATHS } from './portal-paths.mjs';
 
 const recipientHost = 'simpledocs.justinharbour.com';
 const legacyHost = 'simpledocs.justinharbour.dev';
-const { CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, PORTAL_KEY, TELNYX_API_TOKEN, TELNYX_VERIFY_PROFILE_ID } = process.env;
+const { CLOUDFLARE_API_TOKEN, CLOUDFLARE_EMAIL_READ_TOKEN, CLOUDFLARE_ACCOUNT_ID, PORTAL_KEY, TELNYX_API_TOKEN, TELNYX_VERIFY_PROFILE_ID } = process.env;
 if (!CLOUDFLARE_API_TOKEN || !CLOUDFLARE_ACCOUNT_ID) throw Error('Missing Cloudflare deploy credentials');
+if (!CLOUDFLARE_EMAIL_READ_TOKEN) throw Error('Configure the dedicated CLOUDFLARE_EMAIL_READ_TOKEN repository secret with Email Sending Read on the Simpledocs Cloudflare account');
 await importPortalKey(PORTAL_KEY).catch(() => { throw Error('Configure the dedicated PORTAL_KEY repository secret: 32 random bytes encoded as base64url'); });
 if (process.env.PORTAL_PREVIOUS_KEY) await importPortalKey(process.env.PORTAL_PREVIOUS_KEY).catch(() => { throw Error('Invalid optional PORTAL_PREVIOUS_KEY'); });
 if (!TELNYX_API_TOKEN || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(TELNYX_VERIFY_PROFILE_ID ?? '')) throw Error('Configure the dedicated Simpledocs TELNYX_VERIFY_PROFILE_ID and TELNYX_API_TOKEN');
@@ -21,14 +22,14 @@ const usCanadaOnly = channel => [...new Set(channel?.whitelisted_destinations)].
 if (verify.data?.id !== TELNYX_VERIFY_PROFILE_ID || !/^Simpledocs\b/i.test(verify.data.name ?? '') || verify.data.daily_spend_limit_enabled !== true || !(Number(verify.data.daily_spend_limit) > 0) || verify.data.webhook_url || verify.data.webhook_failover_url || !usCanadaOnly(verify.data.sms) || !usCanadaOnly(verify.data.call)) {
   throw Error('Verify requires a dedicated Simpledocs profile with a daily spend cap, US/Canada destinations only, and no external webhook');
 }
-const limits = (await cf('/email/sending/limits')).result;
+const limits = (await get(`${account}/email/sending/limits`, CLOUDFLARE_EMAIL_READ_TOKEN)).result;
 if (limits?.recipient_mode !== 'arbitrary' || limits.usage?.over_quota !== false) throw Error('Cloudflare Email Sending needs arbitrary-recipient mode and available quota');
 const root = 'https://api.cloudflare.com/client/v4/zones';
 const zones = (await cf(`${root}?name=justinharbour.com&account.id=${CLOUDFLARE_ACCOUNT_ID}`)).result;
 if (zones?.length !== 1) throw Error('Could not verify the sender zone');
 const sending = `${root}/${zones[0].id}/email/sending/subdomains`;
-const domain = (await cf(sending)).result?.find(x => x.name === 'mail.justinharbour.com' && x.enabled === true);
-if (!domain || (await cf(`${sending}/${domain.id}/dns/status`)).result?.status !== 'ready') throw Error('Configure and verify Email Sending DNS for mail.justinharbour.com');
+const domain = (await get(sending, CLOUDFLARE_EMAIL_READ_TOKEN)).result?.find(x => x.name === 'mail.justinharbour.com' && x.enabled === true);
+if (!domain || (await get(`${sending}/${domain.id}/dns/status`, CLOUDFLARE_EMAIL_READ_TOKEN)).result?.status !== 'ready') throw Error('Configure and verify Email Sending DNS for mail.justinharbour.com');
 
 const apps = [];
 let response, page = 1;

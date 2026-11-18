@@ -37,7 +37,12 @@ so older Workers reject the whole request instead of silently dropping email.
    spend cap, US/Canada destinations only, and no external webhook. Do not reuse
    CommCenter profiles. Review recipient consent wording. Verify metadata
    with a read-only profile GET; do not initiate a verification as a smoke test.
-5. Promote through `develop` and `main`. The production workflow performs
+5. Store `CLOUDFLARE_EMAIL_READ_TOKEN` as an Actions repository secret. Create
+   a separate Cloudflare API token with **Email Sending Read**, scoped to the
+   Simpledocs account. This is only for quota, sender subdomain and DNS status
+   checks. The existing deploy token still handles zone lookup, Access and
+   Wrangler; do not grant the email token write access or replace the deploy token.
+6. Promote through `develop` and `main`. The production workflow performs
    read-only provider and Access preflight before migration or deploy, then
    records non-sending edge checks. Verify migration history and Worker bindings.
    End-to-end delivery testing requires separate permission for each real send.
