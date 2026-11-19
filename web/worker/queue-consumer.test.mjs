@@ -217,3 +217,64 @@ test('approval still succeeds when the queue is down; the cron picks the row up'
   await approveTestFax(ctx.env, actor, id, deliveries[0].id);
   assert.equal(ctx.db.prepare("SELECT status FROM dispatches").get().status, 'queued');
 });
+
+async function approvedCertified(mailingClass) {
+  const ctx = makeEnv();
+  const { id, deliveries } = await (await createTransmission(await sendRequest({ mail: { to: address, from: address, mailingClass } }, await samplePdf(1)), ctx.env, actor)).json();
+  const mailId = deliveries[0].id;
+  const review = await (await reviewMail(new Request('https://example.test/x?mode=test'), ctx.env, actor, id, mailId)).json();
+  assert.equal(review.summary.mailingClass, mailingClass, 'the class is part of the reviewed summary');
+  await approveMail(jsonRequest('/x', { confirmed: true, mode: 'test', reviewHash: review.reviewHash }), ctx.env, actor, id, mailId);
+  return { ...ctx, id, mailId, body: { transmissionId: id, channel: 'mail', deliveryId: mailId } };
+}
+const trackedLetter = (extra = {}) => ({ id: 'letter_abc123', status: 'completed', trackingNumber: '9407111899223197428490', url: 'https://signed.example/preview.pdf',
+  statusEvents: [{ status: 'ready', date: '2026-11-01T00:00:00Z' }, { status: 'completed', date: '2026-11-03T00:00:00Z' }],
+  imbStatus: 'entered_mail_stream', imbDate: '2026-11-04T00:00:00Z', imbZIPCode: '78701', imbEvents: [{ status: 'entered_mail_stream', date: '2026-11-04T00:00:00Z', zipCode: '78701', scanCode: 'SD' }], ...extra });
+
+test('mail: certified return receipt is sent as that mailing class and its tracking is stored with an R2 snapshot', async () => {
+  const { env, db, objects, body, mailId, id } = await approvedCertified('certified_return_receipt');
+  const calls = [];
+  let letter = { id: 'letter_abc123', status: 'ready' };
+  const fetcher = async (url, init = {}) => {
+    calls.push({ method: init.method ?? 'GET', body: init.body });
+    if ((init.method ?? 'GET') === 'POST') return new Response(JSON.stringify({ object: 'letter', id: 'letter_abc123' }), { status: 201 });
+    return new Response(JSON.stringify(letter));
+  };
+  await processDelivery(env, body, 1, fetcher);
+  assert.equal(calls.find(c => c.method === 'POST').body.get('mailingClass'), 'certified_return_receipt');
+  letter = trackedLetter();
+  const detail = await (await getTransmission(env, actor, id, fetcher)).json();
+  const tracking = detail.deliveries[0].tracking;
+  assert.equal(detail.deliveries[0].status, 'completed');
+  assert.equal(tracking.trackingNumber, '9407111899223197428490');
+  assert.match(tracking.trackingUrl, /tools\.usps\.com.*9407111899223197428490/);
+  assert.equal(tracking.returnReceiptRequested, true);
+  assert.equal(tracking.returnReceipt, null);
+  assert.equal(tracking.imbEvents[0].zipCode, '78701');
+  assert.equal(tracking.statusEvents.length, 2);
+  const snapshots = [...objects.keys()].filter(k => k.startsWith(`outbound/${id}/mail/${mailId}/tracking/`));
+  assert.ok(snapshots.length >= 1);
+  const stored = JSON.parse(new TextDecoder().decode(objects.get(snapshots.at(-1))));
+  assert.equal(stored.letter.trackingNumber, '9407111899223197428490');
+  assert.equal(stored.letter.url, undefined, 'the expiring preview link is not stored');
+  assert.equal(db.prepare('SELECT tracking_number FROM mail_tracking WHERE delivery_id = ?').get(mailId).tracking_number, '9407111899223197428490');
+});
+
+test('mail: cron keeps polling completed letters for later USPS scans, without rewriting unchanged snapshots', async () => {
+  const { env, db, objects, body, mailId, id } = await approvedCertified('certified');
+  let letter = { id: 'letter_abc123', status: 'completed' };
+  const fetcher = async (url, init = {}) => (init.method ?? 'GET') === 'POST' ? new Response(JSON.stringify({ object: 'letter', id: 'letter_abc123' }), { status: 201 }) : new Response(JSON.stringify(letter));
+  await processDelivery(env, body, 1, fetcher);
+  await getTransmission(env, actor, id, fetcher);
+  assert.equal(db.prepare('SELECT status FROM dispatches WHERE id = ?').get(mailId).status, 'completed');
+  letter = trackedLetter({ imbStatus: 'out_for_delivery', imbDate: '2026-11-05T00:00:00Z' });
+  const later = Date.now() + 7 * 60 * 60 * 1000;
+  await reconcileDeliveries(env, fetcher, later);
+  const row = db.prepare('SELECT tracking_number, imb_status FROM mail_tracking WHERE delivery_id = ?').get(mailId);
+  assert.deepEqual({ ...row }, { tracking_number: '9407111899223197428490', imb_status: 'out_for_delivery' });
+  const count = () => [...objects.keys()].filter(k => k.includes('/tracking/')).length;
+  const before = count();
+  db.prepare("UPDATE mail_tracking SET checked_at = '2000-01-01T00:00:00.000Z' WHERE delivery_id = ?").run(mailId);
+  await reconcileDeliveries(env, fetcher, later + 1000);
+  assert.equal(count(), before, 'unchanged tracking is not snapshotted again');
+});

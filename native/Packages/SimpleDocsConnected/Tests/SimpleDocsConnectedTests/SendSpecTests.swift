@@ -106,14 +106,14 @@ import Testing
         var draft = SendDraft()
         draft.channels = .mail
         draft.title = "Letter"
-        draft.firstClass = false
+        draft.mailClass = .certifiedReturnReceipt
         draft.color = true
         address(&draft)
         let object = try #require(JSONSerialization.jsonObject(with: draft.spec(fallbackTitle: "x")) as? [String: Any])
         #expect(object["fax"] == nil)
         #expect(object["title"] as? String == "Letter")
         let mail = try #require(object["mail"] as? [String: Any])
-        #expect(mail["mailingClass"] as? String == "standard_class")
+        #expect(mail["mailingClass"] as? String == "certified_return_receipt")
         #expect(mail["color"] as? Bool == true && mail["doubleSided"] as? Bool == false)
         #expect((mail["to"] as? [String: Any])?["countryCode"] as? String == "US")
     }

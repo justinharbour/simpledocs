@@ -1,5 +1,5 @@
 import { alert } from "@/components/starwind/alert/variants";
-import { api, channelLabels, h, isTerminal, postJson, statusBadge, statusLabel, when } from "@/lib/ui";
+import { api, channelLabels, h, isTerminal, mailClassLabels, postJson, statusBadge, statusLabel, when } from "@/lib/ui";
 
 export type Delivery = {
   id: string;
@@ -12,6 +12,20 @@ export type Delivery = {
   coverUrl: string | null;
   canRevoke?: boolean;
   timeline: { at: string; status: string; detail: string | null }[];
+  tracking?: Tracking | null;
+};
+export type Tracking = {
+  mailingClass: string | null;
+  trackingNumber: string | null;
+  trackingUrl: string | null;
+  imbStatus: string | null;
+  imbDate: string | null;
+  imbZIPCode: string | null;
+  statusEvents: { status: string; date: string }[];
+  imbEvents: { status: string; date: string; zipCode: string | null; scanCode: string | null }[];
+  checkedAt: string | null;
+  returnReceiptRequested: boolean;
+  returnReceipt: { url: string; sha256: string; uploadedAt: string } | null;
 };
 export type Detail = {
   id: string;
@@ -47,13 +61,57 @@ function timeline(delivery: Delivery): HTMLElement {
   return list;
 }
 
+const scanLabels: Record<string, string> = { entered_mail_stream: "Entered the mail stream", out_for_delivery: "Out for delivery", returned_to_sender: "Returned to sender" };
+
+function tracking(t: Tracking, transmissionId: string, deliveryId: string, refresh: () => void): HTMLElement {
+  const box = h("div", "border-border mt-3 flex flex-col gap-2 rounded-md border p-3 text-sm");
+  box.append(h("p", "font-medium", mailClassLabels[t.mailingClass ?? ""] ? `Sent as ${mailClassLabels[t.mailingClass ?? ""]}` : "Mail tracking"));
+  if (t.trackingNumber) {
+    const line = h("p", "", "USPS tracking number: ");
+    const link = h("a", "break-all underline underline-offset-4", t.trackingNumber);
+    link.href = t.trackingUrl ?? "#"; link.target = "_blank"; link.rel = "noopener";
+    line.append(link);
+    box.append(line);
+  } else box.append(h("p", "text-muted-foreground", "PostGrid adds the tracking number after the letter is processed for delivery."));
+  if (t.imbStatus) box.append(h("p", "", `Latest USPS scan: ${scanLabels[t.imbStatus] ?? t.imbStatus}${t.imbZIPCode ? ` at ZIP ${t.imbZIPCode}` : ""}${t.imbDate ? `, ${when(t.imbDate)}` : ""}`));
+  if (t.imbEvents.length) {
+    const list = h("ol", "text-muted-foreground flex flex-col gap-1 pl-4 text-xs");
+    for (const e of t.imbEvents) list.append(h("li", "", `${scanLabels[e.status] ?? e.status}${e.zipCode ? ` · ZIP ${e.zipCode}` : ""} · ${when(e.date)}`));
+    box.append(list);
+  }
+  if (t.checkedAt) box.append(h("p", "text-muted-foreground text-xs", `Checked with PostGrid ${when(t.checkedAt)}`));
+  if (t.returnReceipt) {
+    const link = h("a", "underline underline-offset-4", "View return receipt");
+    link.href = t.returnReceipt.url; link.target = "_blank"; link.rel = "noopener";
+    box.append(link, h("p", "text-muted-foreground text-xs break-all", `Attached ${when(t.returnReceipt.uploadedAt)} · SHA-256 ${t.returnReceipt.sha256}`));
+  }
+  if (t.returnReceiptRequested || t.returnReceipt) {
+    if (!t.returnReceipt) box.append(h("p", "text-muted-foreground", "USPS emails the signed return receipt to the sender. Attach that PDF here to keep it with this record."));
+    const label = h("label", "flex flex-col gap-1", t.returnReceipt ? "Replace the return receipt PDF" : "Attach the return receipt PDF");
+    const input = h("input", "text-sm"); input.type = "file"; input.accept = "application/pdf";
+    const result = h("p", "text-sm"); result.setAttribute("role", "status");
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      input.disabled = true;
+      try {
+        await api(`/api/transmissions/${transmissionId}/mail/${deliveryId}/receipt`, { method: "PUT", body: file, headers: { "content-type": "application/pdf" } });
+        refresh();
+      } catch (error) { result.textContent = error instanceof Error ? error.message : "Could not attach the receipt."; input.disabled = false; }
+    };
+    label.append(input);
+    box.append(label, result);
+  }
+  return box;
+}
+
 function note(delivery: Delivery): string {
   if (delivery.needsApproval) return delivery.channel === "fax" ? "This fax has not been approved or sent. Start again from Send to review a new proof." : "This letter was not confirmed, so nothing was mailed. Start again from Send.";
   if (delivery.status === "queued") return "Waiting its turn. It has not been sent yet.";
   if (delivery.status === "accepted" && delivery.channel === "fax") return "Telnyx has the fax. It is not delivered until the receiving machine confirms.";
   if (delivery.status === "accepted" && delivery.channel === "email") return "Email accepted for sending; delivery is not confirmed.";
   if (delivery.status === "accepted") return "PostGrid has the letter. It is not printed or mailed yet.";
-  if (delivery.status === "completed") return "PostGrid reports the letter as completed. That is not a delivery confirmation.";
+  if (delivery.status === "completed") return delivery.tracking?.trackingNumber ? "PostGrid reports the letter as completed. Use the USPS tracking number for delivery." : "PostGrid reports the letter as completed. That is not a delivery confirmation.";
   return "";
 }
 
@@ -86,6 +144,7 @@ function row(delivery: Delivery, transmissionId: string, refresh: () => void): H
     };
     card.append(revoke, result);
   }
+  if (delivery.tracking) card.append(tracking(delivery.tracking, transmissionId, delivery.id, refresh));
   card.append(timeline(delivery));
   return card;
 }

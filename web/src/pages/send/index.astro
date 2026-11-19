@@ -167,6 +167,10 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
                   <SelectContent>
                     <SelectItem value="first_class">First class</SelectItem>
                     <SelectItem value="standard_class">Standard class (slower, cheaper)</SelectItem>
+                    <SelectItem value="certified">Certified (USPS tracking)</SelectItem>
+                    <SelectItem value="certified_return_receipt">Certified with return receipt (signature)</SelectItem>
+                    <SelectItem value="registered">Registered (USPS tracking)</SelectItem>
+                    <SelectItem value="usps_express_3_day">Priority Mail (USPS tracking)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -224,7 +228,7 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
 
   <script>
     import { normalizePhone } from "@/lib/phone";
-    import { api, formatBytes, h, postJson, toast } from "@/lib/ui";
+    import { api, formatBytes, h, mailClassLabels, postJson, toast } from "@/lib/ui";
     import { MAX_DOCUMENTS, MAX_DOCUMENT_BYTES, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs";
     import { renderDocumentOrder } from "@/lib/document-order";
 
@@ -426,7 +430,7 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
         const to = readAddress("to"), from = readAddress("from");
         const lines = (a: Address) => [`${a.firstName} ${a.lastName ?? ""}`.trim(), a.addressLine1, a.addressLine2, `${a.city}, ${a.provinceOrState} ${a.postalOrZip}`].filter(Boolean).join("\n");
         add("Mail to", lines(to)); add("Return address", lines(from));
-        add("Print", `${switchOn("color") ? "Color" : "Black and white"}, ${switchOn("duplex") ? "both sides" : "one side"}, ${selectValue("class") === "standard_class" ? "standard class" : "first class"}`);
+        add("Print", `${switchOn("color") ? "Color" : "Black and white"}, ${switchOn("duplex") ? "both sides" : "one side"}, ${mailClassLabels[selectValue("class") || "first_class"] ?? "first class"}`);
       }
       const count = new Set(faxNumbers().map((n) => normalizePhone(n))).size;
       const pages = (pageCount() + (switchOn("cover") ? 1 : 0)) * count;
@@ -480,7 +484,7 @@ import { MAX_DOCUMENTS, MAX_DOCUMENT_PAGES } from "../../../shared/envelope.mjs"
               const review = await api<{ reviewHash: string; available: boolean; notice: string; summary: { to: Address; from: Address; color: boolean; doubleSided: boolean; mailingClass: string } }>(`${base}/review?mode=${mode}`);
               status.textContent = `${mode === "live" ? "Live mail (paid)" : "Test mail (not mailed)"}. ${review.notice} Physical output is not guaranteed.`;
               const address = (a: Address) => [a.firstName, a.lastName, a.addressLine1, a.addressLine2, a.city, a.provinceOrState, a.postalOrZip, a.countryCode].filter(Boolean).join(", ");
-              card.append(h("p", "mt-2 whitespace-pre-line text-sm", `To: ${address(review.summary.to)}\nReturn: ${address(review.summary.from)}\n${review.summary.color ? "Color" : "Black and white"}; ${review.summary.doubleSided ? "double-sided" : "single-sided"}; ${review.summary.mailingClass}`));
+              card.append(h("p", "mt-2 whitespace-pre-line text-sm", `To: ${address(review.summary.to)}\nReturn: ${address(review.summary.from)}\n${review.summary.color ? "Color" : "Black and white"}; ${review.summary.doubleSided ? "double-sided" : "single-sided"}; ${mailClassLabels[review.summary.mailingClass] ?? review.summary.mailingClass}`));
               const frame = h("iframe", "border-border mt-3 h-[32rem] w-full rounded-lg border"); frame.src = `/api/transmissions/${created.id}/document`; frame.title = "Paper mail document proof"; card.append(frame);
               const button = h("button", "mt-3 rounded border px-4 py-2", "Approve and send this letter"); button.type = "button"; button.disabled = !review.available; card.append(button);
               if (!review.available) status.textContent += " This mail mode is unavailable.";

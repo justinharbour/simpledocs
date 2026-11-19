@@ -220,6 +220,10 @@ import SimpleDocsConnected
     public func cover(_ delivery: DeliveryDetail) -> RemoteFile? {
         delivery.coverUrl.map { cached($0, name: "Cover page.pdf") }
     }
+
+    public func receipt(_ delivery: DeliveryDetail) -> RemoteFile? {
+        delivery.tracking?.returnReceipt.map { cached($0.url, name: "Return receipt.pdf") }
+    }
 }
 
 @MainActor @Observable public final class CallsModel {

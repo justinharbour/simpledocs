@@ -1,6 +1,7 @@
 import { formatDocumentNumber, formatEnvelopeNumber, MAX_DOCUMENT_BYTES, MAX_DOCUMENTS } from '../shared/envelope.mjs';
 import { buildCoverPage, prependCover, DEFAULT_FROM_NUMBER, DEFAULT_SENDER_NAME } from './cover-page.mjs';
-import { enqueue, isTerminal, mailReviewHash, mark, refreshDelivery, sha256Hex, UUID } from './deliveries.mjs';
+import { enqueue, isTerminal, mailReviewHash, mark, refreshDelivery, refreshMailTracking, sha256Hex, UUID } from './deliveries.mjs';
+import { MAIL_CLASSES, trackingView } from './mail-tracking.mjs';
 import { assembleEnvelope } from './envelope-pdf.mjs';
 import { contact, mailApiKey } from './mail-send.mjs';
 import { normalizePhone } from './phone.mjs';
@@ -170,7 +171,8 @@ export async function createTransmission(request, env, actor) {
     } catch { return reply({ error: 'Check the mailing and return addresses (US addresses only)' }, 400); }
     mail.color = spec.mail.color === true;
     mail.doubleSided = spec.mail.doubleSided === true;
-    mail.mailingClass = spec.mail.mailingClass === 'standard_class' ? 'standard_class' : 'first_class';
+    mail.mailingClass = spec.mail.mailingClass ?? 'first_class';
+    if (!MAIL_CLASSES.includes(mail.mailingClass)) return reply({ error: 'Choose a supported mailing class' }, 400);
   }
   if (!faxNumbers.length && !mail && !spec.email) return reply({ error: 'Choose at least one way to send' }, 400);
 
@@ -249,13 +251,14 @@ export async function createTransmission(request, env, actor) {
   return reply({ id, envelopeNumber, documents: manifest, deliveries: created }, 202);
 }
 
-const deliveryView = (row, transmissionId, timeline) => ({
+const deliveryView = (row, transmissionId, timeline, track = null) => ({
   id: row.id, channel: row.channel, recipient: row.recipient, status: row.status, providerStatus: row.provider_status, error: row.error,
   createdAt: row.created_at, updatedAt: row.updated_at, submittedAt: row.submitted_at, finishedAt: row.finished_at,
   needsApproval: row.status === 'awaiting_approval',
   coverUrl: row.channel === 'fax' && JSON.parse(row.options_json).coverKey ? `/api/transmissions/${transmissionId}/cover/${row.id}` : null,
   packetUrl: row.channel === 'fax' && JSON.parse(row.options_json).packetKey ? `/api/transmissions/${transmissionId}/packet/${row.id}` : null,
   timeline,
+  ...(row.channel === 'mail' ? { tracking: trackingView(row, track, transmissionId) } : {}),
 });
 
 export async function listTransmissions(env, actor) {
@@ -286,7 +289,13 @@ export async function getTransmission(env, actor, id, fetcher = fetch) {
   const deliveries = [];
   for (const row of rows) {
     const timeline = (await env.DB.prepare('SELECT at, status, detail FROM timeline WHERE delivery_id = ? ORDER BY id').bind(row.id).all()).results ?? [];
-    deliveries.push(deliveryView(row, id, timeline));
+    let track = row.channel === 'mail' ? await env.DB.prepare('SELECT * FROM mail_tracking WHERE delivery_id = ?').bind(row.id).first() : null;
+    // A completed letter keeps collecting tracking; opening the record checks at most every 15 minutes.
+    if (row.channel === 'mail' && row.status === 'completed' && (!track?.checked_at || Date.now() - Date.parse(track.checked_at) > 15 * 60 * 1000)) {
+      await refreshMailTracking(env, row, fetcher);
+      track = await env.DB.prepare('SELECT * FROM mail_tracking WHERE delivery_id = ?').bind(row.id).first();
+    }
+    deliveries.push(deliveryView(row, id, timeline, track));
   }
   const emails = await env.DB.prepare('SELECT a.delivery_id, a.recipient, a.status, a.error, a.created_at, p.revoked_at, p.expires_at FROM email_attempts a LEFT JOIN portal_deliveries p ON p.id = a.delivery_id WHERE a.transmission_id = ? AND a.actor_id = ?').bind(id, actor).all();
   for (const email of emails.results ?? []) deliveries.push({ id: email.delivery_id ?? id, channel: 'email', recipient: email.recipient, status: email.revoked_at ? 'revoked' : ['preparing', 'pending'].includes(email.status) ? 'unknown' : email.status, canRevoke: !!(email.delivery_id && !email.revoked_at && email.expires_at > Date.now()), providerStatus: null, error: email.error, createdAt: new Date(email.created_at).toISOString(), updatedAt: new Date(email.created_at).toISOString(), submittedAt: null, finishedAt: null, needsApproval: false, coverUrl: null, timeline: [] });
@@ -426,6 +435,36 @@ export async function approveMail(request, env, actor, id, deliveryId) {
   await mark(env, deliveryId, 'queued', { providerStatus: body.mode === 'test' ? 'test mode' : 'live mode' });
   await enqueue(env, id, 'mail', deliveryId);
   return reply({ id: deliveryId, status: 'queued' }, 202);
+}
+
+const MAX_RECEIPT_BYTES = 10 * 1024 * 1024;
+
+// USPS sends the electronic return receipt (PS Form 3811 signature record) to the
+// sender by email; PostGrid's API does not return it. The owner attaches that PDF here.
+export async function handleMailReceipt(request, env, actor, id, deliveryId) {
+  if (!env.DB || !env.FILES) return reply({ error: 'Storage unavailable' }, 503);
+  if (!UUID.test(id) || !UUID.test(deliveryId)) return reply({ error: 'Not found' }, 404);
+  const row = await env.DB.prepare("SELECT d.id, d.options_json, d.status FROM dispatches d JOIN transmissions t ON t.id = d.transmission_id WHERE d.id = ? AND d.transmission_id = ? AND t.actor_id = ? AND d.channel = 'mail'").bind(deliveryId, id, actor).first();
+  if (!row) return reply({ error: 'Not found' }, 404);
+  const track = await env.DB.prepare('SELECT receipt_key FROM mail_tracking WHERE delivery_id = ?').bind(deliveryId).first();
+  if (request.method === 'GET') return track?.receipt_key ? pdfResponse(env, track.receipt_key, 'return-receipt.pdf') : reply({ error: 'Not found' }, 404);
+  if (request.method !== 'PUT') return reply({ error: 'Method not allowed' }, 405);
+  if (!sameOrigin(request)) return reply({ error: 'Invalid origin' }, 403);
+  if (!['accepted', 'completed'].includes(row.status)) return reply({ error: 'Attach a receipt after the letter is mailed' }, 409);
+  const length = Number(request.headers.get('content-length') ?? 0);
+  if (length > MAX_RECEIPT_BYTES) return reply({ error: 'The receipt PDF exceeds 10 MB' }, 413);
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (!bytes.byteLength || bytes.byteLength > MAX_RECEIPT_BYTES) return reply({ error: 'Upload the return receipt PDF (up to 10 MB)' }, 400);
+  if (new TextDecoder().decode(bytes.slice(0, 5)) !== '%PDF-') return reply({ error: 'The return receipt must be a PDF' }, 400);
+  const now = new Date().toISOString();
+  const sha = await sha256Hex(bytes);
+  // Each upload is kept; the record points at the latest one.
+  const key = `outbound/${id}/mail/${deliveryId}/receipt/${now}-${sha.slice(0, 12)}.pdf`;
+  await env.FILES.put(key, bytes, { httpMetadata: { contentType: 'application/pdf' } });
+  await env.DB.prepare('INSERT INTO mail_tracking (delivery_id, receipt_key, receipt_sha256, receipt_uploaded_at) VALUES (?, ?, ?, ?) ON CONFLICT(delivery_id) DO UPDATE SET receipt_key = excluded.receipt_key, receipt_sha256 = excluded.receipt_sha256, receipt_uploaded_at = excluded.receipt_uploaded_at').bind(deliveryId, key, sha, now).run();
+  await env.DB.prepare('INSERT INTO timeline (delivery_id, at, status, detail) VALUES (?, ?, ?, ?)').bind(deliveryId, now, row.status, 'Return receipt attached').run();
+  await env.DB.prepare('UPDATE transmissions SET updated_at = ? WHERE id = ?').bind(now, id).run();
+  return reply({ sha256: sha, uploadedAt: now, url: `/api/transmissions/${id}/mail/${deliveryId}/receipt` }, 201);
 }
 
 export async function listRecords(env, actor, { inboundAllowed, voiceAllowed }) {

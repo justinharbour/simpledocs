@@ -20,6 +20,10 @@ const statuses: Record<string, { label: string; variant: BadgeVariant }> = {
   unheard: { label: "New", variant: "info" },
 };
 
+export const mailClassLabels: Record<string, string> = {
+  first_class: "first class", standard_class: "standard class", certified: "certified mail", certified_return_receipt: "certified mail with return receipt",
+  registered: "registered mail", usps_express_3_day: "Priority Mail",
+};
 export const channelLabels: Record<string, string> = { fax: "Fax", mail: "Paper mail", email: "Email", voice: "Voicemail" };
 export const isTerminal = (status: string) => ["delivered", "completed", "failed"].includes(status);
 export const statusLabel = (status: string) => statuses[status]?.label ?? status;
