@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.0](https://github.com/justinharbour/simpledocs/compare/native-v1.2.0...native-v1.3.0) (2026-11-19)
+
+
+### Features
+
+* **mail:** certified, return receipt, registered and Priority Mail with stored tracking and return receipts ([6d5f18e](https://github.com/justinharbour/simpledocs/commit/6d5f18ef7bc3bd501c2d13984d021ae8117556b7))
+* **mail:** certified, return receipt, registered and Priority Mail with stored tracking and return receipts ([0c5582d](https://github.com/justinharbour/simpledocs/commit/0c5582db4123868c81f9af267b4231b1edaf1a58))
+
 ## [1.2.0](https://github.com/justinharbour/simpledocs/compare/native-v1.1.0...native-v1.2.0) (2026-11-18)
 
 
