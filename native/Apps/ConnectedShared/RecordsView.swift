@@ -151,8 +151,36 @@ struct TransmissionView: View {
                 .accessibilityElement(children: .combine)
             }
             if let cover = model.cover(delivery) { DocumentRow(file: cover) }
+            if let tracking = delivery.tracking { trackingRows(tracking, delivery: delivery) }
         } header: {
             Text("\(DeliveryStatus.channelLabel(delivery.channel)) · \(delivery.channel == "fax" ? PhoneNumber.display(delivery.recipient) : delivery.recipient)")
+        }
+    }
+
+    @ViewBuilder private func trackingRows(_ tracking: MailTracking, delivery: DeliveryDetail) -> some View {
+        if let raw = tracking.mailingClass { LabeledContent("Sent as", value: MailClass.label(raw)) }
+        if let number = tracking.trackingNumber {
+            if let link = tracking.trackingUrl.flatMap(URL.init(string:)) {
+                Link(destination: link) { LabeledContent("USPS tracking", value: number) }
+            } else {
+                LabeledContent("USPS tracking", value: number)
+            }
+        } else {
+            Text("PostGrid adds the tracking number after the letter is processed for delivery.").font(.footnote).foregroundStyle(.secondary)
+        }
+        ForEach(Array(tracking.imbEvents.enumerated()), id: \.offset) { _, scan in
+            HStack(alignment: .firstTextBaseline) {
+                Text(MailTracking.scanLabel(scan.status)).font(.callout)
+                if let zip = scan.zipCode { Text("ZIP \(zip)").font(.caption).foregroundStyle(.secondary) }
+                Spacer()
+                if let date = WorkerDate.parse(scan.date) { Text(date.short).font(.caption).foregroundStyle(.secondary) }
+            }
+            .accessibilityElement(children: .combine)
+        }
+        if let file = model.receipt(delivery) {
+            DocumentRow(file: file)
+        } else if tracking.returnReceiptRequested {
+            Text("USPS emails the signed return receipt to the sender. Attach it to this record from the web app.").font(.footnote).foregroundStyle(.secondary)
         }
     }
 
@@ -210,7 +238,7 @@ struct TransmissionView: View {
                     LabeledContent("To", value: summary.to.oneLine)
                     LabeledContent("From", value: summary.from.oneLine)
                     LabeledContent("Print", value: "\(summary.color ? "Color" : "Black and white"), \(summary.doubleSided ? "double-sided" : "single-sided")")
-                    LabeledContent("Mail class", value: summary.mailingClass)
+                    LabeledContent("Mail class", value: MailClass.label(summary.mailingClass))
                 } else {
                     Text("This instance did not return its server-side address and print summary. Review the record and document before confirming.").font(.footnote)
                 }

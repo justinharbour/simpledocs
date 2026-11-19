@@ -149,7 +149,9 @@ struct SendView: View {
                 Section("Letter") {
                     Toggle("Color", isOn: $model.draft.color)
                     Toggle("Print on both sides", isOn: $model.draft.doubleSided)
-                    Toggle("First class", isOn: $model.draft.firstClass)
+                    Picker("Mailing class", selection: $model.draft.mailClass) {
+                        ForEach(MailClass.allCases) { Text($0.label).tag($0) }
+                    }
                     Picker("Mode", selection: $model.draft.mode) {
                         ForEach(MailMode.allCases) { Text($0.label).tag($0) }
                     }
@@ -291,7 +293,7 @@ struct SendView: View {
                 Section("Paper mail") {
                     LabeledContent("To", value: model.draft.mailTo.oneLine)
                     LabeledContent("From", value: model.draft.mailFrom.oneLine)
-                    LabeledContent("Options", value: [model.draft.color ? "Color" : "Black and white", model.draft.doubleSided ? "Double-sided" : "Single-sided", model.draft.firstClass ? "First class" : "Standard"].joined(separator: ", "))
+                    LabeledContent("Options", value: [model.draft.color ? "Color" : "Black and white", model.draft.doubleSided ? "Double-sided" : "Single-sided", model.draft.mailClass.label].joined(separator: ", "))
                     LabeledContent("Mode", value: model.draft.mode.label)
                     Text(model.draft.mode.detail).font(.footnote)
                         .foregroundStyle(model.draft.mode == .live ? Color.orange : Color.secondary)

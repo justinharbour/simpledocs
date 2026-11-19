@@ -104,6 +104,28 @@ public enum MailMode: String, CaseIterable, Sendable, Identifiable {
     }
 }
 
+/// PostGrid mailing classes. The tracked ones are US-only USPS extra services.
+public enum MailClass: String, CaseIterable, Sendable, Identifiable {
+    case firstClass = "first_class"
+    case standardClass = "standard_class"
+    case certified
+    case certifiedReturnReceipt = "certified_return_receipt"
+    case registered
+    case priority = "usps_express_3_day"
+    public var id: String { rawValue }
+    public var label: String {
+        switch self {
+        case .firstClass: "First class"
+        case .standardClass: "Standard class"
+        case .certified: "Certified"
+        case .certifiedReturnReceipt: "Certified, return receipt"
+        case .registered: "Registered"
+        case .priority: "Priority Mail"
+        }
+    }
+    public static func label(_ raw: String) -> String { MailClass(rawValue: raw)?.label ?? raw }
+}
+
 public struct CoverOptions: Sendable, Equatable {
     public var enabled = true
     public var includeNumbers = false
@@ -124,7 +146,7 @@ public struct SendDraft: Sendable, Equatable {
     public var mailFrom = MailContact()
     public var color = false
     public var doubleSided = false
-    public var firstClass = true
+    public var mailClass = MailClass.firstClass
     public var mode = MailMode.test
     public var emailAddress = ""
     public var emailVerification = "none"
@@ -171,7 +193,7 @@ public struct SendDraft: Sendable, Equatable {
             enabled: cover.enabled, includeNumbers: cover.enabled && cover.includeNumbers, to: cover.to.trimmed, from: cover.from.trimmed,
             subject: cover.subject.trimmed, message: cover.message.trimmed, date: day.string(from: date))) : nil
         let mail = channels.hasMail ? Mail(to: mailTo, from: mailFrom, color: color, doubleSided: doubleSided,
-                                          mailingClass: firstClass ? "first_class" : "standard_class") : nil
+                                          mailingClass: mailClass.rawValue) : nil
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let email = channels == .email ? Email(email: emailAddress.trimmed, pinChannel: emailVerification, phone: emailVerification == "none" ? nil : PhoneNumber.normalize(emailPhone)) : nil

@@ -1,5 +1,6 @@
 import { applyFaxDeliveryEvent } from './fax-intents.mjs';
 import { mailApiKey } from './mail-send.mjs';
+import { recordTracking, touchTracking } from './mail-tracking.mjs';
 import { pushLater } from './push.mjs';
 
 // 'completed' is PostGrid's own estimate for mail. It is never shown as delivered.
@@ -68,10 +69,25 @@ async function reflectMail(env, row, intent, fetcher) {
     const letter = await response.json();
     const status = safe(letter?.status);
     if (letter?.id !== intent.provider_id || !status) return;
+    await recordTracking(env, row, letter);
     if (status === 'completed') await mark(env, row.id, 'completed', { providerStatus: status });
     else if (status === 'cancelled') await mark(env, row.id, 'failed', { providerStatus: status, error: 'The letter was cancelled at PostGrid' });
     else await mark(env, row.id, 'accepted', { providerStatus: status });
   } catch { /* Keep the last known status; the next poll reconciles it. */ }
+}
+
+// PostGrid 'completed' ends the Simpledocs status, but tracking numbers and USPS
+// scans keep arriving afterwards. Only the stored tracking changes here.
+export async function refreshMailTracking(env, row, fetcher = fetch) {
+  const intent = await env.DB.prepare("SELECT provider_id, provider_mode FROM mail_intents WHERE draft_id = ? AND status = 'accepted'").bind(row.id).first();
+  const apiKey = intent && mailApiKey(env, intent.provider_mode);
+  if (!apiKey || !/^letter_[a-zA-Z0-9]+$/.test(intent.provider_id ?? '')) return;
+  try {
+    const response = await fetcher(`https://api.postgrid.com/print-mail/v1/letters/${intent.provider_id}`, { headers: { 'X-API-Key': apiKey }, redirect: 'manual' });
+    const letter = response.ok ? await response.json() : null;
+    if (letter?.id === intent.provider_id) await recordTracking(env, row, letter);
+    else await touchTracking(env, row.id);
+  } catch { /* The next poll tries again. */ }
 }
 
 // Pull the Simpledocs row up to date from the intent tables and, for accepted

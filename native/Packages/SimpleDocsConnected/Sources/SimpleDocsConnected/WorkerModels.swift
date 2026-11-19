@@ -70,6 +70,33 @@ public struct DeliveryDetail: Codable, Sendable, Hashable, Identifiable {
     public let needsApproval: Bool
     public let coverUrl: String?
     public let timeline: [TimelineStep]
+    public var tracking: MailTracking? = nil
+}
+
+public struct MailTracking: Codable, Sendable, Hashable {
+    public struct StatusEvent: Codable, Sendable, Hashable { public let status: String; public let date: String }
+    public struct ScanEvent: Codable, Sendable, Hashable { public let status: String; public let date: String; public let zipCode: String?; public let scanCode: String? }
+    public struct Receipt: Codable, Sendable, Hashable { public let url: String; public let sha256: String; public let uploadedAt: String }
+    public let mailingClass: String?
+    public let trackingNumber: String?
+    public let trackingUrl: String?
+    public let imbStatus: String?
+    public let imbDate: String?
+    public let imbZIPCode: String?
+    public let statusEvents: [StatusEvent]
+    public let imbEvents: [ScanEvent]
+    public let checkedAt: String?
+    public let returnReceiptRequested: Bool
+    public let returnReceipt: Receipt?
+
+    public static func scanLabel(_ status: String) -> String {
+        switch status {
+        case "entered_mail_stream": "Entered the mail stream"
+        case "out_for_delivery": "Out for delivery"
+        case "returned_to_sender": "Returned to sender"
+        default: status
+        }
+    }
 }
 
 public struct TransmissionDetail: Codable, Sendable, Hashable, Identifiable {
