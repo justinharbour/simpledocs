@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { PDFDocument, PDFName, degrees, decodePDFRawStream } from 'pdf-lib';
 import { createWorker } from './index.mjs';
 import { processDelivery } from './queue-consumer.mjs';
-import { approveFax, approveMail, createTransmission, getTransmission, getTransmissionFile, listRecords, listRecipients, listTransmissions, reviewFax, reviewMail } from './transmissions.mjs';
+import { approveFax, approveMail, createTransmission, getTransmission, getTransmissionFile, listRecords, listRecipients, listTransmissions, reviewFax, reviewMail, handleMailReceipt } from './transmissions.mjs';
 import { address, approveTestFax, jsonRequest, makeEnv, samplePdf, sendRequest } from './test-env.mjs';
 
 const actor = 'owner';
@@ -335,4 +335,27 @@ test('every new route requires a verified Access identity', async () => {
     assert.equal((await worker.fetch(new Request(`https://example.test${path}`, { method }), env)).status, 401, `${method} ${path}`);
     assert.equal((await worker.fetch(new Request(`https://example.test${path}`, { method, headers: { 'cf-access-jwt-assertion': 'forged' } }), env)).status, 401, `${method} ${path} forged`);
   }
+});
+
+test('mail: unknown mailing classes are refused; return receipts attach only as PDFs to a mailed letter and are owner-scoped', async () => {
+  const { env, db, objects } = makeEnv();
+  assert.equal((await createTransmission(await sendRequest({ mail: { to: address, from: address, mailingClass: 'carrier_pigeon' } }, await samplePdf(1)), env, actor)).status, 400);
+  const { id, deliveries } = await (await createTransmission(await sendRequest({ mail: { to: address, from: address, mailingClass: 'certified_return_receipt' } }, await samplePdf(1)), env, actor)).json();
+  const mailId = deliveries[0].id;
+  const put = (body, who = actor) => handleMailReceipt(new Request(`https://example.test/api/transmissions/${id}/mail/${mailId}/receipt`, { method: 'PUT', body, headers: { origin: 'https://example.test', 'content-type': 'application/pdf' } }), env, who, id, mailId);
+  const pdf = await samplePdf(1);
+  assert.equal((await put(pdf)).status, 409, 'not before it is mailed');
+  db.prepare("UPDATE dispatches SET status = 'completed' WHERE id = ?").run(mailId);
+  assert.equal((await put(new TextEncoder().encode('not a pdf'))).status, 400);
+  assert.equal((await put(pdf, 'other')).status, 404);
+  const saved = await put(pdf);
+  assert.equal(saved.status, 201);
+  const { sha256 } = await saved.json();
+  const key = db.prepare('SELECT receipt_key FROM mail_tracking WHERE delivery_id = ?').get(mailId).receipt_key;
+  assert.ok(key.startsWith(`outbound/${id}/mail/${mailId}/receipt/`) && objects.has(key));
+  const got = await handleMailReceipt(new Request('https://example.test/x'), env, actor, id, mailId);
+  assert.equal(got.headers.get('content-type'), 'application/pdf');
+  const detail = await (await getTransmission(env, actor, id, async () => new Response('{}', { status: 404 }))).json();
+  assert.equal(detail.deliveries[0].tracking.returnReceipt.sha256, sha256);
+  assert.ok(db.prepare("SELECT 1 FROM timeline WHERE delivery_id = ? AND detail = 'Return receipt attached'").get(mailId));
 });

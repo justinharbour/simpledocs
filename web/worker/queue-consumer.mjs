@@ -1,5 +1,5 @@
 import { prependCover } from './cover-page.mjs';
-import { enqueue, isTerminal, mailReviewHash, mark, reflectFax, refreshDelivery, sha256Hex, UUID } from './deliveries.mjs';
+import { enqueue, isTerminal, mailReviewHash, mark, reflectFax, refreshDelivery, refreshMailTracking, sha256Hex, UUID } from './deliveries.mjs';
 import { prepareFax, sendPreparedFax } from './fax-intents.mjs';
 import { mailApiKey } from './mail-send.mjs';
 import { submitFax } from './telnyx-fax.mjs';
@@ -8,6 +8,8 @@ const MAX_RETRIES = 5;
 const RETRY_SECONDS = 30;
 const STALE_QUEUED_MS = 3 * 60 * 1000;
 const GIVE_UP_MS = 24 * 60 * 60 * 1000;
+const TRACKING_EVERY_MS = 6 * 60 * 60 * 1000;
+const TRACKING_FOR_MS = 45 * 24 * 60 * 60 * 1000;
 const E164 = /^\+[1-9]\d{1,14}$/;
 
 // Transient: try again later. Permanent: mark failed with a reason that is safe
@@ -159,6 +161,9 @@ export async function reconcileDeliveries(env, fetcher = fetch, now = Date.now()
   const cutoff = new Date(now - STALE_QUEUED_MS).toISOString();
   const open = await env.DB.prepare("SELECT * FROM dispatches WHERE status IN ('submitting', 'accepted') AND updated_at < ? ORDER BY updated_at LIMIT 25").bind(cutoff).all();
   for (const row of open.results ?? []) await refreshDelivery(env, row, fetcher);
+  const mailed = await env.DB.prepare("SELECT d.* FROM dispatches d LEFT JOIN mail_tracking m ON m.delivery_id = d.id WHERE d.channel = 'mail' AND d.status = 'completed' AND d.finished_at > ? AND (m.checked_at IS NULL OR m.checked_at < ?) ORDER BY m.checked_at LIMIT 25")
+    .bind(new Date(now - TRACKING_FOR_MS).toISOString(), new Date(now - TRACKING_EVERY_MS).toISOString()).all();
+  for (const row of mailed.results ?? []) await refreshMailTracking(env, row, fetcher);
   if (!env.DELIVERIES) return;
   const queued = await env.DB.prepare("SELECT id, transmission_id, channel, updated_at FROM dispatches WHERE status = 'queued' AND updated_at < ? ORDER BY updated_at LIMIT 25").bind(cutoff).all();
   for (const row of queued.results ?? []) {

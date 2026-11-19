@@ -5,7 +5,7 @@ import { handleFaxSend } from './fax-send.mjs';
 import { handleInboundFax } from './inbound-fax.mjs';
 import { handleInboundFaxRead, inboundFaxAllowed } from './inbound-fax-read.mjs';
 import { handleQueue, reconcileDeliveries } from './queue-consumer.mjs';
-import { approveEmail, approveFax, approveMail, createTransmission, getTransmission, getTransmissionFile, handleCoverPreview, handleSettings, listRecipients, listRecords, listTransmissions, reviewEmail, reviewFax, reviewMail } from './transmissions.mjs';
+import { approveEmail, approveFax, approveMail, createTransmission, getTransmission, getTransmissionFile, handleCoverPreview, handleSettings, listRecipients, listRecords, listTransmissions, reviewEmail, reviewFax, reviewMail, handleMailReceipt } from './transmissions.mjs';
 import { listCalls, markHeard } from './voice-calls.mjs';
 import { handleFaxOperator } from './inbound-fax-operator.mjs';
 import { handleMail, listUnresolvedMail } from './mail-send.mjs';
@@ -129,6 +129,8 @@ export function createWorker(resolveKeys = issuer => {
     if (emailDelivery) return emailDelivery[2] ? revokeEmailDelivery(request, env, actor, emailDelivery[1], emailDelivery[2]) : createEmailDelivery(request, env, actor, emailDelivery[1]);
     const transmissionFile = /^\/api\/transmissions\/([^/]+)\/(document|cover|packet)(?:\/([^/]+))?$/.exec(url.pathname);
     if (transmissionFile) return request.method === 'GET' ? getTransmissionFile(env, actor, transmissionFile[1], transmissionFile[2], transmissionFile[3]) : new Response('Method not allowed', { status: 405 });
+    const mailReceipt = /^\/api\/transmissions\/([^/]+)\/mail\/([^/]+)\/receipt$/.exec(url.pathname);
+    if (mailReceipt) return handleMailReceipt(request, env, actor, mailReceipt[1], mailReceipt[2]);
     const transmissionMail = /^\/api\/transmissions\/([^/]+)\/mail\/([^/]+)\/(review|approve)$/.exec(url.pathname);
     if (transmissionMail) return (transmissionMail[3] === 'review' ? reviewMail : approveMail)(request, env, actor, transmissionMail[1], transmissionMail[2]);
     const transmissionFax = /^\/api\/transmissions\/([^/]+)\/fax\/([^/]+)\/(review|approve)$/.exec(url.pathname);
