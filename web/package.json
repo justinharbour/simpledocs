@@ -25,7 +25,7 @@
     "jose": "^6.2.17",
     "pdf-lib": "^1.17.1",
     "tailwind-merge": "^3",
-    "tailwind-variants": "^3.3.1",
+    "tailwind-variants": "^4.0.2",
     "tailwindcss": "^4",
     "tw-animate-css": "^1"
   },
